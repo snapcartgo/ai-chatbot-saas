@@ -89,7 +89,7 @@ export default function ChatbotsPage() {
               padding: 20,
               marginBottom: 15,
               borderRadius: 10,
-              background: "#111",
+              background: "#3e368d",
               color: "white",
               cursor: "pointer",
             }}

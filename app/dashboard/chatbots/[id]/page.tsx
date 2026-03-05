@@ -39,26 +39,32 @@ export default function ChatbotSettings() {
   }, [id, router]);
 
   const handleSave = async () => {
-    setSaving(true);
+  setSaving(true);
 
-    const { error } = await supabase
-      .from("chatbots")
-      .update({
-        name: bot.name,
-        model: bot.model,
-        temperature: bot.temperature,
-        welcome_message: bot.welcome_message,
-      })
-      .eq("id", id);
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
-    setSaving(false);
+  const { error } = await supabase
+    .from("chatbots")
+    .update({
+      name: bot.name,
+      model: bot.model,
+      temperature: bot.temperature,
+      welcome_message: bot.welcome_message,
+    })
+    .eq("id", id)
+    .eq("user_id", user?.id);   // VERY IMPORTANT
 
-    if (error) {
-      alert("Error saving changes");
-    } else {
-      alert("Chatbot updated successfully!");
-    }
-  };
+  setSaving(false);
+
+  if (error) {
+    console.error(error);
+    alert("Error saving changes");
+  } else {
+    alert("Chatbot updated successfully!");
+  }
+};
 
   if (loading) return <p>Loading...</p>;
   if (!bot) return <p>Chatbot not found.</p>;
@@ -172,7 +178,7 @@ export default function ChatbotSettings() {
 
   <textarea
     readOnly
-    value={`<script src="http://localhost:3000/widget.js" data-bot-id="${id}"></script>`}
+    value={`<script src="https://ai-chatbot-saas-five.vercel.app/widget.js" data-bot-id="${id}"></script>`}
     style={{
       width: "100%",
       padding: 10,

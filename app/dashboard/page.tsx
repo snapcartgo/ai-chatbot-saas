@@ -45,68 +45,64 @@ export default function DashboardPage() {
 
   return (
 
-    <div style={{ padding: "30px" }}>
+    <main className="min-h-screen bg-gray-100 p-8">
 
-      <h1 style={{ fontSize: "28px", marginBottom: "25px" }}>
+      <h1 className="text-3xl font-bold text-gray-800 mb-8">
         Dashboard
       </h1>
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(4, 1fr)",
-          gap: "20px"
-        }}
-      >
+      <div className="grid md:grid-cols-4 gap-6">
 
-        <StatCard title="Total Leads" value={stats.leads} />
+        <StatCard
+          title="Total Leads"
+          value={stats.leads}
+          color="bg-blue-500"
+        />
 
-        <StatCard title="Conversations" value={stats.conversations} />
+        <StatCard
+          title="Conversations"
+          value={stats.conversations}
+          color="bg-purple-500"
+        />
 
-        <StatCard title="Bookings" value={stats.bookings} />
+        <StatCard
+          title="Bookings"
+          value={stats.bookings}
+          color="bg-green-500"
+        />
 
         <StatCard
           title="Conversion Rate"
           value={conversionRate + "%"}
+          color="bg-orange-500"
         />
 
       </div>
 
-    </div>
+    </main>
 
   );
 }
 
 function StatCard({
   title,
-  value
+  value,
+  color
 }: {
   title: string;
   value: any;
+  color: string;
 }) {
 
   return (
 
-    <div
-      style={{
-        background: "#111",
-        color: "#fff",
-        padding: "25px",
-        borderRadius: "10px"
-      }}
-    >
+    <div className={`p-6 rounded-xl text-white shadow-lg ${color}`}>
 
-      <div style={{ fontSize: "14px", opacity: 0.8 }}>
+      <div className="text-sm opacity-80">
         {title}
       </div>
 
-      <div
-        style={{
-          fontSize: "28px",
-          fontWeight: "bold",
-          marginTop: "8px"
-        }}
-      >
+      <div className="text-3xl font-bold mt-2">
         {value}
       </div>
 
