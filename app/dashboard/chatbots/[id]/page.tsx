@@ -1,0 +1,207 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { supabase } from "@/lib/supabase";
+import { useRouter, useParams } from "next/navigation";
+
+export default function ChatbotSettings() {
+  const router = useRouter();
+  const params = useParams();
+  const id = params.id as string;
+
+  const [loading, setLoading] = useState(true);
+  const [bot, setBot] = useState<any>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    const loadBot = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        router.push("/login");
+        return;
+      }
+
+      const { data } = await supabase
+        .from("chatbots")
+        .select("*")
+        .eq("id", id)
+        .eq("user_id", user.id)
+        .single();
+
+      setBot(data);
+      setLoading(false);
+    };
+
+    loadBot();
+  }, [id, router]);
+
+  const handleSave = async () => {
+    setSaving(true);
+
+    const { error } = await supabase
+      .from("chatbots")
+      .update({
+        name: bot.name,
+        model: bot.model,
+        temperature: bot.temperature,
+        welcome_message: bot.welcome_message,
+      })
+      .eq("id", id);
+
+    setSaving(false);
+
+    if (error) {
+      alert("Error saving changes");
+    } else {
+      alert("Chatbot updated successfully!");
+    }
+  };
+
+  if (loading) return <p>Loading...</p>;
+  if (!bot) return <p>Chatbot not found.</p>;
+
+  return (
+    <div style={{ padding: 40, maxWidth: 600 }}>
+      <h1>Edit Chatbot</h1>
+
+      <div style={{ marginTop: 20 }}>
+        <label>Name</label>
+        <input
+          type="text"
+          value={bot.name}
+          onChange={(e) =>
+            setBot({ ...bot, name: e.target.value })
+          }
+          style={{ width: "100%", padding: 8, marginTop: 5 }}
+        />
+      </div>
+
+      <div style={{ marginTop: 20 }}>
+        <label>Model</label>
+        <select
+          value={bot.model}
+          onChange={(e) =>
+            setBot({ ...bot, model: e.target.value })
+          }
+          style={{ width: "100%", padding: 8, marginTop: 5 }}
+        >
+          <option value="gpt-4o-mini">gpt-4o-mini</option>
+          <option value="gpt-4o">gpt-4o</option>
+        </select>
+      </div>
+
+      <div style={{ marginTop: 20 }}>
+        <label>Temperature</label>
+        <input
+          type="number"
+          step="0.1"
+          min="0"
+          max="1"
+          value={bot.temperature}
+          onChange={(e) =>
+            setBot({
+              ...bot,
+              temperature: parseFloat(e.target.value),
+            })
+          }
+          style={{ width: "100%", padding: 8, marginTop: 5 }}
+        />
+      </div>
+
+      <div style={{ marginTop: 20 }}>
+        <label>Welcome Message</label>
+        <textarea
+          value={bot.welcome_message}
+          onChange={(e) =>
+            setBot({
+              ...bot,
+              welcome_message: e.target.value,
+            })
+          }
+          style={{
+            width: "100%",
+            padding: 8,
+            marginTop: 5,
+            minHeight: 100,
+          }}
+        />
+      </div>
+
+      <button
+        onClick={handleSave}
+        disabled={saving}
+        style={{
+          marginTop: 30,
+          padding: "10px 20px",
+          background: "#2563eb",
+          color: "white",
+          borderRadius: 6,
+        }}
+      >
+        {saving ? "Saving..." : "Save Changes"}
+      </button>
+      <button
+  onClick={async () => {
+    const confirmDelete = confirm("Are you sure?");
+    if (!confirmDelete) return;
+
+    await supabase
+      .from("chatbots")
+      .delete()
+      .eq("id", id);
+
+    router.push("/dashboard/chatbots");
+  }}
+  style={{
+    marginTop: 15,
+    padding: "10px 20px",
+    background: "red",
+    color: "white",
+    borderRadius: 6,
+  }}
+>
+  Delete Chatbot
+</button>
+<div style={{ marginTop: 40 }}>
+  <h3>Embed Script</h3>
+
+  <p>Copy and paste this into your website:</p>
+
+  <textarea
+    readOnly
+    value={`<script src="http://localhost:3000/widget.js" data-bot-id="${id}"></script>`}
+    style={{
+      width: "100%",
+      padding: 10,
+      minHeight: 80,
+      marginTop: 10,
+      background: "#111",
+      color: "white",
+      borderRadius: 8,
+    }}
+  />
+
+  <button
+    onClick={() => {
+      navigator.clipboard.writeText(
+        `<script src="http://localhost:3000/widget.js" data-bot-id="${id}"></script>`
+      );
+      alert("Copied!");
+    }}
+    style={{
+      marginTop: 10,
+      padding: "8px 15px",
+      background: "#2563eb",
+      color: "white",
+      borderRadius: 6,
+    }}
+  >
+    Copy Script
+  </button>
+</div>
+    </div>
+  );
+}
