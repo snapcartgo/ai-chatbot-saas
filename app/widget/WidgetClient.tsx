@@ -28,7 +28,11 @@ export default function WidgetPage() {
 
   useEffect(() => {
     const loadBot = async () => {
-      if (!botId) return;
+      if (!botId) {
+        console.error("Missing botId in widget URL");
+        setLoading(false);
+        return;
+      }
 
       // 1. Fetch bot details
       const { data: botData } = await supabase
@@ -126,7 +130,7 @@ export default function WidgetPage() {
   if (!bot) return <div style={{ padding: 20 }}>Bot not found</div>;
 
   return (
-    <div style={{ width: "100%", height: "100vh", display: "flex", flexDirection: "column", background: "#ffffff", fontFamily: "Arial" }}>
+    <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", background: "#ffffff", fontFamily: "Arial" }}>
       <div style={{ background: "#2563eb", color: "#fff", padding: "12px", fontWeight: 600 }}>
         {bot.name}
       </div>
@@ -134,7 +138,7 @@ export default function WidgetPage() {
       <div style={{ flex: 1, padding: 12, overflowY: "auto", background: "#f3f4f6" }}>
         {messages.map((msg, index) => (
           <div key={index} style={{ marginBottom: 10, textAlign: msg.role === "user" ? "right" : "left" }}>
-            <div style={{ display: "inline-block", padding: "8px 12px", borderRadius: 8, background: msg.role === "user" ? "#2563eb" : "#111827", color: "#fff", maxWidth: "80%" }}>
+            <div style={{ display: "inline-block", padding: "8px 12px", borderRadius: 8, background: msg.role === "user" ? "#2563eb" : "#111827", color: "#fff", maxWidth: "75%" }}>
               {msg.content}
             </div>
           </div>
@@ -165,7 +169,7 @@ export default function WidgetPage() {
   }}
 />
         <button onClick={sendMessage} style={{ marginLeft: 8, padding: "8px 14px", background: "#2563eb", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>
-          {sending ? "..." : "Send"}
+          {sending ? "Sending..." : "Send"}
         </button>
       </div>
     </div>

@@ -12,6 +12,13 @@
   iframe.style.right = "20px";
   iframe.style.width = "360px";
   iframe.style.height = "520px";
+
+  if (window.innerWidth < 500) {
+    iframe.style.width = "95%";
+    iframe.style.height = "90%";
+    iframe.style.right = "10px";
+    iframe.style.bottom = "10px";
+  }
   iframe.style.border = "none";
   iframe.style.zIndex = "999999";
   iframe.style.borderRadius = "12px";
