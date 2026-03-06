@@ -9,8 +9,8 @@ export default function KnowledgeBasePage() {
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
   const [loading, setLoading] = useState(true);
-  const chatbotId = "68d88301-949c-4b5d-a6a9-6d0b5ac8ce6b";
 
+  // Load knowledge when page opens
   useEffect(() => {
     loadKnowledge();
   }, []);
@@ -19,15 +19,38 @@ export default function KnowledgeBasePage() {
 
     setLoading(true);
 
+    // Get current user
+    const { data: userData } = await supabase.auth.getUser();
+    const user = userData?.user;
+
+    if (!user) {
+      console.error("User not found");
+      setLoading(false);
+      return;
+    }
+
+    // Get chatbot for this user
+    const { data: bot } = await supabase
+      .from("chatbots")
+      .select("id")
+      .eq("user_id", user.id)
+      .single();
+
+    if (!bot) {
+      console.error("Chatbot not found");
+      setLoading(false);
+      return;
+    }
+
+    // Load knowledge for this chatbot
     const { data, error } = await supabase
       .from("knowledge_base")
       .select("*")
-      .eq("chatbot_id", chatbotId)
+      .eq("chatbot_id", bot.id)
       .order("created_at", { ascending: false });
 
     if (error) {
-      console.error("Load Knowledge Error:", error);
-      alert(error.message);
+      console.error(error);
     }
 
     setItems(data || []);
@@ -41,22 +64,43 @@ export default function KnowledgeBasePage() {
       return;
     }
 
-    const { data, error } = await supabase
+    // Get current user
+    const { data: userData } = await supabase.auth.getUser();
+    const user = userData?.user;
+
+    if (!user) {
+      alert("User not found");
+      return;
+    }
+
+    // Get chatbot
+    const { data: bot, error: botError } = await supabase
+      .from("chatbots")
+      .select("id")
+      .eq("user_id", user.id)
+      .single();
+
+    if (botError || !bot) {
+      alert("Chatbot not found");
+      return;
+    }
+
+    // Insert knowledge
+    const { error } = await supabase
       .from("knowledge_base")
       .insert([
         {
-          chatbot_id: chatbotId,
+          chatbot_id: bot.id,
           question: question,
           answer: answer,
           content: question + " " + answer,
           source: "manual"
         }
-      ])
-      .select();
+      ]);
 
     if (error) {
-      console.error("Insert Error:", error);
-      alert(error.message);
+      console.error(error);
+      alert("Error saving knowledge");
       return;
     }
 
@@ -74,8 +118,8 @@ export default function KnowledgeBasePage() {
       .eq("id", id);
 
     if (error) {
-      console.error("Delete Error:", error);
-      alert(error.message);
+      console.error(error);
+      alert("Error deleting knowledge");
     }
 
     loadKnowledge();
