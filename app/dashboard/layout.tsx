@@ -49,6 +49,7 @@ export default function DashboardLayout({
 
         <p><a href="/dashboard/leads" style={{ color: "#fff" }}>Leads</a></p>
         <a href="/dashboard/pipeline">Pipeline</a>
+        <a href="/dashboard/knowledge-base">Knowledge Base</a>
       </div>
       {/* Main Content */}
       <div style={{ flex: 1, padding: "30px" }}>
