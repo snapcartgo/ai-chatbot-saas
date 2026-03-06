@@ -226,27 +226,46 @@ export default function ChatWidget() {
           </div>
 
 
-          {/* INPUT */}
+          {/* INPUT + BRANDING */}
 
-          <div className="p-3 border-t bg-white flex gap-2">
+          <div className="border-t bg-white">
 
-            <input
-              className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-black text-sm
-              focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Ask something..."
-              value={userInput}
-              onChange={(e) => setUserInput(e.target.value)}
-              onKeyDown={(e) =>
-                e.key === "Enter" && handleSendMessage()
-              }
-            />
+            <div className="p-3 flex gap-2">
 
-            <button
-              onClick={handleSendMessage}
-              className="bg-blue-600 text-white px-4 rounded-lg hover:bg-blue-700 transition"
-            >
-              Send
-            </button>
+              <input
+                className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-black text-sm
+                focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Ask something..."
+                value={userInput}
+                onChange={(e) => setUserInput(e.target.value)}
+                onKeyDown={(e) =>
+                  e.key === "Enter" && handleSendMessage()
+                }
+              />
+
+              <button
+                onClick={handleSendMessage}
+                className="bg-blue-600 text-white px-4 rounded-lg hover:bg-blue-700 transition"
+              >
+                Send
+              </button>
+
+            </div>
+
+            {/* POWERED BY */}
+
+            <div className="text-center text-xs text-gray-400 pb-2">
+
+              Powered by{" "}
+              <a
+                href="https://woodpetra.com"
+                target="_blank"
+                className="text-blue-600 font-semibold"
+              >
+                Woodpetra
+              </a>
+
+            </div>
 
           </div>
 

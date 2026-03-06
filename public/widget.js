@@ -20,7 +20,7 @@
   button.style.zIndex = "9999";
 
   const iframe = document.createElement("iframe");
-  iframe.src = `http://localhost:3000/widget?botId=${botId}`;
+  iframe.src = `https://ai-chatbot-saas-five.vercel.app/widget?botId=${botId}`;
   iframe.style.position = "fixed";
   iframe.style.bottom = "20px";
   iframe.style.right = "20px";
