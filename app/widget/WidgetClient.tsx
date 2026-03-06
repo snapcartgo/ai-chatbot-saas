@@ -7,7 +7,6 @@ import { supabase } from "@/lib/supabase";
 type Message = {
   role: "user" | "assistant";
   content: string;
-  created_at?: string;
 };
 
 export default function WidgetPage() {
@@ -57,7 +56,6 @@ export default function WidgetPage() {
         {
           role: "assistant",
           content: botData.welcome_message,
-          created_at: new Date().toISOString(),
         },
       ]);
 
@@ -75,6 +73,7 @@ export default function WidgetPage() {
     if (!conversationId || sending || !input.trim()) return;
 
     setSending(true);
+
     const userMessage = input;
 
     setMessages((prev) => [
@@ -87,7 +86,9 @@ export default function WidgetPage() {
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
           message: userMessage,
           botId,
@@ -123,7 +124,7 @@ export default function WidgetPage() {
         borderRadius: "12px",
       }}
     >
-      {/* Header */}
+      {/* HEADER */}
       <div
         style={{
           background: "#2563eb",
@@ -134,10 +135,10 @@ export default function WidgetPage() {
           borderTopRightRadius: "12px",
         }}
       >
-        {bot.name}
+        {bot.name || "AI Assistant"}
       </div>
 
-      {/* Messages */}
+      {/* CHAT AREA */}
       <div
         style={{
           flex: 1,
@@ -172,51 +173,71 @@ export default function WidgetPage() {
         <div ref={bottomRef} />
       </div>
 
-      {/* Input */}
+      {/* INPUT + POWERED BY */}
       <div
         style={{
-          display: "flex",
-          padding: 10,
           borderTop: "1px solid #e5e7eb",
           background: "#ffffff",
+          padding: "10px",
         }}
       >
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="Type your message..."
-          style={{
-            flex: 1,
-            padding: "10px",
-            borderRadius: "6px",
-            border: "1px solid #d1d5db",
-            backgroundColor: "#ffffff",
-            color: "#000",
-            fontSize: "14px",
-            outline: "none",
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              sendMessage();
-            }
-          }}
-        />
+        <div style={{ display: "flex" }}>
+          <input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Type your message..."
+            style={{
+              flex: 1,
+              padding: "10px",
+              borderRadius: "6px",
+              border: "1px solid #d1d5db",
+              backgroundColor: "#ffffff",
+              color: "#000",
+              fontSize: "14px",
+              outline: "none",
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                sendMessage();
+              }
+            }}
+          />
 
-        <button
-          onClick={sendMessage}
+          <button
+            onClick={sendMessage}
+            style={{
+              marginLeft: 8,
+              padding: "8px 14px",
+              background: "#2563eb",
+              color: "#fff",
+              border: "none",
+              borderRadius: 6,
+              cursor: "pointer",
+            }}
+          >
+            {sending ? "..." : "Send"}
+          </button>
+        </div>
+
+        {/* POWERED BY */}
+        <div
           style={{
-            marginLeft: 8,
-            padding: "8px 14px",
-            background: "#2563eb",
-            color: "#fff",
-            border: "none",
-            borderRadius: 6,
-            cursor: "pointer",
+            textAlign: "center",
+            fontSize: "12px",
+            marginTop: "6px",
+            color: "#6b7280",
           }}
         >
-          {sending ? "..." : "Send"}
-        </button>
+          Powered by{" "}
+          <a
+            href="https://woodpetra.com"
+            target="_blank"
+            style={{ color: "#2563eb", textDecoration: "none" }}
+          >
+            Wood Petra
+          </a>
+        </div>
       </div>
     </div>
   );
