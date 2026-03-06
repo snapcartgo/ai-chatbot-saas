@@ -48,7 +48,7 @@ export default function DashboardLayout({
         <p><a href="/dashboard/conversations" style={{ color: "#fff" }}>Conversations</a></p>
 
         <p><a href="/dashboard/leads" style={{ color: "#fff" }}>Leads</a></p>
-        <a href="/dashboard/pipeline">Pipeline</a>
+        <p><a href="/dashboard/pipeline">Pipeline</a></p>
         <a href="/dashboard/knowledge-base">Knowledge Base</a>
       </div>
       {/* Main Content */}

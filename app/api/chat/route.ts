@@ -1,47 +1,33 @@
 import { NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { createClient } from "@supabase/supabase-js";
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
 export async function POST(req: Request) {
 
   const { message, botId, conversationId } = await req.json();
 
-  // 1️⃣ Get knowledge base content
+  // 1️⃣ Search Knowledge Base
   const { data: kb } = await supabase
     .from("knowledge_base")
-    .select("question,answer,content")
+    .select("*")
     .eq("chatbot_id", botId)
-    .limit(5);
+    .ilike("content", `%${message}%`)
+    .limit(3);
 
-  let knowledgeText = "";
+  let knowledgeContext = "";
 
   if (kb && kb.length > 0) {
-
-    knowledgeText = kb
-      .map((k: any) => {
-        if (k.question && k.answer) {
-          return `Q: ${k.question}\nA: ${k.answer}`;
-        }
-        return k.content;
-      })
+    knowledgeContext = kb
+      .map((item) => `Q: ${item.question}\nA: ${item.answer}`)
       .join("\n\n");
-
   }
 
-  // 2️⃣ Build AI prompt
-  const prompt = `
-You are an AI assistant for a business.
-
-Use the company knowledge below to answer the user.
-
-Company Knowledge:
-${knowledgeText}
-
-User Question:
-${message}
-`;
-
-  // 3️⃣ Call AI (OpenAI example)
-  const ai = await fetch("https://api.openai.com/v1/chat/completions", {
+  // 2️⃣ Call AI
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -50,29 +36,29 @@ ${message}
     body: JSON.stringify({
       model: "gpt-4o-mini",
       messages: [
-        { role: "system", content: "You are a helpful AI assistant." },
-        { role: "user", content: prompt },
+        {
+          role: "system",
+          content: `
+You are an AI assistant.
+
+Use this company knowledge to answer the user:
+
+${knowledgeContext}
+
+If the answer is not in the knowledge base, answer normally.
+          `,
+        },
+        {
+          role: "user",
+          content: message,
+        },
       ],
     }),
   });
 
-  const result = await ai.json();
+  const data = await response.json();
 
-  const reply = result.choices?.[0]?.message?.content || "Sorry, I couldn't answer that.";
-
-  // 4️⃣ Save conversation
-  await supabase.from("messages").insert([
-    {
-      conversation_id: conversationId,
-      role: "user",
-      content: message,
-    },
-    {
-      conversation_id: conversationId,
-      role: "assistant",
-      content: reply,
-    },
-  ]);
+  const reply = data.choices[0].message.content;
 
   return NextResponse.json({ reply });
 
