@@ -22,64 +22,98 @@ export default function WidgetPage() {
 
   const bottomRef = useRef<HTMLDivElement>(null);
 
+  /* --------------------------------------------------- */
+  /* LOAD BOT + CREATE CONVERSATION */
+  /* --------------------------------------------------- */
+
   useEffect(() => {
     const loadBot = async () => {
-      if (!botId) return;
+      try {
+        if (!botId) {
+          setLoading(false);
+          return;
+        }
 
-      const { data: botData } = await supabase
-        .from("chatbots")
-        .select("*")
-        .eq("id", botId)
-        .maybeSingle();
+        /* GET BOT */
+        const { data: botData, error } = await supabase
+          .from("chatbots")
+          .select("*")
+          .eq("id", botId as string)
+          .single();
 
-      if (!botData) {
+        if (error || !botData) {
+          console.error("Bot not found");
+          setLoading(false);
+          return;
+        }
+
+        setBot(botData);
+
+        /* PERSIST SESSION */
+        let storedConversation: string | null =
+  localStorage.getItem(`chat_conversation_${botId}`);
+
+if (!storedConversation) {
+  const { data: newConversation } = await supabase
+    .from("conversations")
+    .insert({
+      chatbot_id: botId,
+      visitor_id: crypto.randomUUID(),
+    })
+    .select()
+    .single();
+
+  storedConversation = newConversation?.id || null;
+
+  if (storedConversation) {
+    localStorage.setItem(
+      `chat_conversation_${botId}`,
+      storedConversation
+    );
+  }
+}
+
+if (storedConversation) {
+  setConversationId(storedConversation);
+}
+        /* WELCOME MESSAGE */
+        setMessages([
+          {
+            role: "assistant",
+            content: botData.welcome_message || "Hello! How can I help you?",
+          },
+        ]);
+
         setLoading(false);
-        return;
+      } catch (err) {
+        console.error(err);
+        setLoading(false);
       }
-
-      setBot(botData);
-
-      const { data: newConversation } = await supabase
-        .from("conversations")
-        .insert({
-          chatbot_id: botId,
-          visitor_id: crypto.randomUUID(),
-        })
-        .select()
-        .single();
-
-      if (newConversation?.id) {
-        setConversationId(newConversation.id);
-      }
-
-      setMessages([
-        {
-          role: "assistant",
-          content: botData.welcome_message,
-        },
-      ]);
-
-      setLoading(false);
     };
 
     loadBot();
   }, [botId]);
 
+  /* --------------------------------------------------- */
+  /* AUTO SCROLL */
+  /* --------------------------------------------------- */
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  /* --------------------------------------------------- */
+  /* SEND MESSAGE */
+  /* --------------------------------------------------- */
+
   const sendMessage = async () => {
     if (!conversationId || sending || !input.trim()) return;
 
+    const userMessage = input.trim();
+
     setSending(true);
 
-    const userMessage = input;
-
-    setMessages((prev) => [
-      ...prev,
-      { role: "user", content: userMessage },
-    ]);
+    setMessages((prev) => [...prev, { role: "user", content: userMessage }]);
 
     setInput("");
 
@@ -100,17 +134,49 @@ export default function WidgetPage() {
 
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: data.reply },
+        {
+          role: "assistant",
+          content: data.reply || "Sorry, I couldn't respond.",
+        },
       ]);
     } catch (err) {
-      console.error(err);
+      console.error("Chat error:", err);
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: "Something went wrong. Please try again.",
+        },
+      ]);
     }
 
     setSending(false);
   };
 
-  if (loading) return <div style={{ padding: 20 }}>Loading...</div>;
-  if (!bot) return <div style={{ padding: 20 }}>Bot not found</div>;
+  /* --------------------------------------------------- */
+  /* UI STATES */
+  /* --------------------------------------------------- */
+
+  if (loading) {
+    return (
+      <div style={{ padding: 20, fontFamily: "Arial" }}>
+        Loading chatbot...
+      </div>
+    );
+  }
+
+  if (!bot) {
+    return (
+      <div style={{ padding: 20, fontFamily: "Arial" }}>
+        Chatbot not found
+      </div>
+    );
+  }
+
+  /* --------------------------------------------------- */
+  /* UI */
+  /* --------------------------------------------------- */
 
   return (
     <div
@@ -163,6 +229,7 @@ export default function WidgetPage() {
                 background: msg.role === "user" ? "#2563eb" : "#111827",
                 color: "#fff",
                 maxWidth: "75%",
+                fontSize: "14px",
               }}
             >
               {msg.content}
@@ -173,7 +240,7 @@ export default function WidgetPage() {
         <div ref={bottomRef} />
       </div>
 
-      {/* INPUT + POWERED BY */}
+      {/* INPUT */}
       <div
         style={{
           borderTop: "1px solid #e5e7eb",
@@ -206,6 +273,7 @@ export default function WidgetPage() {
 
           <button
             onClick={sendMessage}
+            disabled={sending}
             style={{
               marginLeft: 8,
               padding: "8px 14px",
