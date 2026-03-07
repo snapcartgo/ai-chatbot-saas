@@ -1,7 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // This prevents Next.js from breaking the legacy pdf-parse library
+  serverExternalPackages: ["pdf-parse"],
 };
 
 export default nextConfig;

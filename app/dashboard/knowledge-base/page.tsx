@@ -4,45 +4,33 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 
 export default function KnowledgeBasePage() {
-
   const [items, setItems] = useState<any[]>([]);
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
   const [loading, setLoading] = useState(true);
+  const [chatbotId, setChatbotId] = useState<string | null>(null);
 
-  // Load knowledge when page opens
   useEffect(() => {
     loadKnowledge();
   }, []);
 
   const loadKnowledge = async () => {
-
     setLoading(true);
 
-    // Get current user
-    const { data: userData } = await supabase.auth.getUser();
-    const user = userData?.user;
-
-    if (!user) {
-      console.error("User not found");
-      setLoading(false);
-      return;
-    }
-
-    // Get chatbot for this user
     const { data: bot } = await supabase
       .from("chatbots")
       .select("id")
-      .eq("user_id", user.id)
-      .single();
+      .limit(1)
+      .maybeSingle();
 
     if (!bot) {
-      console.error("Chatbot not found");
+      console.error("No chatbot found in database");
       setLoading(false);
       return;
     }
 
-    // Load knowledge for this chatbot
+    setChatbotId(bot.id);
+
     const { data, error } = await supabase
       .from("knowledge_base")
       .select("*")
@@ -58,39 +46,21 @@ export default function KnowledgeBasePage() {
   };
 
   const addKnowledge = async () => {
-
     if (!question || !answer) {
       alert("Please fill question and answer");
       return;
     }
 
-    // Get current user
-    const { data: userData } = await supabase.auth.getUser();
-    const user = userData?.user;
-
-    if (!user) {
-      alert("User not found");
-      return;
-    }
-
-    // Get chatbot
-    const { data: bot, error: botError } = await supabase
-      .from("chatbots")
-      .select("id")
-      .eq("user_id", user.id)
-      .single();
-
-    if (botError || !bot) {
+    if (!chatbotId) {
       alert("Chatbot not found");
       return;
     }
 
-    // Insert knowledge
     const { error } = await supabase
       .from("knowledge_base")
       .insert([
         {
-          chatbot_id: bot.id,
+          chatbot_id: chatbotId,
           question: question,
           answer: answer,
           content: question + " " + answer,
@@ -99,19 +69,17 @@ export default function KnowledgeBasePage() {
       ]);
 
     if (error) {
-      console.error(error);
+      console.error("Supabase insert error:", error);
       alert("Error saving knowledge");
       return;
     }
 
     setQuestion("");
     setAnswer("");
-
     loadKnowledge();
   };
 
   const deleteKnowledge = async (id: string) => {
-
     const { error } = await supabase
       .from("knowledge_base")
       .delete()
@@ -125,18 +93,63 @@ export default function KnowledgeBasePage() {
     loadKnowledge();
   };
 
+  // CORRECTED: Single function, no duplicates, sends chatbotId to API
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!chatbotId) {
+      alert("Chatbot ID not loaded yet. Please wait.");
+      return;
+    }
+
+    setLoading(true);
+
+    const formData = new FormData();
+    formData.append("file", file);
+    // CRITICAL: We pass the ID so the API knows which bot this PDF belongs to
+    formData.append("chatbotId", chatbotId);
+
+    try {
+      const res = await fetch("/api/upload-pdf", {
+        method: "POST",
+        body: formData
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || data.error) {
+        alert(data.error || "Upload failed");
+      } else {
+        alert("Document uploaded and processed successfully!");
+        e.target.value = ""; // Clear the file input
+        loadKnowledge(); // Refresh the list
+      }
+    } catch (err) {
+      console.error("Upload error:", err);
+      alert("An error occurred during upload.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
-
     <div style={{ padding: "30px", maxWidth: "900px" }}>
-
       <h1 style={{ fontSize: "26px", marginBottom: "20px" }}>
         Knowledge Base
       </h1>
 
-      {/* Add Knowledge */}
+      <div style={{ marginBottom: "20px", padding: "15px", border: "1px dashed #ccc", borderRadius: "8px" }}>
+        <p style={{ marginBottom: "10px", fontWeight: "bold" }}>Upload PDF or Docx</p>
+        <input
+          type="file"
+          accept=".pdf,.docx"
+          onChange={handleFileUpload}
+          disabled={loading}
+        />
+      </div>
 
       <div style={{ marginBottom: "30px" }}>
-
         <input
           placeholder="Question"
           value={question}
@@ -166,30 +179,27 @@ export default function KnowledgeBasePage() {
 
         <button
           onClick={addKnowledge}
+          disabled={loading}
           style={{
             padding: "10px 20px",
-            background: "#2563eb",
+            background: loading ? "#94a3b8" : "#2563eb",
             color: "#fff",
             border: "none",
             borderRadius: "6px",
-            cursor: "pointer"
+            cursor: loading ? "not-allowed" : "pointer"
           }}
         >
-          Add Knowledge
+          {loading ? "Processing..." : "Add Knowledge"}
         </button>
-
       </div>
 
-      {/* Knowledge List */}
-
-      {loading && <p>Loading...</p>}
+      {loading && <p>Working on it...</p>}
 
       {!loading && items.length === 0 && (
         <p>No knowledge added yet.</p>
       )}
 
       {items.map((item) => (
-
         <div
           key={item.id}
           style={{
@@ -200,14 +210,16 @@ export default function KnowledgeBasePage() {
             background: "#fafafa"
           }}
         >
-
-          <p><strong>Q:</strong> {item.question}</p>
-          <p><strong>A:</strong> {item.answer}</p>
+          {item.question && <p><strong>Q:</strong> {item.question}</p>}
+          {item.answer && <p><strong>A:</strong> {item.answer}</p>}
+          {item.content && !item.question && (
+            <p><strong>Document:</strong> {item.content.substring(0, 150)}...</p>
+          )}
 
           <button
             onClick={() => deleteKnowledge(item.id)}
             style={{
-              background: "red",
+              background: "#ef4444",
               color: "#fff",
               border: "none",
               padding: "6px 12px",
@@ -218,11 +230,8 @@ export default function KnowledgeBasePage() {
           >
             Delete
           </button>
-
         </div>
-
       ))}
-
     </div>
   );
 }
