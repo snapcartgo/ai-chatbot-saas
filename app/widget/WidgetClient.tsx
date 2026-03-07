@@ -124,10 +124,11 @@ if (storedConversation) {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          message: userMessage,
-          botId,
-          conversationId,
-        }),
+        message: userMessage,
+        conversation_id: conversationId,
+        bot_id: botId,
+        user_id: bot.user_id
+      }),
       });
 
       const data = await res.json();
