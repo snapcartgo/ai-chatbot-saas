@@ -7,23 +7,25 @@ const supabase = createClient(
 );
 
 export async function POST(req: Request) {
-
   try {
-
     const { message, botId, conversationId } = await req.json();
 
-    // 1️⃣ Get knowledge base for this chatbot
-    const { data: kb, error: kbError } = await supabase
+    if (!message || !botId) {
+      return NextResponse.json({
+        reply: "Invalid request."
+      });
+    }
+
+    /* ------------------------------------------------ */
+    /* 1️⃣ GET KNOWLEDGE BASE */
+    /* ------------------------------------------------ */
+
+    const { data: kb } = await supabase
       .from("knowledge_base")
       .select("*")
       .eq("chatbot_id", botId)
       .limit(5);
 
-    if (kbError) {
-      console.error("Knowledge Base Error:", kbError);
-    }
-
-    // 2️⃣ Convert knowledge to text
     let knowledgeContext = "";
 
     if (kb && kb.length > 0) {
@@ -37,23 +39,59 @@ export async function POST(req: Request) {
         .join("\n\n");
     }
 
-    // 3️⃣ Send to OpenAI
-    const aiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+    /* ------------------------------------------------ */
+    /* 2️⃣ CALL N8N WORKFLOW */
+    /* ------------------------------------------------ */
 
-      method: "POST",
+    let workflowReply: string | null = null;
 
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-      },
+    try {
+      const webhookResponse = await fetch(
+        process.env.NEXT_PUBLIC_N8N_WEBHOOK!,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            message,
+            botId,
+            conversationId,
+            knowledge: knowledgeContext
+          }),
+        }
+      );
 
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        messages: [
+      const workflowData = await webhookResponse.json();
 
-          {
-            role: "system",
-            content: `
+      if (workflowData?.reply) {
+        workflowReply = workflowData.reply;
+      }
+    } catch (err) {
+      console.error("Webhook error:", err);
+    }
+
+    /* ------------------------------------------------ */
+    /* 3️⃣ FALLBACK TO OPENAI IF WORKFLOW DOESN'T REPLY */
+    /* ------------------------------------------------ */
+
+    let reply = workflowReply;
+
+    if (!reply) {
+      const aiResponse = await fetch(
+        "https://api.openai.com/v1/chat/completions",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+          },
+          body: JSON.stringify({
+            model: "gpt-4o-mini",
+            messages: [
+              {
+                role: "system",
+                content: `
 You are an AI assistant for a business.
 
 Use the company knowledge below to answer the user.
@@ -62,53 +100,54 @@ Company Knowledge:
 ${knowledgeContext}
 
 If the answer is not in the knowledge base, answer normally.
-`
-          },
+`,
+              },
+              {
+                role: "user",
+                content: message,
+              },
+            ],
+          }),
+        }
+      );
 
-          {
-            role: "user",
-            content: message
-          }
+      const aiData = await aiResponse.json();
 
-        ]
-      })
+      reply =
+        aiData?.choices?.[0]?.message?.content ||
+        "Sorry, I could not find the answer.";
+    }
 
-    });
+    /* ------------------------------------------------ */
+    /* 4️⃣ SAVE CONVERSATION */
+    /* ------------------------------------------------ */
 
-    const aiData = await aiResponse.json();
-
-    const reply =
-      aiData?.choices?.[0]?.message?.content ||
-      "Sorry, I could not find the answer.";
-
-    // 4️⃣ Save conversation
     if (conversationId) {
-
       await supabase.from("messages").insert([
         {
           conversation_id: conversationId,
           role: "user",
-          content: message
+          content: message,
         },
         {
           conversation_id: conversationId,
           role: "assistant",
-          content: reply
-        }
+          content: reply,
+        },
       ]);
-
     }
+
+    /* ------------------------------------------------ */
+    /* 5️⃣ RETURN RESPONSE */
+    /* ------------------------------------------------ */
 
     return NextResponse.json({ reply });
 
   } catch (error) {
-
     console.error("Chat API Error:", error);
 
     return NextResponse.json({
-      reply: "Something went wrong."
+      reply: "Something went wrong.",
     });
-
   }
-
 }
