@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 
 export async function POST(req: Request) {
   try {
-    const { message, bot_Id, conversationId } = await req.json();
+
+    const { message, conversation_id, bot_id, user_id } = await req.json();
 
     const webhookUrl = process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL;
 
@@ -13,24 +14,29 @@ export async function POST(req: Request) {
       },
       body: JSON.stringify({
         message,
-        bot_Id,
-        conversationId,
+        conversation_id,
+        bot_id,
+        user_id
       }),
     });
 
     const data = await webhookResponse.json();
 
-    return new NextResponse(JSON.stringify({ reply: data.reply }), {
-      status: 200,
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Headers": "Content-Type",
-        "Access-Control-Allow-Methods": "POST, OPTIONS",
-        "Content-Type": "application/json",
-      },
-    });
+    return new NextResponse(
+      JSON.stringify({ reply: data.reply }),
+      {
+        status: 200,
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Headers": "Content-Type",
+          "Access-Control-Allow-Methods": "POST, OPTIONS",
+          "Content-Type": "application/json",
+        },
+      }
+    );
 
   } catch (error) {
+
     console.error("Webhook error:", error);
 
     return new NextResponse(
