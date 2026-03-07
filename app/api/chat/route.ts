@@ -4,7 +4,7 @@ export async function POST(req: Request) {
   try {
     const { message, botId, conversationId } = await req.json();
 
-    const webhookUrl = process.env.N8N_WEBHOOK_URL;
+    const webhookUrl = process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL;
 
     const webhookResponse = await fetch(webhookUrl!, {
       method: "POST",
