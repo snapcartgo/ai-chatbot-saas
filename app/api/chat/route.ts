@@ -9,7 +9,7 @@ export async function POST(req: Request) {
     const webhookUrl = process.env.NEXT_PUBLIC_N8N_WEBHOOK;
 
     
-    console.log("Webhook URL:", process.env.NEXT_PUBLIC_N8N_WEBHOOK);
+    console.log("Webhook URL:", process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL);
     const webhookResponse = await fetch(webhookUrl!, {
       method: "POST",
       headers: {
