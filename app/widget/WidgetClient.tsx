@@ -118,7 +118,7 @@ if (storedConversation) {
     setInput("");
 
     try {
-      const res = await fetch("/api/chat", {
+      const res = await fetch("https://ai-chatbot-saas-five.vercel.app/api/chat", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
