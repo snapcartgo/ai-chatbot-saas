@@ -6,9 +6,12 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+
 export async function POST(req: Request) {
+  console.log("API HIT");
   try {
     const { message, botId, conversationId } = await req.json();
+    console.log("BODY:", { message, botId, conversationId });
 
     if (!message || !botId) {
       return NextResponse.json({
@@ -46,6 +49,7 @@ export async function POST(req: Request) {
     let workflowReply: string | null = null;
 
     try {
+      console.log("Calling webhook");
       const webhookResponse = await fetch(
         process.env.NEXT_PUBLIC_N8N_WEBHOOK!,
         {
