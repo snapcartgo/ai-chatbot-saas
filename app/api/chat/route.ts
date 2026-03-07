@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 export async function POST(req: Request) {
   try {
-    const { message, botId, conversationId } = await req.json();
+    const { message, bot_Id, conversationId } = await req.json();
 
     const webhookUrl = process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL;
 
@@ -13,7 +13,7 @@ export async function POST(req: Request) {
       },
       body: JSON.stringify({
         message,
-        botId,
+        bot_Id,
         conversationId,
       }),
     });
