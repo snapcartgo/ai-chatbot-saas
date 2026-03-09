@@ -2,114 +2,82 @@
 
 export default function BillingPage() {
 
-  // Temporary data (later fetch from Supabase)
-  const plan = "Free";
-  const messagesUsed = 12;
-  const messageLimit = 50;
+  const handlePayU = (plan: string) => {
+    window.location.href = `/api/payu?plan=${plan}`;
+  };
+
+  const handlePayPal = (plan: string) => {
+    window.location.href = `/api/paypal?plan=${plan}`;
+  };
+
+  const plans = [
+    {
+      name: "Starter",
+      description: "Basic chatbot plan",
+      messages: "100 Messages",
+      bots: "1 Chatbot",
+      planId: "starter"
+    },
+    {
+      name: "Pro",
+      description: "Advanced chatbot plan",
+      messages: "5000 Messages",
+      bots: "5 Chatbots",
+      planId: "pro"
+    },
+    {
+      name: "Growth",
+      description: "Best for businesses",
+      messages: "20000 Messages",
+      bots: "20 Chatbots",
+      planId: "growth"
+    }
+  ];
 
   return (
-    <div className="max-w-3xl mx-auto p-8">
+    <div className="p-10">
+      
+      <h1 className="text-3xl font-bold mb-8">Billing Plans</h1>
 
-      <h1 className="text-2xl font-bold mb-6">
-        Billing & Subscription
-      </h1>
+      <div className="grid md:grid-cols-3 gap-8">
 
-      {/* Current Plan */}
-      <div className="bg-white border rounded-lg p-6 mb-6 shadow">
+        {plans.map((plan) => (
 
-        <h2 className="text-lg font-semibold mb-2">
-          Current Plan
-        </h2>
+          <div
+            key={plan.name}
+            className="border rounded-xl p-6 shadow-sm hover:shadow-lg transition bg-white"
+          >
 
-        <p className="text-gray-600 mb-4">
-          You are currently on the <b>{plan}</b> plan.
-        </p>
+            <h2 className="text-xl font-semibold mb-2">
+              {plan.name}
+            </h2>
 
-        <div className="bg-gray-100 p-3 rounded">
-          Messages Used: {messagesUsed} / {messageLimit}
-        </div>
+            <p className="text-gray-600 mb-4">
+              {plan.description}
+            </p>
 
-      </div>
+            <div className="space-y-2 mb-6 text-sm text-gray-700">
+              <p>{plan.messages}</p>
+              <p>{plan.bots}</p>
+            </div>
 
-      {/* Pricing Options */}
-      <div className="grid md:grid-cols-3 gap-6">
-
-        {/* Starter Plan */}
-        <div className="border rounded-lg p-5 shadow">
-
-          <h3 className="text-lg font-semibold mb-2">
-            Starter
-          </h3>
-
-          <p className="text-2xl font-bold mb-2">
-            ₹999 / month
-          </p>
-
-          <ul className="text-sm text-gray-600 mb-4">
-            <li>• 500 AI messages</li>
-            <li>• 1 chatbot</li>
-            <li>• Lead capture</li>
-          </ul>
-
-          <button
-            onClick={() => window.location.href = "/payment?plan=starter"}
-            className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700"
+            <button
+              onClick={() => handlePayU(plan.planId)}
+              className="w-full bg-blue-600 text-white py-2 rounded-lg mb-3 hover:bg-blue-700 transition"
             >
-            Upgrade
+              Pay with PayU
             </button>
 
-        </div>
-
-        {/* Pro Plan */}
-        <div className="border rounded-lg p-5 shadow">
-
-          <h3 className="text-lg font-semibold mb-2">
-            Pro
-          </h3>
-
-          <p className="text-2xl font-bold mb-2">
-            ₹1999 / month
-          </p>
-
-          <ul className="text-sm text-gray-600 mb-4">
-            <li>• 2000 AI messages</li>
-            <li>• 1 chatbot</li>
-            <li>• Advanced analytics</li>
-          </ul>
-
-          <button
-            onClick={() => window.location.href = "/payment?plan=pro"}
-            className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700"
+            <button
+              onClick={() => handlePayPal(plan.planId)}
+              className="w-full bg-blue-600 text-white py-2 rounded-lg mb-3 hover:bg-blue-700 transition"
             >
-            Upgrade
-            </button>
-        </div>
-
-        {/* Growth Plan */}
-        <div className="border rounded-lg p-5 shadow">
-
-          <h3 className="text-lg font-semibold mb-2">
-            Growth
-          </h3>
-
-          <p className="text-2xl font-bold mb-2">
-            ₹4999 / month
-          </p>
-
-          <ul className="text-sm text-gray-600 mb-4">
-            <li>• 5000 AI messages</li>
-            <li>• 3 chatbots</li>
-            <li>• Priority support</li>
-          </ul>
-
-          <button
-            onClick={() => window.location.href = "/payment?plan=growth"}
-            className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700"
-            >
-            Upgrade
+              Pay with PayPal
             </button>
 
-        </div>
+          </div>
+
+        ))}
 
       </div>
 

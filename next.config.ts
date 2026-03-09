@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // This prevents Next.js from breaking the legacy pdf-parse library
+  // This is the specific line that stops the DOMMatrix crash
   serverExternalPackages: ["pdf-parse"],
 };
 

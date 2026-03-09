@@ -1,14 +1,31 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase";
 
 export default function Login() {
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+
+  const router = useRouter();
 
   const handleLogin = async (e: any) => {
     e.preventDefault();
-    alert("Login logic will connect to Supabase here");
+
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: email,
+      password: password,
+    });
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    router.push("/dashboard");
   };
 
   return (
@@ -50,22 +67,39 @@ export default function Login() {
 
           <form onSubmit={handleLogin} className="space-y-4">
 
+            {/* Email */}
             <input
               type="email"
               placeholder="Email address"
               className="w-full p-3 rounded bg-gray-800 border border-gray-700"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              required
             />
 
-            <input
-              type="password"
-              placeholder="Password"
-              className="w-full p-3 rounded bg-gray-800 border border-gray-700"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
+            {/* Password with eye toggle */}
+            <div className="relative">
 
+              <input
+                type={showPassword ? "text" : "password"}
+                placeholder="Password"
+                className="w-full p-3 rounded bg-gray-800 border border-gray-700 pr-12"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-3 text-gray-400 hover:text-white"
+              >
+                {showPassword ? "🙈" : "👁"}
+              </button>
+
+            </div>
+
+            {/* Login Button */}
             <button
               type="submit"
               className="w-full bg-blue-600 hover:bg-blue-700 p-3 rounded font-semibold"

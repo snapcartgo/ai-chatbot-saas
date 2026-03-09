@@ -1,0 +1,1378 @@
+{
+  "name": "Ai chatbot Booking Saas Website copy",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "CreateAppointmentbooking",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -16,
+        -64
+      ],
+      "id": "061a2e32-2594-43bf-ab32-48ab1f422f0f",
+      "name": "Webhook",
+      "webhookId": "74d28a80-0a76-4c8a-8cb3-07b735e5c842"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "094ac7d2-618d-4a4a-8009-8cf0fcc0e5c8",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "active",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "20e36677-4d46-4d8d-b0f1-22a56bd78c97",
+              "leftValue": "={{ $json.message_used }}",
+              "rightValue": "={{$json.message_limit}}",
+              "operator": {
+                "type": "number",
+                "operation": "lt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        592,
+        -64
+      ],
+      "id": "311e45a4-f158-4e4d-8de3-63e176de848e",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "4dec406d-5894-4c09-bdda-7c4d181363ad",
+              "name": "calendar_id",
+              "value": "={{$json.calendar_id}}",
+              "type": "string"
+            },
+            {
+              "id": "6819dfc0-f5d3-4b19-a6b4-30bc1491cb37",
+              "name": "status",
+              "value": "={{$json.status}}",
+              "type": "string"
+            },
+            {
+              "id": "ad5dd1b4-e5f3-47ec-b068-4a28e5d8e687",
+              "name": "user_id",
+              "value": "={{ $json.user_id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        800,
+        -96
+      ],
+      "id": "1a1bef28-7c1d-4143-a9e7-bbbc5cd3c962",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"reply\": \"You have used {{$json.message_used}} out of {{$json.message_limit}} messages. Please upgrade your plan.\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        800,
+        64
+      ],
+      "id": "dbac4a90-4b8c-49d9-8f88-fc74ed4ac9bf",
+      "name": "Respond to Webhook1"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $('Webhook').item.json.body.message }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "=ROLE\nYou are a professional, polite booking assistant for the company.\n\nYour goal is to help users get information and book appointments smoothly.\n\n--------------------------------------------------\n\nCONVERSATION RULES\n\n1. If the user only greets (e.g., \"Hi\", \"Hello\", \"Hey\"), reply politely and ask how you can help.\n\n2. Do NOT immediately ask for booking details after a greeting.\n\n3. Only start collecting booking information AFTER the user clearly expresses an intention to book an appointment.\n\n4. If the user asks general questions, answer them using the company knowledge provided.\n\n--------------------------------------------------\n\nBOOKING INFORMATION REQUIRED\n\nBefore a booking can be confirmed, you MUST collect the following 6 details:\n\n1. Full Name\n2. Phone Number\n3. Purpose of Appointment\n4. Budget\n5. Service Detail\n6. Date and Time\n\nRules for date:\n\n• The booking year MUST always be 2026  \n• If the user provides a date without a year, automatically assume it is in 2026  \n• Never assume the current year or a past year\n\nExample:\n\nUser says:\n\"15 July at 3 PM\"\n\nInterpret as:\n\"15 July 2026 at 3 PM\"\n\n--------------------------------------------------\n\nINFORMATION COLLECTION RULES\n\n• Ask only for the missing information.\n• Do NOT repeatedly ask for information that the user has already provided.\n• Always confirm the collected details before creating the booking.\n\nExample confirmation message:\n\n\"Please confirm your booking details:\n\nName: ...\nPhone: ...\nPurpose: ...\nBudget: ...\nService Detail: ...\nDate & Time: ...\n\nReply YES to confirm or tell me what needs to be changed.\"\n\n--------------------------------------------------\n\nBOOKING TRIGGER PROTOCOL\n\nOnly after ALL conditions are met:\n\n• All 6 required details are collected  \n• The user explicitly replies with \"Yes\" to confirm\n\nYou MUST start the response with the exact text:\n\naction: create_booking\n\nThen include the booking details exactly like this:\n\naction: create_booking\nFull_Name: ...\nPhone: ...\nPurpose: ...\nBudget: ...\nService_Detail: ...\nDate_Time: ...\nbot_id: ...\n\nAfter generating the trigger, you may add:\n\n\"Your booking has been successfully confirmed!\"\n\n--------------------------------------------------\n\nRESCHEDULING\n\nIf the user asks to change an existing booking, return:\n\naction: reschedule_booking\n\nfollowed by the updated booking details.\n\n--------------------------------------------------\n\nIMPORTANT RULES\n\n• Never trigger create_booking without user confirmation.\n• Never generate the action unless ALL details are collected.\n• The trigger text must appear exactly as written.\n• If the trigger text is incorrect, the system will fail.\n\n--------------------------------------------------\n\nCOMPANY KNOWLEDGE\n\nUse the following company knowledge to answer user questions:\n\n${knowledgeText}\n\n--------------------------------------------------\n\nUSER QUESTION\n\n${message}"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        1296,
+        -96
+      ],
+      "id": "cd3a8b1a-f562-4f02-8ff7-60821830dff3",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        2944,
+        688
+      ],
+      "id": "b52d1397-40d9-48b2-84a0-ce5aa7e7ab30",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "builtInTools": {},
+        "options": {
+          "temperature": null
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        1152,
+        112
+      ],
+      "id": "16d88aa4-20e0-408d-904f-efc9db5b1f75",
+      "name": "OpenAI Chat Model",
+      "credentials": {
+        "openAiApi": {
+          "id": "JgOGFEyrcIfn6i7I",
+          "name": "OpenAi account amitmutreja2186"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Webhook').item.json.body.bot_id }}_{{ $('Webhook').item.json.body.session_id }}",
+        "contextWindowLength": 10
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        1280,
+        128
+      ],
+      "id": "89134c30-33c5-405e-878e-ebcc5ac59391",
+      "name": "Simple Memory"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c883de94-b650-4f90-8eb2-e03a60763e41",
+              "leftValue": "={{ $('AI Agent').item.json.output }}",
+              "rightValue": "create_booking ",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2032,
+        -80
+      ],
+      "id": "2de5ab3e-d3f6-4c6b-98f7-6979400a2fea",
+      "name": "If1"
+    },
+    {
+      "parameters": {
+        "calendar": {
+          "__rl": true,
+          "value": "={{ $node[\"Edit Fields\"].json.calendar_id }}",
+          "mode": "id"
+        },
+        "start": "={{ DateTime.fromFormat($node[\"AI JSON Generator\"].json.output.Date_Time, \"yyyy-MM-dd HH:mm\").toISO() }}",
+        "end": "={{ DateTime.fromFormat($node[\"AI JSON Generator\"].json.output.Date_Time, \"yyyy-MM-dd HH:mm\").plus({ hours: 1 }).toISO() }}",
+        "additionalFields": {
+          "description": "=Client: {{ $node[\"AI JSON Generator\"].json.output.Full_Name }} Phone: {{ $node[\"AI JSON Generator\"].json.output.Phone }} Budget: {{ $node[\"AI JSON Generator\"].json.output.Budget }} Details: {{ $node[\"AI JSON Generator\"].json.output.Service_Detail }}",
+          "summary": "={{ $node[\"AI JSON Generator\"].json.output.Purpose }} - {{ $node[\"AI JSON Generator\"].json.output.Service_Detail }}"
+        }
+      },
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        2768,
+        -192
+      ],
+      "id": "9159b2f4-b83a-42de-a747-5a31f8c5e0fe",
+      "name": "Create an event",
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "Gok1uwTcJsnXVgd0",
+          "name": "Google Calendar account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "fa368db5-1d0d-445e-8ca6-7066e2aa27dc",
+              "name": "event_id",
+              "value": "={{ $json.id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2896,
+        -192
+      ],
+      "id": "f44ab5c6-76f0-4a3b-84d0-1e5242835261",
+      "name": "Edit Fields1"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { reply: $json.reply } }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        3856,
+        -192
+      ],
+      "id": "60698332-cc5b-4858-bc3b-0691b7d851f2",
+      "name": "Respond to Webhook2"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $node[\"AI Agent\"].json.output }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "\"You are a specialized data parser. Extract the booking information from the input text and return ONLY a raw JSON object. Do not include any conversational filler, explanations, or markdown formatting (like ```json). Ensure the year is 2026. If data is missing, use an empty string. You MUST follow the provided schema exactly.\""
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        2272,
+        -192
+      ],
+      "id": "4347a8bb-d3db-44ea-bb63-86f5eb66df87",
+      "name": "AI JSON Generator"
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"action\": {\n      \"type\": \"string\",\n      \"enum\": [\"create_booking\", \"reschedule_booking\"]\n    },\n    \"Full_Name\": {\n      \"type\": \"string\"\n    },\n    \"Phone\": {\n      \"type\": \"string\"\n    },\n    \"Purpose\": {\n      \"type\": \"string\"\n    },\n    \"Budget\": {\n      \"type\": \"string\"\n    },\n    \"Service_Detail\": {\n      \"type\": \"string\"\n    },\n    \"Date_Time\": {\n      \"type\": \"string\"\n    },\n    \"bot_id\": {\n      \"type\": \"string\"\n    }\n  },\n  \"required\": [\"action\"]\n}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        2448,
+        16
+      ],
+      "id": "1f146543-1e48-4577-af72-ca9021059a58",
+      "name": "Structured Output Parser"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        2224,
+        16
+      ],
+      "id": "97d5483b-9405-46a5-81c4-1fbc3bb2cc0b",
+      "name": "OpenAI Chat Model1",
+      "credentials": {
+        "openAiApi": {
+          "id": "JgOGFEyrcIfn6i7I",
+          "name": "OpenAi account amitmutreja2186"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "29dc53b6-ed02-4179-a1a4-806e716a11cb",
+              "leftValue": "={{ $json.output.includes(\"reschedule_booking\") }}",
+              "rightValue": "reschedule_booking",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2144,
+        288
+      ],
+      "id": "cd2b8ceb-b924-4a6c-9c00-43344e04cc12",
+      "name": "If2"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "calendar": {
+          "__rl": true,
+          "value": "={{ $node[\"Edit Fields\"].json.calendar_id }}",
+          "mode": "id"
+        },
+        "eventId": "={{$json.calendar_id}}",
+        "updateFields": {
+          "end": "={{ new Date(\n  new Date($node[\"AI JSON Generator1\"].json.output.Date_Time).getTime() + 3600000\n).toISOString() }}",
+          "start": "={{$node[\"AI JSON Generator1\"].json.output.Date_Time}}"
+        }
+      },
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        3472,
+        224
+      ],
+      "id": "ef3dd923-acff-49de-82b4-23df3487d877",
+      "name": "Update an event",
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "Gok1uwTcJsnXVgd0",
+          "name": "Google Calendar account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { reply: $json.reply } }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        4368,
+        192
+      ],
+      "id": "9e2c48ee-8176-4fbf-8f29-096b8669634d",
+      "name": "Respond to Webhook3"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $node[\"AI Agent\"].json.output }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "\"You are a specialized data parser. Extract the booking information from the input text and return ONLY a raw JSON object. Do not include any conversational filler, explanations, or markdown formatting (like ```json). Ensure the year is 2026. If data is missing, use an empty string. You MUST follow the provided schema exactly.\""
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        2592,
+        240
+      ],
+      "id": "17bdb747-6741-4403-b3ae-003d399ac285",
+      "name": "AI JSON Generator1"
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"action\": {\n      \"type\": \"string\",\n      \"enum\": [\"create_booking\", \"reschedule_booking\"]\n    },\n    \"Full_Name\": {\n      \"type\": \"string\"\n    },\n    \"Phone\": {\n      \"type\": \"string\"\n    },\n    \"Purpose\": {\n      \"type\": \"string\"\n    },\n    \"Budget\": {\n      \"type\": \"string\"\n    },\n    \"Service_Detail\": {\n      \"type\": \"string\"\n    },\n    \"Date_Time\": {\n      \"type\": \"string\"\n    },\n    \"bot_id\": {\n      \"type\": \"string\"\n    }\n  },\n  \"required\": [\"action\"]\n}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        2768,
+        432
+      ],
+      "id": "83187818-1e52-412b-bd4c-24d49a3fe918",
+      "name": "Structured Output Parser1"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        2544,
+        432
+      ],
+      "id": "f74bcc30-e2f2-4b83-8593-a15580f93d67",
+      "name": "OpenAI Chat Model2",
+      "credentials": {
+        "openAiApi": {
+          "id": "JgOGFEyrcIfn6i7I",
+          "name": "OpenAi account amitmutreja2186"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "tableId": "messages",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "conversation_id",
+              "fieldValue": "={{ $('Webhook').item.json.body.conversation_id }}"
+            },
+            {
+              "fieldId": "role",
+              "fieldValue": "assistant"
+            },
+            {
+              "fieldId": "content",
+              "fieldValue": "={{ $('AI Agent').item.json.output }}"
+            },
+            {
+              "fieldId": "created_at",
+              "fieldValue": "={{$now}}"
+            },
+            {
+              "fieldId": "calendar_id",
+              "fieldValue": "={{ $('Create an event').item.json.id }}"
+            },
+            {
+              "fieldId": "phone",
+              "fieldValue": "={{ $('AI JSON Generator').item.json.output.Phone }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        3104,
+        -192
+      ],
+      "id": "df47dbca-7f40-4534-be7e-87424ac10e46",
+      "name": "Create a row",
+      "credentials": {
+        "supabaseApi": {
+          "id": "KAiysiNlLc1ojHnD",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "subscriptions",
+        "returnAll": true,
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "user_id",
+              "condition": "eq",
+              "keyValue": "={{ $('Webhook').item.json.body.user_id }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        384,
+        -64
+      ],
+      "id": "fd0f61c4-119d-4afd-a330-adc8a35eb343",
+      "name": "Get many rows",
+      "alwaysOutputData": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "KAiysiNlLc1ojHnD",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "messages",
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "phone",
+              "condition": "eq",
+              "keyValue": "={{ $json.output.Phone }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        2944,
+        240
+      ],
+      "id": "22bfd1ca-e7e9-4e80-9d94-fc38cd628193",
+      "name": "Get many rows1",
+      "credentials": {
+        "supabaseApi": {
+          "id": "KAiysiNlLc1ojHnD",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "messages",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "phone",
+              "condition": "eq",
+              "keyValue": "={{ $('Get many rows1').item.json.phone }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "calendar_id",
+              "fieldValue": "={{ $('Get many rows1').item.json.calenderid }}"
+            },
+            {
+              "fieldId": "content",
+              "fieldValue": "={{ $('AI Agent').item.json.output }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        3680,
+        224
+      ],
+      "id": "2e5ca2d6-6572-407e-9803-139e40047e31",
+      "name": "Update a row",
+      "credentials": {
+        "supabaseApi": {
+          "id": "KAiysiNlLc1ojHnD",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "tableId": "messages",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "content",
+              "fieldValue": "={{ $('AI Agent').item.json.output }}"
+            },
+            {
+              "fieldId": "conversation_id",
+              "fieldValue": "={{ $('Webhook').item.json.body.conversation_id }}"
+            },
+            {
+              "fieldId": "role",
+              "fieldValue": "assistant"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        2352,
+        384
+      ],
+      "id": "bd2f6e68-657f-41ba-ac01-176af4c1f24f",
+      "name": "Create a row1",
+      "credentials": {
+        "supabaseApi": {
+          "id": "KAiysiNlLc1ojHnD",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "if ($json.Date_Time) {\n  if (!/\\d{4}/.test($json.Date_Time)) {\n    $json.Date_Time = $json.Date_Time + \" 2026\";\n  }\n}\n\nreturn $json;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1856,
+        -96
+      ],
+      "id": "968d5006-a24a-4f7c-b77a-ce4dd1309f31",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "b7d9bb45-8fb3-4ef1-90b2-fbe4e5e44171",
+              "name": "reply",
+              "value": "={{ $json.content }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2656,
+        480
+      ],
+      "id": "35458093-be56-4fae-ad06-7e09e0948d32",
+      "name": "Edit Fields2"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "3e0e9317-807c-482b-ab6e-7227a0d0b958",
+              "name": "reply",
+              "value": "={{$node[\"AI Agent\"].json.output}}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        3632,
+        -192
+      ],
+      "id": "418b6a2b-41e8-4336-8c0c-d69f71dad28d",
+      "name": "Edit Fields3"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        3152,
+        240
+      ],
+      "id": "14c800b0-abd4-4533-a0dd-90eda049e361",
+      "name": "Limit"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "3e0e9317-807c-482b-ab6e-7227a0d0b958",
+              "name": "reply",
+              "value": "={{ $('AI Agent').item.json.output }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        3968,
+        144
+      ],
+      "id": "77c0f337-32c5-42d4-8920-8c6fc1917294",
+      "name": "Edit Fields4"
+    },
+    {
+      "parameters": {
+        "tableId": "leads",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "chatbot_id",
+              "fieldValue": "={{ $('Webhook').item.json.body.chatbot_id }}"
+            },
+            {
+              "fieldId": "name",
+              "fieldValue": "={{ $('AI JSON Generator').item.json.output.Full_Name }}"
+            },
+            {
+              "fieldId": "phone",
+              "fieldValue": "={{ $('AI JSON Generator').item.json.output.Phone }}"
+            },
+            {
+              "fieldId": "message",
+              "fieldValue": "={{ $('AI Agent').item.json.output }}"
+            },
+            {
+              "fieldId": "budget",
+              "fieldValue": "={{ $('AI JSON Generator').item.json.output.Budget }}"
+            },
+            {
+              "fieldId": "service",
+              "fieldValue": "={{ $('AI JSON Generator').item.json.output.Service_Detail }}"
+            },
+            {
+              "fieldId": "conversation_id",
+              "fieldValue": "={{ $('Webhook').item.json.body.conversation_id }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        3312,
+        -192
+      ],
+      "id": "7be90be4-4dc5-4aa3-8b7a-4903864c0d05",
+      "name": "Create a row2",
+      "credentials": {
+        "supabaseApi": {
+          "id": "KAiysiNlLc1ojHnD",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "subscriptions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $('Get many rows').item.json.id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "message_used",
+              "fieldValue": "={{ $('Get many rows').item.json.message_used + 1 }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1648,
+        -96
+      ],
+      "id": "c9ddd649-2341-42a9-b222-f12b0f2e90d7",
+      "name": "Update a row1",
+      "credentials": {
+        "supabaseApi": {
+          "id": "KAiysiNlLc1ojHnD",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "chatbots",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $json.body.bot_id }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        192,
+        -64
+      ],
+      "id": "cc384eb3-45f3-4d2d-a42d-0ce0ea4514c9",
+      "name": "Get many rows2",
+      "credentials": {
+        "supabaseApi": {
+          "id": "KAiysiNlLc1ojHnD",
+          "name": "Supabase account"
+        }
+      }
+    }
+  ],
+  "pinData": {
+    "Create a row1": [
+      {
+        "json": {
+          "id": "760195f7-8354-46fb-a4bc-38664d37a9a9",
+          "conversation_id": "1bb88630-12e4-4167-b107-e81b903e20c5",
+          "role": "assistant",
+          "content": "Great! Let's get started on your booking for the site visit. \n\nI have some information from you already, but I still need a few more details:\n\n1. **Full Name**: I have \"Shubham Bukam.\"\n2. **Phone Number**: (I have that as well)\n3. **Purpose**: I understand this is for a site visit.\n4. **Budget**: I have \"500000.\"\n5. **Service Detail**: I need a bit more information about the service or specific requirements regarding the 3 BHK.\n6. **Date & Time**: \"5 March 2026\" at \"3 PM.\"\n\nPlease provide the missing information about the service detail, and we can finalize your booking!",
+          "created_at": "2026-03-04T08:32:24.538484",
+          "calendar_id": null,
+          "phone": null,
+          "bot_id": "c8848148-7c17-4b9a-be97-1ee4779e4122"
+        }
+      }
+    ],
+    "AI JSON Generator": [
+      {
+        "json": {
+          "output": {
+            "action": "create_booking",
+            "Full_Name": "Shubham",
+            "Phone": "9527626042",
+            "Purpose": "Site Visit",
+            "Budget": "600000",
+            "Service_Detail": "3 BHK in Virar",
+            "Date_Time": "2026-03-06 14:00",
+            "bot_id": ""
+          }
+        }
+      }
+    ],
+    "Get many rows1": [
+      {
+        "json": {
+          "id": "0f4fa780-a981-4044-a106-6fb678c74787",
+          "conversation_id": "ec277888-6b3f-4099-8b2e-c82da1253e9e",
+          "role": "assistant",
+          "content": "action: create_booking  \nFull_Name: Shubham  \nPhone: 9527626043  \nPurpose: Site Visit  \nBudget: 600000  \nService_Detail: 3 BHK in Virar  \nDate_Time: 2026-03-06 14:00  \nbot_id: ...  \n\nYour booking has been successfully confirmed!",
+          "created_at": "2026-03-04T16:59:29.277",
+          "calendar_id": "nr83voiaau4cskjn52mqou3nh0",
+          "phone": 9527626043,
+          "bot_id": "8906c808-980c-4683-89a3-e726ef6d3d5f"
+        }
+      },
+      {
+        "json": {
+          "id": "1c426e75-e6a2-42c8-80fd-677aea937baa",
+          "conversation_id": "73141bee-a0c8-4afe-839a-3c29eb03eeff",
+          "role": "assistant",
+          "content": "action: create_booking  \nFull_Name: Shubham  \nPhone: 9527626043  \nPurpose: Site Visit  \nBudget: 600000  \nService_Detail: 3 BHK in Virar  \nDate_Time: 2026-03-06 14:00  \nbot_id: ...  \n\nYour booking has been successfully confirmed!",
+          "created_at": "2026-03-04T17:05:14.262",
+          "calendar_id": "fqip12pl0akva0s13ihatrq00s",
+          "phone": 9527626043,
+          "bot_id": "c8f91750-3650-4637-b28c-971a19f56f6e"
+        }
+      },
+      {
+        "json": {
+          "id": "779fb597-4597-46f2-b1ad-7186e42de9a7",
+          "conversation_id": "26cd6fa4-6f23-4ade-9902-40775a96975c",
+          "role": "assistant",
+          "content": "action: create_booking  \nFull_Name: Shubham  \nPhone: 9527626043  \nPurpose: Site Visit  \nBudget: 600000  \nService_Detail: 3 BHK in Virar  \nDate_Time: 2026-03-06 14:00  \nbot_id: ...  \n\nYour booking has been successfully confirmed!",
+          "created_at": "2026-03-04T17:09:12.528",
+          "calendar_id": "uc04k1l6iti3bp3t78d021irko",
+          "phone": 9527626043,
+          "bot_id": "08e3b0a5-3648-48c6-8db1-25fd0e339f50"
+        }
+      }
+    ],
+    "Get many rows": [
+      {
+        "json": {
+          "id": "3d354089-f133-4457-b78f-10373c268fb9",
+          "created_at": "2026-02-27T06:44:47.355162+00:00",
+          "plan": "free",
+          "status": "active",
+          "user_id": "36f39a53-c183-43b3-9923-e7019d176f43",
+          "chatbot_limit": 1,
+          "message_limit": 100,
+          "calendar_id": "amitmutreja2186@gmail.com",
+          "message_used": 0,
+          "plan_expiry": null
+        }
+      }
+    ],
+    "Webhook": [
+      {
+        "json": {
+          "headers": {
+            "host": "n8n.snapcartgo.com",
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36",
+            "content-length": "153",
+            "accept": "*/*",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "en-US,en;q=0.9",
+            "content-type": "application/json",
+            "origin": "http://localhost:3000",
+            "priority": "u=1, i",
+            "referer": "http://localhost:3000/",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"99\", \"Google Chrome\";v=\"145\", \"Chromium\";v=\"145\"",
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": "\"Windows\"",
+            "sec-fetch-dest": "empty",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-site": "cross-site",
+            "via": "2.0 Caddy",
+            "x-forwarded-for": "43.246.158.50",
+            "x-forwarded-host": "n8n.snapcartgo.com",
+            "x-forwarded-proto": "https"
+          },
+          "params": {},
+          "query": {},
+          "body": {
+            "message": "Hello",
+            "conversation_id": "session_test_new",
+            "bot_id": "f7b1a0c1-f55f-4bbc-8a27-d08b6076c3ea",
+            "user_id": "36f39a53-c183-43b3-9923-e7019d176f43"
+          },
+          "webhookUrl": "https://n8n.snapcartgo.com/webhook/CreateAppointmentbooking",
+          "executionMode": "production"
+        }
+      }
+    ],
+    "AI Agent": [
+      {
+        "json": {
+          "output": "action: create_booking  \nFull_Name: Shubham  \nPhone: 4789632574  \nPurpose: Site visit  \nBudget: 40,000  \nService_Detail: 3BHK in Virar  \nDate_Time: 8 March 2026 at 2 PM  \nbot_id:  \n\nYour booking has been successfully confirmed!"
+        }
+      }
+    ]
+  },
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Get many rows2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond to Webhook1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Update a row1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "AI JSON Generator",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "If2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create an event": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields1": {
+      "main": [
+        [
+          {
+            "node": "Create a row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI JSON Generator": {
+      "main": [
+        [
+          {
+            "node": "Create an event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "AI JSON Generator",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI JSON Generator",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If2": {
+      "main": [
+        [
+          {
+            "node": "AI JSON Generator1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create a row1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update an event": {
+      "main": [
+        [
+          {
+            "node": "Update a row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser1": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "AI JSON Generator1",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model2": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI JSON Generator1",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI JSON Generator1": {
+      "main": [
+        [
+          {
+            "node": "Get many rows1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create a row": {
+      "main": [
+        [
+          {
+            "node": "Create a row2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get many rows": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get many rows1": {
+      "main": [
+        [
+          {
+            "node": "Limit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update a row": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create a row1": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields2": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields3": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limit": {
+      "main": [
+        [
+          {
+            "node": "Update an event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields4": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create a row2": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update a row1": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get many rows2": {
+      "main": [
+        [
+          {
+            "node": "Get many rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Kolkata",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "errorWorkflow": "NWcRLSqv1nrtU11u"
+  },
+  "versionId": "14365740-6859-4145-b697-0b3d4045e5d9",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "5fa84893e8f228e99db4875862cdc28b473ddf464f8d685567ff797a8017ad49"
+  },
+  "id": "nSEgxT3eC0MdmDrp",
+  "tags": []
+}
