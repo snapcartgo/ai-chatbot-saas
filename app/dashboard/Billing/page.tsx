@@ -1,13 +1,26 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import { supabase } from "@/lib/supabase";
+
 export default function BillingPage() {
 
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+
+  useEffect(() => {
+    const getUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      setUserEmail(user?.email ?? null);
+    };
+    getUser();
+  }, []);
+
   const handlePayU = (plan: string) => {
-    window.location.href = `/api/payu?plan=${plan}`;
+    window.location.href = `/api/payu?plan=${plan}&email=${userEmail}`;
   };
 
   const handlePayPal = (plan: string) => {
-    window.location.href = `/api/paypal?plan=${plan}`;
+    window.location.href = `/api/paypal?plan=${plan}&email=${userEmail}`;
   };
 
   const plans = [

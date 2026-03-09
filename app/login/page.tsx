@@ -15,9 +15,9 @@ export default function Login() {
   const handleLogin = async (e: any) => {
     e.preventDefault();
 
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: email,
-      password: password,
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
     });
 
     if (error) {
@@ -77,7 +77,7 @@ export default function Login() {
               required
             />
 
-            {/* Password with eye toggle */}
+            {/* Password */}
             <div className="relative">
 
               <input
@@ -92,11 +92,21 @@ export default function Login() {
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-3 text-gray-400 hover:text-white"
+                className="absolute right-3 top-3 text-gray-400"
               >
                 {showPassword ? "🙈" : "👁"}
               </button>
 
+            </div>
+
+            {/* Forgot Password */}
+            <div className="text-right">
+              <a
+                href="/forgot-password"
+                className="text-sm text-blue-400 hover:underline"
+              >
+                Forgot password?
+              </a>
             </div>
 
             {/* Login Button */}

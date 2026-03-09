@@ -32,6 +32,10 @@ export default function Sidebar() {
           Knowledge Base
         </a>
 
+        <a href="/dashboard/Billing" className="block px-4 py-3">
+          Billing
+        </a>
+
       </div>
 
       {/* Bottom Logout */}

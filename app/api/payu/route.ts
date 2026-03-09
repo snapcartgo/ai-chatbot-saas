@@ -8,7 +8,7 @@ export async function GET(req: Request) {
   let paymentUrl = "";
 
   if (plan === "starter") {
-    paymentUrl = "https://u.payu.in/PAYUMN/nIVlIYxBJ5D5";
+    paymentUrl = "https://u.payu.in/PAYUMN/krc7WBd83Jao";
   }
 
   if (plan === "pro") {
