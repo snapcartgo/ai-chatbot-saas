@@ -1,48 +1,19 @@
-import { NextResponse } from "next/server"
-import { createClient } from "@supabase/supabase-js"
+import { NextResponse } from "next/server";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
+  try {
+    const formData = await req.formData();
+    const data = Object.fromEntries(formData.entries());
 
-  const formData = await req.formData()
-  const data = Object.fromEntries(formData)
+    console.log("PAYU WEBHOOK HIT:", data);
 
-  console.log("PayU webhook received:", data)
+    // Always respond 200 so PayU marks it successful
+    return new Response("OK", { status: 200 });
 
-  const status = data.status
-  const email = data.email
-  const productinfo = String(data.productinfo || "").toLowerCase()
-
-    let plan = "starter"
-
-    if (productinfo.includes("pro")) {
-    plan = "pro"
-    }
-
-    if (productinfo.includes("growth")) {
-    plan = "growth"
-    }
-
-  if (status === "success") {
-
-    const { error } = await supabase
-      .from("subscriptions")
-      .update({
-        plan: plan,
-        status: "active"
-      })
-      .eq("email", email)
-
-    if (error) {
-      console.log("Supabase error:", error)
-    } else {
-      console.log("Plan updated for:", email, "Plan:", plan)
-    }
+  } catch (err) {
+    console.error("Webhook error:", err);
+    return new Response("OK", { status: 200 });
   }
-
-  return NextResponse.json({ success: true })
 }
