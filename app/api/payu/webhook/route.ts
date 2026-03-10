@@ -6,27 +6,26 @@ export async function POST(req: Request) {
 
     const formData = await req.formData()
 
-    const status = formData.get("status")
-    const txnid = formData.get("txnid")
-    const amount = formData.get("amount")
-
-    console.log("PayU webhook received:", {
-      status,
-      txnid,
-      amount
-    })
+    console.log("PayU Webhook POST:", Object.fromEntries(formData))
 
     return NextResponse.json({
-      success: true
+      received: true
     })
 
   } catch (error) {
 
-    console.error("Webhook error:", error)
+    console.error("Webhook POST error:", error)
 
     return NextResponse.json(
       { error: "Webhook failed" },
       { status: 500 }
     )
   }
+}
+
+export async function GET() {
+
+  return NextResponse.json({
+    message: "Webhook working"
+  })
 }
