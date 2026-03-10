@@ -1,49 +1,64 @@
-import { createClient } from '@supabase/supabase-js';
-import { NextResponse } from 'next/server';
+import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY! // Use SERVICE_ROLE to bypass RLS
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
   try {
+
     const formData = await req.formData();
     const data = Object.fromEntries(formData.entries());
 
     console.log("PayU Webhook Received:", data);
 
     const status = data.status as string;
-    // Safety check: Use 'email' if 'udf1' is empty
-    const email = (data.udf1 || data.email) as string; 
-    
-    // Safety check: Parse plan from 'productinfo' if 'udf2' is empty
-    const productInfo = (data.productinfo as string || "").toLowerCase();
+    const email = data.email as string;
+    const productinfo = (data.productinfo as string || "").toLowerCase();
+
     let planName = "starter";
-    if (productInfo.includes("pro")) planName = "pro";
-    if (productInfo.includes("growth")) planName = "growth";
+
+    if (productinfo.includes("starter")) planName = "starter";
+    if (productinfo.includes("pro")) planName = "pro";
+    if (productinfo.includes("growth")) planName = "growth";
+
+    const limits: Record<string, { messages: number; chatbots: number }> = {
+      starter: { messages: 1000, chatbots: 1 },
+      pro: { messages: 5000, chatbots: 5 },
+      growth: { messages: 20000, chatbots: 20 },
+    };
+
+    const selected = limits[planName];
 
     if (status === "success" && email) {
+
       const { error } = await supabase
         .from("subscriptions")
         .update({
           plan: planName,
+          message_limit: selected.messages,
+          chatbot_limit: selected.chatbots,
           status: "active",
           updated_at: new Date().toISOString(),
         })
-        .eq("calendar_id", email); // Ensure this matches your Supabase column name
+        .eq("email", email);
 
       if (error) {
-        console.error("Supabase Error:", error.message);
-        return new Response(`DB Error: ${error.message}`, { status: 500 });
+        console.error("Supabase Update Error:", error.message);
+        return new Response("Database Update Failed", { status: 500 });
       }
+
+      console.log(`Plan [${planName}] successfully updated for: ${email}`);
     }
 
     return new Response("OK", { status: 200 });
-  } catch (err: any) {
-    console.error("Webhook Crash:", err.message);
-    return new Response(`Server Error: ${err.message}`, { status: 500 });
+
+  } catch (err) {
+    console.error("Webhook Processing Error:", err);
+    return new Response("Internal Server Error", { status: 500 });
   }
 }
