@@ -2,12 +2,10 @@ import { NextResponse } from "next/server";
 
 export async function POST(req: Request) {
 
-  const formData = await req.formData();
-  const data = Object.fromEntries(formData);
+  const formData = await req.formData()
+  const data = Object.fromEntries(formData)
 
-  console.log("PayU webhook received:", data);
+  console.log("FULL PAYU DATA:", data)
 
-  return NextResponse.json({
-    success: true
-  });
+  return new Response(JSON.stringify({ success: true }))
 }
