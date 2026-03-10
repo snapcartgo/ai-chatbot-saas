@@ -10,6 +10,7 @@ export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
   try {
+
     const formData = await req.formData();
     const data = Object.fromEntries(formData.entries());
 
@@ -17,19 +18,14 @@ export async function POST(req: Request) {
 
     const status = data.status as string;
     const email = data.email as string;
-    const productInfo = (data.productinfo as string || "").toLowerCase();
+    const productinfo = ((data.productinfo as string) || "").toLowerCase();
 
-    let planName = "starter";
+    let planName: "starter" | "pro" | "growth" = "starter";
 
-    if (productInfo.includes("pro")) {
-      planName = "pro";
-    }
+    if (productinfo.includes("pro")) planName = "pro";
+    if (productinfo.includes("growth")) planName = "growth";
 
-    if (productInfo.includes("growth")) {
-      planName = "growth";
-    }
-
-    const limits: Record<string, { messages: number; chatbots: number }> = {
+    const limits = {
       starter: { messages: 1000, chatbots: 1 },
       pro: { messages: 5000, chatbots: 5 },
       growth: { messages: 20000, chatbots: 20 },
@@ -48,20 +44,18 @@ export async function POST(req: Request) {
           status: "active",
           updated_at: new Date().toISOString(),
         })
-        .eq("calendar_id", email);
+        .eq("email", email);
 
       if (error) {
         console.error("Supabase Update Error:", error);
-        return new Response("Database Update Failed", { status: 500 });
+      } else {
+        console.log(`Plan updated to ${planName} for ${email}`);
       }
-
-      console.log(`Plan updated to ${planName} for ${email}`);
     }
 
-    return new Response("OK", { status: 200 });
-
   } catch (err) {
-    console.error("Webhook Error:", err);
-    return new Response("Webhook Error", { status: 500 });
+    console.error("Webhook Processing Error:", err);
   }
+
+  return new Response("OK", { status: 200 });
 }
