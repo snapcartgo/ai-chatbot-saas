@@ -7,9 +7,9 @@ const supabase = createClient(
 );
 
 export async function POST(req: Request) {
+
   try {
 
-    // PayU sends form-data
     const formData = await req.formData();
     const data = Object.fromEntries(formData);
 
@@ -21,29 +21,25 @@ export async function POST(req: Request) {
 
     if (status === "success" && userId) {
 
-      const { error } = await supabase
+      const { data: updateData, error } = await supabase
         .from("subscriptions")
         .update({
-          plan: plan || "starter",
+          plan: plan,
           status: "active"
         })
-        .eq("user_id", userId);
+        .eq("user_id", userId)
+        .select();
 
-      if (error) {
-        console.error("Supabase update error:", error);
-      } else {
-        console.log("Subscription updated for user:", userId);
-      }
+      console.log("Supabase update result:", updateData, error);
     }
 
     return NextResponse.json({ success: true });
 
   } catch (error) {
+
     console.error("Webhook error:", error);
 
-    return NextResponse.json(
-      { success: false },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false });
+
   }
 }
