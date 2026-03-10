@@ -13,15 +13,15 @@ export async function POST(req: Request) {
 
   console.log("PayU webhook received:", data);
 
-  const status = data.status;
-  const email = data.email;
+  const status = data.status as string;
+  const email = data.email as string;
 
-  if (status === "success") {
+  if (status === "success" && email) {
 
     const { error } = await supabase
       .from("subscriptions")
       .update({
-        plan: "pro",
+        plan: "pro",   // change plan here
         status: "active"
       })
       .eq("email", email);
@@ -29,8 +29,9 @@ export async function POST(req: Request) {
     if (error) {
       console.log("Supabase update error:", error);
     } else {
-      console.log("Plan updated successfully for:", email);
+      console.log("Plan updated for:", email);
     }
+
   }
 
   return NextResponse.json({ success: true });
