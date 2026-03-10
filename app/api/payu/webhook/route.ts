@@ -1,45 +1,33 @@
 import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 
-async function handleRequest(req: Request) {
-  try {
-    let data: any = {};
-
-    const contentType = req.headers.get("content-type");
-
-    if (contentType && contentType.includes("application/x-www-form-urlencoded")) {
-      const formData = await req.formData();
-      data = Object.fromEntries(formData);
-    } 
-    else if (contentType && contentType.includes("application/json")) {
-      data = await req.json();
-    } 
-    else {
-      const { searchParams } = new URL(req.url);
-      data = Object.fromEntries(searchParams);
-    }
-
-    console.log("PayU webhook received:", data);
-
-    return NextResponse.json({
-      success: true,
-      message: "Webhook working",
-      receivedData: data
-    });
-
-  } catch (error) {
-    console.error("Webhook error:", error);
-
-    return NextResponse.json({
-      success: false,
-      error: "Webhook failed"
-    }, { status: 500 });
-  }
-}
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
 export async function POST(req: Request) {
-  return handleRequest(req);
-}
 
-export async function GET(req: Request) {
-  return handleRequest(req);
+  const formData = await req.formData();
+  const data = Object.fromEntries(formData);
+
+  console.log("PayU webhook received:", data);
+
+  const status = data.status;
+  const userId = data.udf1;
+  const plan = data.udf2;
+
+  if (status === "success") {
+
+    await supabase
+      .from("subscriptions")
+      .update({
+        plan: plan,
+        status: "active"
+      })
+      .eq("user_id", userId);
+
+  }
+
+  return NextResponse.json({ success: true });
 }
