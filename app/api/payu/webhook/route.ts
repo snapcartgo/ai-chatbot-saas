@@ -1,31 +1,40 @@
-import { NextResponse } from "next/server"
+import { NextResponse } from "next/server";
 
-export async function POST(req: Request) {
-
+async function handleWebhook(req: Request) {
   try {
 
-    const formData = await req.formData()
+    let data: any = {};
 
-    console.log("PayU Webhook POST:", Object.fromEntries(formData))
+    const contentType = req.headers.get("content-type");
 
-    return NextResponse.json({
-      received: true
-    })
+    if (contentType && contentType.includes("application/x-www-form-urlencoded")) {
+      const formData = await req.formData();
+      data = Object.fromEntries(formData);
+    } else if (contentType && contentType.includes("application/json")) {
+      data = await req.json();
+    } else {
+      const { searchParams } = new URL(req.url);
+      data = Object.fromEntries(searchParams);
+    }
+
+    console.log("PayU webhook received:", data);
+
+    return NextResponse.json({ success: true });
 
   } catch (error) {
-
-    console.error("Webhook POST error:", error)
+    console.error("Webhook error:", error);
 
     return NextResponse.json(
       { error: "Webhook failed" },
       { status: 500 }
-    )
+    );
   }
 }
 
-export async function GET() {
+export async function POST(req: Request) {
+  return handleWebhook(req);
+}
 
-  return NextResponse.json({
-    message: "Webhook working"
-  })
+export async function GET(req: Request) {
+  return handleWebhook(req);
 }
