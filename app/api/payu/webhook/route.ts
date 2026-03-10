@@ -7,27 +7,43 @@ const supabase = createClient(
 );
 
 export async function POST(req: Request) {
+  try {
 
-  const formData = await req.formData();
-  const data = Object.fromEntries(formData);
+    // PayU sends form-data
+    const formData = await req.formData();
+    const data = Object.fromEntries(formData);
 
-  console.log("PayU webhook received:", data);
+    console.log("PayU webhook received:", data);
 
-  const status = data.status;
-  const userId = data.udf1;
-  const plan = data.udf2;
+    const status = data.status as string;
+    const userId = data.udf1 as string;
+    const plan = data.udf2 as string;
 
-  if (status === "success") {
+    if (status === "success" && userId) {
 
-    await supabase
-      .from("subscriptions")
-      .update({
-        plan: plan,
-        status: "active"
-      })
-      .eq("user_id", userId);
+      const { error } = await supabase
+        .from("subscriptions")
+        .update({
+          plan: plan || "starter",
+          status: "active"
+        })
+        .eq("user_id", userId);
 
+      if (error) {
+        console.error("Supabase update error:", error);
+      } else {
+        console.log("Subscription updated for user:", userId);
+      }
+    }
+
+    return NextResponse.json({ success: true });
+
+  } catch (error) {
+    console.error("Webhook error:", error);
+
+    return NextResponse.json(
+      { success: false },
+      { status: 500 }
+    );
   }
-
-  return NextResponse.json({ success: true });
 }

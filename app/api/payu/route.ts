@@ -3,36 +3,22 @@ import { NextResponse } from "next/server";
 export async function GET(req: Request) {
 
   const { searchParams } = new URL(req.url);
-  const plan = searchParams.get("plan");
 
-  if (!plan) {
-    return NextResponse.json(
-      { error: "Plan not provided" },
-      { status: 400 }
-    );
+  const plan = searchParams.get("plan");
+  const userId = searchParams.get("userId");
+
+  let paymentUrl = "";
+
+  if (plan === "starter") {
+    paymentUrl = `https://u.payu.in/PAYUMN/krc7WBd83Jao?udf1=${userId}&udf2=starter`;
   }
 
-  let paymentUrl: string | null = null;
+  if (plan === "pro") {
+    paymentUrl = `https://u.payu.in/PAYUMN/EIhbCIsXk1ge?udf1=${userId}&udf2=pro`;
+  }
 
-  switch (plan) {
-
-    case "starter":
-      paymentUrl = "https://u.payu.in/PAYUMN/krc7WBd83Jao";
-      break;
-
-    case "pro":
-      paymentUrl = "https://u.payu.in/PAYUMN/EIhbCIsXk1ge";
-      break;
-
-    case "growth":
-      paymentUrl = "https://u.payu.in/PAYUMN/XIRREUqtO4gY";
-      break;
-
-    default:
-      return NextResponse.json(
-        { error: "Invalid plan selected" },
-        { status: 400 }
-      );
+  if (plan === "growth") {
+    paymentUrl = `https://u.payu.in/PAYUMN/XIRREUqtO4gY?udf1=${userId}&udf2=growth`;
   }
 
   return NextResponse.redirect(paymentUrl);
