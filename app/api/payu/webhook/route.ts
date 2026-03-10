@@ -15,13 +15,24 @@ export async function POST(req: Request) {
 
   const status = data.status
   const email = data.email
+  const productinfo = String(data.productinfo || "").toLowerCase()
+
+    let plan = "starter"
+
+    if (productinfo.includes("pro")) {
+    plan = "pro"
+    }
+
+    if (productinfo.includes("growth")) {
+    plan = "growth"
+    }
 
   if (status === "success") {
 
     const { error } = await supabase
       .from("subscriptions")
       .update({
-        plan: "pro",
+        plan: plan,
         status: "active"
       })
       .eq("email", email)
@@ -29,7 +40,7 @@ export async function POST(req: Request) {
     if (error) {
       console.log("Supabase error:", error)
     } else {
-      console.log("Plan updated for:", email)
+      console.log("Plan updated for:", email, "Plan:", plan)
     }
   }
 
