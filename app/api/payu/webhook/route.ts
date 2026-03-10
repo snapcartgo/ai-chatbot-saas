@@ -1,61 +1,63 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 
-// Initialize Supabase with Service Role Key
+// Initialize Supabase with Service Role Key to bypass RLS
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+// MUST BE "POST" - PayU sends POST requests
 export async function POST(req: Request) {
   try {
-    // 1. PayU sends data as Form Data
+    // 1. Parse PayU Form Data
     const formData = await req.formData();
     const data = Object.fromEntries(formData.entries());
 
-    // Extract fields sent by PayU
+    // 2. Extract relevant info (PayU uses these keys by default)
     const email = data.email as string;
-    const status = data.status as string;
-    const planFromPayU = (data.productinfo as string || "starter").toLowerCase();
+    const status = data.status as string; 
+    const planName = (data.productinfo as string || "starter").toLowerCase();
 
+    // 3. Only update DB if payment is 'success'
     if (status === 'success') {
-      // 2. Define the limits with proper TypeScript typing
+      
+      // Type-safe limits object (Fixes your TS error)
       const limits: Record<string, { messages: number; chatbots: number }> = {
-        starter: { messages: 100, chatbots: 1 },
+        starter: { messages: 1000, chatbots: 1 },
         pro: { messages: 5000, chatbots: 5 },
         growth: { messages: 20000, chatbots: 20 },
       };
 
-      // 3. Get the selected plan or default to starter
-      const selected = limits[planFromPayU] || limits["starter"];
+      const selected = limits[planName] || limits["starter"];
 
       // 4. Update Supabase
+      // NOTE: Verify if your column is "user_email" or "calendar_id"
       const { error } = await supabase
         .from("subscriptions")
         .update({
-          plan: planFromPayU,
+          plan: planName,
           message_limit: selected.messages,
           chatbot_limit: selected.chatbots,
           status: "active",
-          // Adding expiry logic (optional but recommended)
-          plan_expiry: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+          plan_expiry: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
         })
-        .eq("user_email", email);
+        .eq("user_email", email); 
 
       if (error) {
-        console.error("Supabase Update Error:", error);
-        return new NextResponse("Database Error", { status: 500 });
+        console.error("Supabase Error:", error.message);
+        return new NextResponse("Database Update Failed", { status: 500 });
       }
     }
 
-    // Always return 200 to PayU to acknowledge receipt
+    // 5. PayU needs a 200 OK response to stop retrying
     return new NextResponse("OK", { status: 200 });
 
   } catch (err) {
-    console.error("Webhook Handler Error:", err);
+    console.error("Webhook Error:", err);
     return new NextResponse("Internal Server Error", { status: 500 });
   }
 }
 
-// Force dynamic execution to prevent build-time errors
+// Crucial: Prevents Next.js from trying to cache this route
 export const dynamic = 'force-dynamic';
