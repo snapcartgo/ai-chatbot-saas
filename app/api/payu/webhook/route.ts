@@ -67,7 +67,7 @@ export async function POST(req: Request) {
         plan_expiry: expiryDate.toISOString(),
         message_used: 0
       })
-      .eq("calendar_id", email)
+      .eq("email", email)
 
     if (error) {
       console.log("Supabase error:", error)
