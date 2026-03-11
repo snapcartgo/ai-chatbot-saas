@@ -13,28 +13,42 @@ export async function POST(req: Request) {
 
   console.log("PayU webhook received:", data)
 
-  const status = data.status
-  const email = data.email
-
+  const status = String(data.status || "")
+  const email = String(data.email || "")
   const productinfo = String(data.productinfo || "").toLowerCase()
 
-  let plan = "starter"
+  // Detect plan from PayU product info
+  let plan = "free"
 
   if (productinfo.includes("starter")) plan = "starter"
   if (productinfo.includes("pro")) plan = "pro"
   if (productinfo.includes("growth")) plan = "growth"
 
-  if (status === "success") {
+  if (status === "success" && email) {
 
     let chatbotLimit = 1
     let messageLimit = 100
     let expiryDays = 30
 
+    // Free plan
+    if (plan === "free") {
+      chatbotLimit = 1
+      messageLimit = 100
+    }
+
+    // Starter plan
+    if (plan === "starter") {
+      chatbotLimit = 1
+      messageLimit = 100
+    }
+
+    // Pro plan
     if (plan === "pro") {
       chatbotLimit = 5
       messageLimit = 5000
     }
 
+    // Growth plan
     if (plan === "growth") {
       chatbotLimit = 20
       messageLimit = 20000
