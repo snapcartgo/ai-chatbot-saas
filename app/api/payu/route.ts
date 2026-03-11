@@ -20,11 +20,11 @@ export async function GET(req: Request) {
   }
 
   if (plan === "pro") {
-    paymentUrl = `https://u.payu.in/PAYUMN/EIhbCIsXk1ge?udf1=${encodeURIComponent(email)}&udf2=pro`;
+    paymentUrl = `https://u.payu.in/PAYUMN/krc7WBd83Jao?udf1=${encodeURIComponent(email)}&udf2=pro`;
   }
 
   if (plan === "growth") {
-    paymentUrl = `https://u.payu.in/PAYUMN/XIRREUqtO4gY?udf1=${encodeURIComponent(email)}&udf2=growth`;
+    paymentUrl = `https://u.payu.in/PAYUMN/krc7WBd83Jao?udf1=${encodeURIComponent(email)}&udf2=growth`;
   }
 
   if (!paymentUrl) {
