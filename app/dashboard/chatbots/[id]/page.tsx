@@ -39,32 +39,65 @@ export default function ChatbotSettings() {
   }, [id, router]);
 
   const handleSave = async () => {
-  setSaving(true);
+    setSaving(true);
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
 
-  const { error } = await supabase
-    .from("chatbots")
-    .update({
-      name: bot.name,
-      model: bot.model,
-      temperature: bot.temperature,
-      welcome_message: bot.welcome_message,
-    })
-    .eq("id", id)
-    .eq("user_id", user?.id);   // VERY IMPORTANT
+    const { error } = await supabase
+      .from("chatbots")
+      .update({
+        name: bot.name,
+        model: bot.model,
+        temperature: bot.temperature,
+        welcome_message: bot.welcome_message,
+      })
+      .eq("id", id)
+      .eq("user_id", user?.id);
 
-  setSaving(false);
+    setSaving(false);
 
-  if (error) {
-    console.error(error);
-    alert("Error saving changes");
-  } else {
-    alert("Chatbot updated successfully!");
-  }
-};
+    if (error) {
+      console.error(error);
+      alert("Error saving changes");
+    } else {
+      alert("Chatbot updated successfully!");
+    }
+  };
+
+  const handleDelete = async () => {
+    const confirmDelete = confirm(
+      "Are you sure you want to delete this chatbot?"
+    );
+
+    if (!confirmDelete) return;
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      router.push("/login");
+      return;
+    }
+
+    const { error } = await supabase
+      .from("chatbots")
+      .delete()
+      .eq("id", id)
+      .eq("user_id", user.id);
+
+    if (error) {
+      console.error(error);
+      alert("Error deleting chatbot");
+      return;
+    }
+
+    alert("Chatbot deleted successfully");
+
+    router.push("/dashboard/chatbots");
+  };
 
   if (loading) return <p>Loading...</p>;
   if (!bot) return <p>Chatbot not found.</p>;
@@ -149,65 +182,57 @@ export default function ChatbotSettings() {
       >
         {saving ? "Saving..." : "Save Changes"}
       </button>
+
       <button
-  onClick={async () => {
-    const confirmDelete = confirm("Are you sure?");
-    if (!confirmDelete) return;
+        onClick={handleDelete}
+        style={{
+          marginTop: 15,
+          padding: "10px 20px",
+          background: "red",
+          color: "white",
+          borderRadius: 6,
+        }}
+      >
+        Delete Chatbot
+      </button>
 
-    await supabase
-      .from("chatbots")
-      .delete()
-      .eq("id", id);
+      <div style={{ marginTop: 40 }}>
+        <h3>Embed Script</h3>
 
-    router.push("/dashboard/chatbots");
-  }}
-  style={{
-    marginTop: 15,
-    padding: "10px 20px",
-    background: "red",
-    color: "white",
-    borderRadius: 6,
-  }}
->
-  Delete Chatbot
-</button>
-<div style={{ marginTop: 40 }}>
-  <h3>Embed Script</h3>
+        <p>Copy and paste this into your website:</p>
 
-  <p>Copy and paste this into your website:</p>
+        <textarea
+          readOnly
+          value={`<script src="https://ai-chatbot-saas-five.vercel.app/widget.js" data-bot-id="${id}"></script>`}
+          style={{
+            width: "100%",
+            padding: 10,
+            minHeight: 80,
+            marginTop: 10,
+            background: "#111",
+            color: "white",
+            borderRadius: 8,
+          }}
+        />
 
-  <textarea
-    readOnly
-    value={`<script src="https://ai-chatbot-saas-five.vercel.app/widget.js" data-bot-id="${id}"></script>`}
-    style={{
-      width: "100%",
-      padding: 10,
-      minHeight: 80,
-      marginTop: 10,
-      background: "#111",
-      color: "white",
-      borderRadius: 8,
-    }}
-  />
-
-  <button
-    onClick={() => {
-      navigator.clipboard.writeText(
-        `<script src="http://localhost:3000/widget.js" data-bot-id="${id}"></script>`
-      );
-      alert("Copied!");
-    }}
-    style={{
-      marginTop: 10,
-      padding: "8px 15px",
-      background: "#2563eb",
-      color: "white",
-      borderRadius: 6,
-    }}
-  >
-    Copy Script
-  </button>
-</div>
+        <button
+          onClick={() => {
+            navigator.clipboard.writeText(
+              `<script src="https://ai-chatbot-saas-five.vercel.app/widget.js" data-bot-id="${id}"></script>`
+            );
+            alert("Copied!");
+          }}
+          style={{
+            marginTop: 10,
+            padding: "8px 15px",
+            background: "#2563eb",
+            color: "white",
+            borderRadius: 6,
+          }}
+        >
+          Copy Script
+        </button>
+      </div>
     </div>
   );
 }
