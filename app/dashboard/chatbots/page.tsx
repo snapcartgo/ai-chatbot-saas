@@ -6,7 +6,9 @@ import { supabase } from "@/lib/supabase";
 
 export default function ChatbotsPage() {
   const [bots, setBots] = useState<any[]>([]);
+  const [chatbotLimit, setChatbotLimit] = useState<number>(1);
   const [loading, setLoading] = useState(true);
+
   const router = useRouter();
 
   useEffect(() => {
@@ -20,12 +22,25 @@ export default function ChatbotsPage() {
         return;
       }
 
-      const { data } = await supabase
+      // Load user's chatbots
+      const { data: botData } = await supabase
         .from("chatbots")
         .select("*")
         .eq("user_id", user.id);
 
-      setBots(data || []);
+      setBots(botData || []);
+
+      // Load subscription limit
+      const { data: subscription } = await supabase
+        .from("subscriptions")
+        .select("chatbot_limit")
+        .eq("calendar_id", user.email)
+        .single();
+
+      if (subscription) {
+        setChatbotLimit(subscription.chatbot_limit);
+      }
+
       setLoading(false);
     };
 
@@ -38,6 +53,12 @@ export default function ChatbotsPage() {
     } = await supabase.auth.getUser();
 
     if (!user) return;
+
+    // Check chatbot limit
+    if (bots.length >= chatbotLimit) {
+      alert("You have reached your chatbot limit. Please upgrade your plan.");
+      return;
+    }
 
     const { data, error } = await supabase
       .from("chatbots")
@@ -74,6 +95,10 @@ export default function ChatbotsPage() {
         + Create Chatbot
       </button>
 
+      <p>
+        Chatbots used: {bots.length} / {chatbotLimit}
+      </p>
+
       {loading ? (
         <p>Loading...</p>
       ) : bots.length === 0 ? (
@@ -103,7 +128,3 @@ export default function ChatbotsPage() {
     </div>
   );
 }
-
-<h1 className="text-4xl font-bold text-blue-600">
-Tailwind Working
-</h1>
