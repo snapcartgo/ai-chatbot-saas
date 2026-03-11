@@ -2,297 +2,190 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { useRouter, useParams } from "next/navigation";
 
-export default function KnowledgeBasePage() {
+export default function ChatbotSettings() {
 
-  const [items, setItems] = useState<any[]>([]);
-  const [chatbots, setChatbots] = useState<any[]>([]);
-  const [selectedBot, setSelectedBot] = useState("");
-  const [question, setQuestion] = useState("");
-  const [answer, setAnswer] = useState("");
+  const router = useRouter();
+  const params = useParams();
+  const id = params.id as string;
+
   const [loading, setLoading] = useState(true);
+  const [bot, setBot] = useState<any>(null);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    loadChatbots();
-  }, []);
+    const loadBot = async () => {
 
-  useEffect(() => {
-    if (selectedBot) {
-      loadKnowledge();
-    }
-  }, [selectedBot]);
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
 
-  // Load user's chatbots
-  const loadChatbots = async () => {
-
-    const { data: { user } } = await supabase.auth.getUser();
-
-    if (!user) return;
-
-    const { data } = await supabase
-      .from("chatbots")
-      .select("id,name")
-      .eq("user_id", user.id);
-
-    setChatbots(data || []);
-
-    if (data && data.length > 0) {
-      setSelectedBot(data[0].id);
-    }
-
-    setLoading(false);
-  };
-
-  // Load knowledge for selected chatbot
-  const loadKnowledge = async () => {
-
-    const { data, error } = await supabase
-      .from("knowledge_base")
-      .select("*")
-      .eq("chatbot_id", selectedBot)
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      console.error(error);
-    }
-
-    setItems(data || []);
-  };
-
-  // Add manual knowledge
-  const addKnowledge = async () => {
-
-    if (!question || !answer) {
-      alert("Please fill question and answer");
-      return;
-    }
-
-    const { error } = await supabase
-      .from("knowledge_base")
-      .insert({
-        chatbot_id: selectedBot,
-        question,
-        answer,
-        content: question + " " + answer,
-        source: "manual"
-      });
-
-    if (error) {
-      console.error(error);
-      alert("Error saving knowledge");
-      return;
-    }
-
-    setQuestion("");
-    setAnswer("");
-
-    loadKnowledge();
-  };
-
-  // Delete knowledge
-  const deleteKnowledge = async (id: string) => {
-
-    const { error } = await supabase
-      .from("knowledge_base")
-      .delete()
-      .eq("id", id);
-
-    if (error) {
-      console.error(error);
-      alert("Error deleting knowledge");
-      return;
-    }
-
-    loadKnowledge();
-  };
-
-  // Upload PDF
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const formData = new FormData();
-
-    formData.append("file", file);
-    formData.append("chatbotId", selectedBot);
-
-    try {
-
-      const res = await fetch("/api/upload-pdf", {
-        method: "POST",
-        body: formData
-      });
-
-      const data = await res.json();
-
-      if (!res.ok || data.error) {
-        alert(data.error || "Upload failed");
-      } else {
-        alert("Document uploaded successfully");
-        loadKnowledge();
+      if (!user) {
+        router.push("/login");
+        return;
       }
 
-    } catch (err) {
-      console.error(err);
-      alert("Upload error");
+      const { data, error } = await supabase
+        .from("chatbots")
+        .select("*")
+        .eq("id", id)
+        .eq("user_id", user.id)
+        .single();
+
+      if (error) {
+        console.error(error);
+      }
+
+      setBot(data);
+      setLoading(false);
+    };
+
+    loadBot();
+
+  }, [id, router]);
+
+  const handleSave = async () => {
+
+    setSaving(true);
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      alert("User not logged in");
+      return;
     }
+
+    const { data, error } = await supabase
+      .from("chatbots")
+      .update({
+        name: bot.name,
+        model: bot.model,
+        temperature: bot.temperature,
+        welcome_message: bot.welcome_message
+      })
+      .eq("id", id)
+      .eq("user_id", user.id)
+      .select();
+
+    setSaving(false);
+
+    if (error) {
+      console.error("Update error:", error);
+      alert("Error updating chatbot");
+      return;
+    }
+
+    if (data) {
+      setBot(data[0]);
+    }
+
+    alert("Chatbot updated successfully!");
   };
 
+  if (loading) return <p>Loading...</p>;
+
+  if (!bot) return <p>Chatbot not found.</p>;
+
   return (
-    <div style={{ padding: 30, maxWidth: 900 }}>
+    <div style={{ padding: 40, maxWidth: 600 }}>
 
-      <h1 style={{ fontSize: 28, marginBottom: 20 }}>
-        Knowledge Base
-      </h1>
+      <h1>Edit Chatbot</h1>
 
-      {/* CHATBOT SELECTOR */}
+      <div style={{ marginTop: 20 }}>
+        <label>Name</label>
 
-      <div style={{ marginBottom: 20 }}>
+        <input
+          type="text"
+          value={bot.name || ""}
+          onChange={(e) =>
+            setBot({ ...bot, name: e.target.value })
+          }
+          style={{
+            width: "100%",
+            padding: 8,
+            marginTop: 5
+          }}
+        />
+      </div>
 
-        <label>Select Chatbot</label>
+      <div style={{ marginTop: 20 }}>
+        <label>Model</label>
 
         <select
-          value={selectedBot}
-          onChange={(e) => setSelectedBot(e.target.value)}
+          value={bot.model}
+          onChange={(e) =>
+            setBot({ ...bot, model: e.target.value })
+          }
           style={{
             width: "100%",
-            padding: 10,
-            marginTop: 5,
-            border: "1px solid #ccc",
-            borderRadius: 6
+            padding: 8,
+            marginTop: 5
           }}
         >
-
-          {chatbots.map((bot:any) => (
-            <option key={bot.id} value={bot.id}>
-              {bot.name}
-            </option>
-          ))}
-
+          <option value="gpt-4o-mini">gpt-4o-mini</option>
+          <option value="gpt-4o">gpt-4o</option>
         </select>
-
       </div>
 
-      {/* FILE UPLOAD */}
-
-      <div
-        style={{
-          marginBottom: 20,
-          padding: 15,
-          border: "1px dashed #ccc",
-          borderRadius: 8
-        }}
-      >
-
-        <p style={{ marginBottom: 10 }}>
-          Upload PDF or DOCX
-        </p>
+      <div style={{ marginTop: 20 }}>
+        <label>Temperature</label>
 
         <input
-          type="file"
-          accept=".pdf,.docx"
-          onChange={handleFileUpload}
-        />
-
-      </div>
-
-      {/* MANUAL QA */}
-
-      <div style={{ marginBottom: 30 }}>
-
-        <input
-          placeholder="Question"
-          value={question}
-          onChange={(e) => setQuestion(e.target.value)}
+          type="number"
+          step="0.1"
+          min="0"
+          max="1"
+          value={bot.temperature}
+          onChange={(e) =>
+            setBot({
+              ...bot,
+              temperature: parseFloat(e.target.value)
+            })
+          }
           style={{
             width: "100%",
-            padding: 10,
-            marginBottom: 10,
-            border: "1px solid #ddd",
-            borderRadius: 6
+            padding: 8,
+            marginTop: 5
           }}
         />
+      </div>
+
+      <div style={{ marginTop: 20 }}>
+        <label>Welcome Message</label>
 
         <textarea
-          placeholder="Answer"
-          value={answer}
-          onChange={(e) => setAnswer(e.target.value)}
+          value={bot.welcome_message}
+          onChange={(e) =>
+            setBot({
+              ...bot,
+              welcome_message: e.target.value
+            })
+          }
           style={{
             width: "100%",
-            padding: 10,
-            marginBottom: 10,
-            border: "1px solid #ddd",
-            borderRadius: 6,
-            minHeight: 80
+            padding: 8,
+            marginTop: 5,
+            minHeight: 100
           }}
         />
-
-        <button
-          onClick={addKnowledge}
-          style={{
-            padding: "10px 20px",
-            background: "#2563eb",
-            color: "#fff",
-            border: "none",
-            borderRadius: 6
-          }}
-        >
-          Add Knowledge
-        </button>
-
       </div>
 
-      {/* KNOWLEDGE LIST */}
-
-      {items.length === 0 && (
-        <p>No knowledge added yet.</p>
-      )}
-
-      {items.map((item) => (
-
-        <div
-          key={item.id}
-          style={{
-            border: "1px solid #ddd",
-            padding: 15,
-            marginBottom: 10,
-            borderRadius: 6,
-            background: "#fafafa"
-          }}
-        >
-
-          {item.question && (
-            <p><b>Q:</b> {item.question}</p>
-          )}
-
-          {item.answer && (
-            <p><b>A:</b> {item.answer}</p>
-          )}
-
-          {!item.question && (
-            <p>
-              <b>Document:</b> {item.content?.substring(0,150)}...
-            </p>
-          )}
-
-          <button
-            onClick={() => deleteKnowledge(item.id)}
-            style={{
-              background: "#ef4444",
-              color: "#fff",
-              border: "none",
-              padding: "6px 12px",
-              marginTop: 10,
-              borderRadius: 5
-            }}
-          >
-            Delete
-          </button>
-
-        </div>
-
-      ))}
+      <button
+        onClick={handleSave}
+        disabled={saving}
+        style={{
+          marginTop: 30,
+          padding: "10px 20px",
+          background: "#2563eb",
+          color: "white",
+          borderRadius: 6
+        }}
+      >
+        {saving ? "Saving..." : "Save Changes"}
+      </button>
 
     </div>
   );
