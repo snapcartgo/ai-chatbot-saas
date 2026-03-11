@@ -85,8 +85,10 @@ export default function ChatbotSettings() {
     const { error } = await supabase
       .from("chatbots")
       .delete()
-      .eq("id", id)
-      .eq("user_id", user.id);
+      .match({
+        id: id,
+        user_id: user.id,
+      });
 
     if (error) {
       console.error(error);
@@ -97,6 +99,7 @@ export default function ChatbotSettings() {
     alert("Chatbot deleted successfully");
 
     router.push("/dashboard/chatbots");
+    router.refresh();
   };
 
   if (loading) return <p>Loading...</p>;
