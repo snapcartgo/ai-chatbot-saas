@@ -6,49 +6,50 @@ import { supabase } from "@/lib/supabase";
 export default function KnowledgeBasePage() {
 
   const [items, setItems] = useState<any[]>([]);
+  const [chatbots, setChatbots] = useState<any[]>([]);
+  const [selectedBot, setSelectedBot] = useState("");
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
   const [loading, setLoading] = useState(true);
-  const [chatbotId, setChatbotId] = useState<string | null>(null);
 
   useEffect(() => {
-    loadKnowledge();
+    loadChatbots();
   }, []);
 
-  const loadKnowledge = async () => {
-
-    setLoading(true);
-
-    const {
-      data: { user }
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      console.error("User not logged in");
-      setLoading(false);
-      return;
+  useEffect(() => {
+    if (selectedBot) {
+      loadKnowledge();
     }
+  }, [selectedBot]);
 
-    // get chatbot belonging to this user
-    const { data: bot } = await supabase
+  // Load user's chatbots
+  const loadChatbots = async () => {
+
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) return;
+
+    const { data } = await supabase
       .from("chatbots")
-      .select("id")
-      .eq("user_id", user.id)
-      .limit(1)
-      .maybeSingle();
+      .select("id,name")
+      .eq("user_id", user.id);
 
-    if (!bot) {
-      console.error("No chatbot found for user");
-      setLoading(false);
-      return;
+    setChatbots(data || []);
+
+    if (data && data.length > 0) {
+      setSelectedBot(data[0].id);
     }
 
-    setChatbotId(bot.id);
+    setLoading(false);
+  };
+
+  // Load knowledge for selected chatbot
+  const loadKnowledge = async () => {
 
     const { data, error } = await supabase
       .from("knowledge_base")
       .select("*")
-      .eq("chatbot_id", bot.id)
+      .eq("chatbot_id", selectedBot)
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -56,9 +57,9 @@ export default function KnowledgeBasePage() {
     }
 
     setItems(data || []);
-    setLoading(false);
   };
 
+  // Add manual knowledge
   const addKnowledge = async () => {
 
     if (!question || !answer) {
@@ -66,25 +67,18 @@ export default function KnowledgeBasePage() {
       return;
     }
 
-    if (!chatbotId) {
-      alert("Chatbot not found");
-      return;
-    }
-
     const { error } = await supabase
       .from("knowledge_base")
-      .insert([
-        {
-          chatbot_id: chatbotId,
-          question: question,
-          answer: answer,
-          content: question + " " + answer,
-          source: "manual"
-        }
-      ]);
+      .insert({
+        chatbot_id: selectedBot,
+        question,
+        answer,
+        content: question + " " + answer,
+        source: "manual"
+      });
 
     if (error) {
-      console.error("Insert error:", error);
+      console.error(error);
       alert("Error saving knowledge");
       return;
     }
@@ -95,6 +89,7 @@ export default function KnowledgeBasePage() {
     loadKnowledge();
   };
 
+  // Delete knowledge
   const deleteKnowledge = async (id: string) => {
 
     const { error } = await supabase
@@ -111,23 +106,16 @@ export default function KnowledgeBasePage() {
     loadKnowledge();
   };
 
-  const handleFileUpload = async (
-    e: React.ChangeEvent<HTMLInputElement>
-  ) => {
+  // Upload PDF
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
 
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (!chatbotId) {
-      alert("Chatbot not loaded yet");
-      return;
-    }
-
-    setLoading(true);
-
     const formData = new FormData();
+
     formData.append("file", file);
-    formData.append("chatbotId", chatbotId);
+    formData.append("chatbotId", selectedBot);
 
     try {
 
@@ -142,46 +130,76 @@ export default function KnowledgeBasePage() {
         alert(data.error || "Upload failed");
       } else {
         alert("Document uploaded successfully");
-        e.target.value = "";
         loadKnowledge();
       }
 
     } catch (err) {
       console.error(err);
-      alert("Upload failed");
+      alert("Upload error");
     }
-
-    setLoading(false);
   };
 
   return (
-    <div style={{ padding: "30px", maxWidth: "900px" }}>
+    <div style={{ padding: 30, maxWidth: 900 }}>
 
-      <h1 style={{ fontSize: "26px", marginBottom: "20px" }}>
+      <h1 style={{ fontSize: 28, marginBottom: 20 }}>
         Knowledge Base
       </h1>
 
-      <div style={{
-        marginBottom: "20px",
-        padding: "15px",
-        border: "1px dashed #ccc",
-        borderRadius: "8px"
-      }}>
+      {/* CHATBOT SELECTOR */}
 
-        <p style={{ marginBottom: "10px", fontWeight: "bold" }}>
-          Upload PDF or Docx
+      <div style={{ marginBottom: 20 }}>
+
+        <label>Select Chatbot</label>
+
+        <select
+          value={selectedBot}
+          onChange={(e) => setSelectedBot(e.target.value)}
+          style={{
+            width: "100%",
+            padding: 10,
+            marginTop: 5,
+            border: "1px solid #ccc",
+            borderRadius: 6
+          }}
+        >
+
+          {chatbots.map((bot:any) => (
+            <option key={bot.id} value={bot.id}>
+              {bot.name}
+            </option>
+          ))}
+
+        </select>
+
+      </div>
+
+      {/* FILE UPLOAD */}
+
+      <div
+        style={{
+          marginBottom: 20,
+          padding: 15,
+          border: "1px dashed #ccc",
+          borderRadius: 8
+        }}
+      >
+
+        <p style={{ marginBottom: 10 }}>
+          Upload PDF or DOCX
         </p>
 
         <input
           type="file"
           accept=".pdf,.docx"
           onChange={handleFileUpload}
-          disabled={loading}
         />
 
       </div>
 
-      <div style={{ marginBottom: "30px" }}>
+      {/* MANUAL QA */}
+
+      <div style={{ marginBottom: 30 }}>
 
         <input
           placeholder="Question"
@@ -189,10 +207,10 @@ export default function KnowledgeBasePage() {
           onChange={(e) => setQuestion(e.target.value)}
           style={{
             width: "100%",
-            padding: "10px",
-            marginBottom: "10px",
+            padding: 10,
+            marginBottom: 10,
             border: "1px solid #ddd",
-            borderRadius: "6px"
+            borderRadius: 6
           }}
         />
 
@@ -202,33 +220,32 @@ export default function KnowledgeBasePage() {
           onChange={(e) => setAnswer(e.target.value)}
           style={{
             width: "100%",
-            padding: "10px",
-            marginBottom: "10px",
+            padding: 10,
+            marginBottom: 10,
             border: "1px solid #ddd",
-            borderRadius: "6px",
-            minHeight: "80px"
+            borderRadius: 6,
+            minHeight: 80
           }}
         />
 
         <button
           onClick={addKnowledge}
-          disabled={loading}
           style={{
             padding: "10px 20px",
-            background: loading ? "#94a3b8" : "#2563eb",
+            background: "#2563eb",
             color: "#fff",
             border: "none",
-            borderRadius: "6px"
+            borderRadius: 6
           }}
         >
-          {loading ? "Processing..." : "Add Knowledge"}
+          Add Knowledge
         </button>
 
       </div>
 
-      {loading && <p>Working on it...</p>}
+      {/* KNOWLEDGE LIST */}
 
-      {!loading && items.length === 0 && (
+      {items.length === 0 && (
         <p>No knowledge added yet.</p>
       )}
 
@@ -238,25 +255,24 @@ export default function KnowledgeBasePage() {
           key={item.id}
           style={{
             border: "1px solid #ddd",
-            padding: "15px",
-            marginBottom: "10px",
-            borderRadius: "6px",
+            padding: 15,
+            marginBottom: 10,
+            borderRadius: 6,
             background: "#fafafa"
           }}
         >
 
           {item.question && (
-            <p><strong>Q:</strong> {item.question}</p>
+            <p><b>Q:</b> {item.question}</p>
           )}
 
           {item.answer && (
-            <p><strong>A:</strong> {item.answer}</p>
+            <p><b>A:</b> {item.answer}</p>
           )}
 
-          {item.content && !item.question && (
+          {!item.question && (
             <p>
-              <strong>Document:</strong>{" "}
-              {item.content.substring(0, 150)}...
+              <b>Document:</b> {item.content?.substring(0,150)}...
             </p>
           )}
 
@@ -267,8 +283,8 @@ export default function KnowledgeBasePage() {
               color: "#fff",
               border: "none",
               padding: "6px 12px",
-              marginTop: "10px",
-              borderRadius: "5px"
+              marginTop: 10,
+              borderRadius: 5
             }}
           >
             Delete
