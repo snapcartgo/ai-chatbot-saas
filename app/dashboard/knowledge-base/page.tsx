@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 
 export default function KnowledgeBasePage() {
+
   const [items, setItems] = useState<any[]>([]);
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
@@ -15,16 +16,29 @@ export default function KnowledgeBasePage() {
   }, []);
 
   const loadKnowledge = async () => {
+
     setLoading(true);
 
+    const {
+      data: { user }
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      console.error("User not logged in");
+      setLoading(false);
+      return;
+    }
+
+    // get chatbot belonging to this user
     const { data: bot } = await supabase
       .from("chatbots")
       .select("id")
+      .eq("user_id", user.id)
       .limit(1)
       .maybeSingle();
 
     if (!bot) {
-      console.error("No chatbot found in database");
+      console.error("No chatbot found for user");
       setLoading(false);
       return;
     }
@@ -46,6 +60,7 @@ export default function KnowledgeBasePage() {
   };
 
   const addKnowledge = async () => {
+
     if (!question || !answer) {
       alert("Please fill question and answer");
       return;
@@ -69,17 +84,19 @@ export default function KnowledgeBasePage() {
       ]);
 
     if (error) {
-      console.error("Supabase insert error:", error);
+      console.error("Insert error:", error);
       alert("Error saving knowledge");
       return;
     }
 
     setQuestion("");
     setAnswer("");
+
     loadKnowledge();
   };
 
   const deleteKnowledge = async (id: string) => {
+
     const { error } = await supabase
       .from("knowledge_base")
       .delete()
@@ -88,18 +105,21 @@ export default function KnowledgeBasePage() {
     if (error) {
       console.error(error);
       alert("Error deleting knowledge");
+      return;
     }
 
     loadKnowledge();
   };
 
-  // CORRECTED: Single function, no duplicates, sends chatbotId to API
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+
     const file = e.target.files?.[0];
     if (!file) return;
 
     if (!chatbotId) {
-      alert("Chatbot ID not loaded yet. Please wait.");
+      alert("Chatbot not loaded yet");
       return;
     }
 
@@ -107,10 +127,10 @@ export default function KnowledgeBasePage() {
 
     const formData = new FormData();
     formData.append("file", file);
-    // CRITICAL: We pass the ID so the API knows which bot this PDF belongs to
     formData.append("chatbotId", chatbotId);
 
     try {
+
       const res = await fetch("/api/upload-pdf", {
         method: "POST",
         body: formData
@@ -121,35 +141,48 @@ export default function KnowledgeBasePage() {
       if (!res.ok || data.error) {
         alert(data.error || "Upload failed");
       } else {
-        alert("Document uploaded and processed successfully!");
-        e.target.value = ""; // Clear the file input
-        loadKnowledge(); // Refresh the list
+        alert("Document uploaded successfully");
+        e.target.value = "";
+        loadKnowledge();
       }
+
     } catch (err) {
-      console.error("Upload error:", err);
-      alert("An error occurred during upload.");
-    } finally {
-      setLoading(false);
+      console.error(err);
+      alert("Upload failed");
     }
+
+    setLoading(false);
   };
 
   return (
     <div style={{ padding: "30px", maxWidth: "900px" }}>
+
       <h1 style={{ fontSize: "26px", marginBottom: "20px" }}>
         Knowledge Base
       </h1>
 
-      <div style={{ marginBottom: "20px", padding: "15px", border: "1px dashed #ccc", borderRadius: "8px" }}>
-        <p style={{ marginBottom: "10px", fontWeight: "bold" }}>Upload PDF or Docx</p>
+      <div style={{
+        marginBottom: "20px",
+        padding: "15px",
+        border: "1px dashed #ccc",
+        borderRadius: "8px"
+      }}>
+
+        <p style={{ marginBottom: "10px", fontWeight: "bold" }}>
+          Upload PDF or Docx
+        </p>
+
         <input
           type="file"
           accept=".pdf,.docx"
           onChange={handleFileUpload}
           disabled={loading}
         />
+
       </div>
 
       <div style={{ marginBottom: "30px" }}>
+
         <input
           placeholder="Question"
           value={question}
@@ -185,12 +218,12 @@ export default function KnowledgeBasePage() {
             background: loading ? "#94a3b8" : "#2563eb",
             color: "#fff",
             border: "none",
-            borderRadius: "6px",
-            cursor: loading ? "not-allowed" : "pointer"
+            borderRadius: "6px"
           }}
         >
           {loading ? "Processing..." : "Add Knowledge"}
         </button>
+
       </div>
 
       {loading && <p>Working on it...</p>}
@@ -200,6 +233,7 @@ export default function KnowledgeBasePage() {
       )}
 
       {items.map((item) => (
+
         <div
           key={item.id}
           style={{
@@ -210,10 +244,20 @@ export default function KnowledgeBasePage() {
             background: "#fafafa"
           }}
         >
-          {item.question && <p><strong>Q:</strong> {item.question}</p>}
-          {item.answer && <p><strong>A:</strong> {item.answer}</p>}
+
+          {item.question && (
+            <p><strong>Q:</strong> {item.question}</p>
+          )}
+
+          {item.answer && (
+            <p><strong>A:</strong> {item.answer}</p>
+          )}
+
           {item.content && !item.question && (
-            <p><strong>Document:</strong> {item.content.substring(0, 150)}...</p>
+            <p>
+              <strong>Document:</strong>{" "}
+              {item.content.substring(0, 150)}...
+            </p>
           )}
 
           <button
@@ -224,14 +268,16 @@ export default function KnowledgeBasePage() {
               border: "none",
               padding: "6px 12px",
               marginTop: "10px",
-              borderRadius: "5px",
-              cursor: "pointer"
+              borderRadius: "5px"
             }}
           >
             Delete
           </button>
+
         </div>
+
       ))}
+
     </div>
   );
 }
