@@ -5,7 +5,6 @@ import { supabase } from "@/lib/supabase";
 import { useRouter, useParams } from "next/navigation";
 
 export default function ChatbotSettings() {
-
   const router = useRouter();
   const params = useParams();
   const id = params.id as string;
@@ -16,7 +15,6 @@ export default function ChatbotSettings() {
 
   useEffect(() => {
     const loadBot = async () => {
-
       const {
         data: { user },
       } = await supabase.auth.getUser();
@@ -34,7 +32,7 @@ export default function ChatbotSettings() {
         .single();
 
       if (error) {
-        console.error(error);
+        console.error("Load bot error:", error);
       }
 
       setBot(data);
@@ -42,11 +40,9 @@ export default function ChatbotSettings() {
     };
 
     loadBot();
-
   }, [id, router]);
 
   const handleSave = async () => {
-
     setSaving(true);
 
     const {
@@ -64,66 +60,88 @@ export default function ChatbotSettings() {
         name: bot.name,
         model: bot.model,
         temperature: bot.temperature,
-        welcome_message: bot.welcome_message
+        welcome_message: bot.welcome_message,
       })
       .eq("id", id)
       .eq("user_id", user.id)
-      .select();
+      .select()
+      .single();
 
     setSaving(false);
 
     if (error) {
       console.error("Update error:", error);
-      alert("Error updating chatbot");
+      alert("Error saving changes");
       return;
     }
 
-    if (data) {
-      setBot(data[0]);
-    }
-
+    setBot(data);
     alert("Chatbot updated successfully!");
   };
 
-  if (loading) return <p>Loading...</p>;
+  const handleDelete = async () => {
+    const confirmDelete = confirm(
+      "Are you sure you want to delete this chatbot?"
+    );
 
+    if (!confirmDelete) return;
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      router.push("/login");
+      return;
+    }
+
+    const { error } = await supabase
+      .from("chatbots")
+      .delete()
+      .match({
+        id: id,
+        user_id: user.id,
+      });
+
+    if (error) {
+      console.error("Delete error:", error);
+      alert("Error deleting chatbot");
+      return;
+    }
+
+    alert("Chatbot deleted successfully");
+
+    router.push("/dashboard/chatbots");
+    router.refresh();
+  };
+
+  if (loading) return <p>Loading...</p>;
   if (!bot) return <p>Chatbot not found.</p>;
 
   return (
     <div style={{ padding: 40, maxWidth: 600 }}>
-
       <h1>Edit Chatbot</h1>
 
       <div style={{ marginTop: 20 }}>
         <label>Name</label>
-
         <input
           type="text"
           value={bot.name || ""}
           onChange={(e) =>
             setBot({ ...bot, name: e.target.value })
           }
-          style={{
-            width: "100%",
-            padding: 8,
-            marginTop: 5
-          }}
+          style={{ width: "100%", padding: 8, marginTop: 5 }}
         />
       </div>
 
       <div style={{ marginTop: 20 }}>
         <label>Model</label>
-
         <select
           value={bot.model}
           onChange={(e) =>
             setBot({ ...bot, model: e.target.value })
           }
-          style={{
-            width: "100%",
-            padding: 8,
-            marginTop: 5
-          }}
+          style={{ width: "100%", padding: 8, marginTop: 5 }}
         >
           <option value="gpt-4o-mini">gpt-4o-mini</option>
           <option value="gpt-4o">gpt-4o</option>
@@ -132,7 +150,6 @@ export default function ChatbotSettings() {
 
       <div style={{ marginTop: 20 }}>
         <label>Temperature</label>
-
         <input
           type="number"
           step="0.1"
@@ -142,33 +159,28 @@ export default function ChatbotSettings() {
           onChange={(e) =>
             setBot({
               ...bot,
-              temperature: parseFloat(e.target.value)
+              temperature: parseFloat(e.target.value),
             })
           }
-          style={{
-            width: "100%",
-            padding: 8,
-            marginTop: 5
-          }}
+          style={{ width: "100%", padding: 8, marginTop: 5 }}
         />
       </div>
 
       <div style={{ marginTop: 20 }}>
         <label>Welcome Message</label>
-
         <textarea
           value={bot.welcome_message}
           onChange={(e) =>
             setBot({
               ...bot,
-              welcome_message: e.target.value
+              welcome_message: e.target.value,
             })
           }
           style={{
             width: "100%",
             padding: 8,
             marginTop: 5,
-            minHeight: 100
+            minHeight: 100,
           }}
         />
       </div>
@@ -181,12 +193,62 @@ export default function ChatbotSettings() {
           padding: "10px 20px",
           background: "#2563eb",
           color: "white",
-          borderRadius: 6
+          borderRadius: 6,
         }}
       >
         {saving ? "Saving..." : "Save Changes"}
       </button>
 
+      <button
+        onClick={handleDelete}
+        style={{
+          marginTop: 15,
+          padding: "10px 20px",
+          background: "red",
+          color: "white",
+          borderRadius: 6,
+        }}
+      >
+        Delete Chatbot
+      </button>
+
+      <div style={{ marginTop: 40 }}>
+        <h3>Embed Script</h3>
+
+        <p>Copy and paste this into your website:</p>
+
+        <textarea
+          readOnly
+          value={`<script src="https://ai-chatbot-saas-five.vercel.app/widget.js" data-bot-id="${id}"></script>`}
+          style={{
+            width: "100%",
+            padding: 10,
+            minHeight: 80,
+            marginTop: 10,
+            background: "#111",
+            color: "white",
+            borderRadius: 8,
+          }}
+        />
+
+        <button
+          onClick={() => {
+            navigator.clipboard.writeText(
+              `<script src="https://ai-chatbot-saas-five.vercel.app/widget.js" data-bot-id="${id}"></script>`
+            );
+            alert("Copied!");
+          }}
+          style={{
+            marginTop: 10,
+            padding: "8px 15px",
+            background: "#2563eb",
+            color: "white",
+            borderRadius: 6,
+          }}
+        >
+          Copy Script
+        </button>
+      </div>
     </div>
   );
 }
