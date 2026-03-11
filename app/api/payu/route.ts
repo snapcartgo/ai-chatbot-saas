@@ -20,12 +20,12 @@ export async function GET(req: Request) {
 
   // PRO PLAN
   if (plan === "pro") {
-    paymentUrl = `https://u.payu.in/PAYUMN/EIhbCIsXk1ge?udf1=${encodeURIComponent(email)}&udf2=pro`;
+    paymentUrl = `https://u.payu.in/PAYUMN/aJJ8bNGO12O4?udf1=${encodeURIComponent(email)}&udf2=pro`;
   }
 
   // GROWTH PLAN
   if (plan === "growth") {
-    paymentUrl = `https://u.payu.in/PAYUMN/XIRREUqtO4gY?udf1=${encodeURIComponent(email)}&udf2=growth`;
+    paymentUrl = `https://u.payu.in/PAYUMN/ar3pLNf5BGsK?udf1=${encodeURIComponent(email)}&udf2=growth`;
   }
 
   if (!paymentUrl) {
