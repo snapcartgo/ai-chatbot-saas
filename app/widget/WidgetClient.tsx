@@ -12,7 +12,9 @@ type Message = {
 export default function WidgetClient() {
 
   const searchParams = useSearchParams();
-  const botId = searchParams.get("botId");
+  const botIdParam = searchParams.get("botId");
+
+  const botId = botIdParam ?? "";
 
   const [bot, setBot] = useState<any>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -23,19 +25,20 @@ export default function WidgetClient() {
 
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  /* --------------------------------------------------- */
-  /* LOAD BOT + CREATE CONVERSATION */
-  /* --------------------------------------------------- */
+  /* ---------------------------------- */
+  /* LOAD BOT + CONVERSATION */
+  /* ---------------------------------- */
 
   useEffect(() => {
 
     const init = async () => {
 
-      if (!botId) return;
+      if (!botId) {
+        setLoading(false);
+        return;
+      }
 
       try {
-
-        /* LOAD BOT */
 
         const { data: botData, error } = await supabase
           .from("chatbots")
@@ -51,19 +54,21 @@ export default function WidgetClient() {
 
         setBot(botData);
 
-        /* LOAD OR CREATE CONVERSATION */
+        /* LOAD STORED CONVERSATION */
 
-        let storedConversation =
+        let storedConversation: string | null =
           localStorage.getItem(`chat_conversation_${botId}`);
 
         if (!storedConversation) {
 
           const { data, error } = await supabase
             .from("conversations")
-            .insert({
-              chatbot_id: botId,
-              visitor_id: crypto.randomUUID()
-            })
+            .insert([
+              {
+                chatbot_id: botId,
+                visitor_id: crypto.randomUUID()
+              }
+            ])
             .select()
             .single();
 
@@ -72,7 +77,9 @@ export default function WidgetClient() {
           }
 
           if (data) {
+
             storedConversation = data.id;
+
             localStorage.setItem(
               `chat_conversation_${botId}`,
               data.id
@@ -84,20 +91,22 @@ export default function WidgetClient() {
           setConversationId(storedConversation);
         }
 
-        /* WELCOME MESSAGE */
-
         setMessages([
           {
             role: "assistant",
-            content: botData.welcome_message || "Hello! How can I help you?"
+            content:
+              botData.welcome_message ||
+              "Hello! How can I help you?"
           }
         ]);
 
         setLoading(false);
 
       } catch (err) {
+
         console.error(err);
         setLoading(false);
+
       }
 
     };
@@ -106,105 +115,117 @@ export default function WidgetClient() {
 
   }, [botId]);
 
-  /* --------------------------------------------------- */
+  /* ---------------------------------- */
   /* AUTO SCROLL */
-  /* --------------------------------------------------- */
+  /* ---------------------------------- */
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+
+    bottomRef.current?.scrollIntoView({
+      behavior: "smooth"
+    });
+
   }, [messages]);
 
-  /* --------------------------------------------------- */
+  /* ---------------------------------- */
   /* SEND MESSAGE */
-  /* --------------------------------------------------- */
+  /* ---------------------------------- */
 
   const sendMessage = async () => {
 
-  if (sending || !input.trim()) return;
+    if (!input.trim() || sending || !botId) return;
 
-  const userMessage = input.trim();
+    const userMessage = input.trim();
 
-  setSending(true);
+    setSending(true);
 
-  setMessages(prev => [
-    ...prev,
-    { role: "user", content: userMessage }
-  ]);
+    setMessages(prev => [
+      ...prev,
+      { role: "user", content: userMessage }
+    ]);
 
-  setInput("");
+    setInput("");
 
-  try {
+    try {
 
-    let convId = conversationId;
+      let convId = conversationId;
 
-    /* CREATE CONVERSATION IF MISSING */
+      if (!convId) {
 
-    if (!convId) {
+        const { data, error } = await supabase
+          .from("conversations")
+          .insert([
+            {
+              chatbot_id: botId,
+              visitor_id: crypto.randomUUID()
+            }
+          ])
+          .select()
+          .single();
 
-      const { data } = await supabase
-        .from("conversations")
-        .insert({
-          chatbot_id: botId,
-          visitor_id: crypto.randomUUID()
-        })
-        .select()
-        .single();
+        if (error || !data) {
+          console.error("Conversation creation failed", error);
+          setSending(false);
+          return;
+        }
 
-      convId = data?.id || null;
+        convId = data.id;
 
-      if (convId) {
         setConversationId(convId);
-        localStorage.setItem(`chat_conversation_${botId}`, convId);
-      }
+
+        // CORRECT
+        localStorage.setItem(`chat_conversation_${botId}`, String(convId));
+              }
+
+      const res = await fetch(
+        "https://ai-chatbot-saas-five.vercel.app/api/chat",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            message: userMessage,
+            conversation_id: convId,
+            bot_id: botId
+          })
+        }
+      );
+
+      const data = await res.json();
+
+      setMessages(prev => [
+        ...prev,
+        {
+          role: "assistant",
+          content:
+            data.reply ||
+            "Sorry, I couldn't respond."
+        }
+      ]);
+
+    } catch (err) {
+
+      console.error("Chat error:", err);
+
+      setMessages(prev => [
+        ...prev,
+        {
+          role: "assistant",
+          content:
+            "Something went wrong. Please try again."
+        }
+      ]);
 
     }
 
-    const res = await fetch(
-      "https://ai-chatbot-saas-five.vercel.app/api/chat",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          message: userMessage,
-          conversation_id: convId,
-          bot_id: botId
-        })
-      }
-    );
+    setSending(false);
 
-    const data = await res.json();
+  };
 
-    setMessages(prev => [
-      ...prev,
-      {
-        role: "assistant",
-        content: data.reply || "Sorry, I couldn't respond."
-      }
-    ]);
-
-  } catch (err) {
-
-    console.error("Chat error:", err);
-
-    setMessages(prev => [
-      ...prev,
-      {
-        role: "assistant",
-        content: "Something went wrong. Please try again."
-      }
-    ]);
-
-  }
-
-  setSending(false);
-
-};
-
-  /* --------------------------------------------------- */
+  /* ---------------------------------- */
   /* UI STATES */
-  /* --------------------------------------------------- */
+  /* ---------------------------------- */
 
   if (loading) {
     return <div style={{ padding: 20 }}>Loading chatbot...</div>;
@@ -214,9 +235,9 @@ export default function WidgetClient() {
     return <div style={{ padding: 20 }}>Chatbot not found</div>;
   }
 
-  /* --------------------------------------------------- */
+  /* ---------------------------------- */
   /* UI */
-  /* --------------------------------------------------- */
+  /* ---------------------------------- */
 
   return (
 
@@ -261,7 +282,10 @@ export default function WidgetClient() {
             key={index}
             style={{
               marginBottom: 10,
-              textAlign: msg.role === "user" ? "right" : "left"
+              textAlign:
+                msg.role === "user"
+                  ? "right"
+                  : "left"
             }}
           >
 
@@ -270,7 +294,10 @@ export default function WidgetClient() {
                 display: "inline-block",
                 padding: "8px 12px",
                 borderRadius: 8,
-                background: msg.role === "user" ? "#2563eb" : "#111827",
+                background:
+                  msg.role === "user"
+                    ? "#2563eb"
+                    : "#111827",
                 color: "#fff",
                 maxWidth: "75%"
               }}
@@ -288,13 +315,20 @@ export default function WidgetClient() {
 
       {/* INPUT */}
 
-      <div style={{ borderTop: "1px solid #e5e7eb", padding: 10 }}>
+      <div
+        style={{
+          borderTop: "1px solid #e5e7eb",
+          padding: 10
+        }}
+      >
 
         <div style={{ display: "flex" }}>
 
           <input
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) =>
+              setInput(e.target.value)
+            }
             placeholder="Type your message..."
             style={{
               flex: 1,
@@ -303,10 +337,12 @@ export default function WidgetClient() {
               border: "1px solid #ccc"
             }}
             onKeyDown={(e) => {
+
               if (e.key === "Enter") {
                 e.preventDefault();
                 sendMessage();
               }
+
             }}
           />
 
@@ -330,5 +366,7 @@ export default function WidgetClient() {
       </div>
 
     </div>
+
   );
+
 }
