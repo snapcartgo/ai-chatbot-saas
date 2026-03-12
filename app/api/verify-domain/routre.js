@@ -1,20 +1,11 @@
 import { createClient } from "@supabase/supabase-js";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
-};
+export async function GET(req) {
 
-export async function OPTIONS() {
-  return new Response(null, {
-    status: 200,
-    headers: corsHeaders,
-  });
-}
+  const { searchParams } = new URL(req.url);
 
-export async function POST(req) {
-  const { botId, domain } = await req.json();
+  const botId = searchParams.get("botId");
+  const domain = searchParams.get("domain");
 
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -30,11 +21,5 @@ export async function POST(req) {
 
   const allowed = !!data;
 
-  return new Response(JSON.stringify({ allowed }), {
-    status: 200,
-    headers: {
-      ...corsHeaders,
-      "Content-Type": "application/json",
-    },
-  });
+  return Response.json({ allowed });
 }

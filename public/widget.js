@@ -5,34 +5,25 @@
 
   const domain = window.location.hostname;
 
-  // VERIFY DOMAIN WITH YOUR BACKEND
-  fetch("https://ai-chatbot-saas-five.vercel.app/api/verify-domain", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      botId: botId,
-      domain: domain
+  // VERIFY DOMAIN
+  fetch(`https://ai-chatbot-saas-five.vercel.app/api/verify-domain?botId=${botId}&domain=${domain}`)
+    .then(res => res.json())
+    .then(data => {
+
+      if (!data.allowed) {
+        console.log("Chatbot blocked: domain not allowed");
+        return;
+      }
+
+      startWidget();
+
     })
-  })
-  .then(res => res.json())
-  .then(data => {
-
-    if (!data.allowed) {
-      console.log("Chatbot blocked: domain not allowed");
-      return;
-    }
-
-    startWidget();
-
-  })
-  .catch(err => {
-    console.error("Domain verification failed", err);
-  });
+    .catch(err => {
+      console.log("Verification failed", err);
+    });
 
 
-  function startWidget(){
+  function startWidget() {
 
     // CHAT BUTTON
     const button = document.createElement("div");
