@@ -120,63 +120,87 @@ export default function WidgetClient() {
 
   const sendMessage = async () => {
 
-    if (!conversationId || sending || !input.trim()) return;
+  if (sending || !input.trim()) return;
 
-    const userMessage = input.trim();
+  const userMessage = input.trim();
 
-    setSending(true);
+  setSending(true);
 
-    setMessages(prev => [
-      ...prev,
-      { role: "user", content: userMessage }
-    ]);
+  setMessages(prev => [
+    ...prev,
+    { role: "user", content: userMessage }
+  ]);
 
-    setInput("");
+  setInput("");
 
-    try {
+  try {
 
-      const res = await fetch(
-        "https://ai-chatbot-saas-five.vercel.app/api/chat",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            message: userMessage,
-            conversation_id: conversationId,
-            bot_id: botId
-          })
-        }
-      );
+    let convId = conversationId;
 
-      const data = await res.json();
+    /* CREATE CONVERSATION IF MISSING */
 
-      setMessages(prev => [
-        ...prev,
-        {
-          role: "assistant",
-          content: data.reply || "Sorry, I couldn't respond."
-        }
-      ]);
+    if (!convId) {
 
-    } catch (err) {
+      const { data } = await supabase
+        .from("conversations")
+        .insert({
+          chatbot_id: botId,
+          visitor_id: crypto.randomUUID()
+        })
+        .select()
+        .single();
 
-      console.error("Chat error:", err);
+      convId = data?.id || null;
 
-      setMessages(prev => [
-        ...prev,
-        {
-          role: "assistant",
-          content: "Something went wrong. Please try again."
-        }
-      ]);
+      if (convId) {
+        setConversationId(convId);
+        localStorage.setItem(`chat_conversation_${botId}`, convId);
+      }
 
     }
 
-    setSending(false);
+    const res = await fetch(
+      "https://ai-chatbot-saas-five.vercel.app/api/chat",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          message: userMessage,
+          conversation_id: convId,
+          bot_id: botId
+        })
+      }
+    );
 
-  };
+    const data = await res.json();
+
+    setMessages(prev => [
+      ...prev,
+      {
+        role: "assistant",
+        content: data.reply || "Sorry, I couldn't respond."
+      }
+    ]);
+
+  } catch (err) {
+
+    console.error("Chat error:", err);
+
+    setMessages(prev => [
+      ...prev,
+      {
+        role: "assistant",
+        content: "Something went wrong. Please try again."
+      }
+    ]);
+
+  }
+
+  setSending(false);
+
+};
 
   /* --------------------------------------------------- */
   /* UI STATES */
