@@ -1,5 +1,15 @@
-import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+
+export async function OPTIONS() {
+  return new Response(null, {
+    status: 200,
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "POST, OPTIONS",
+      "Access-Control-Allow-Headers": "*",
+    },
+  });
+}
 
 export async function POST(req) {
 
@@ -11,7 +21,7 @@ export async function POST(req) {
   );
 
   const { data } = await supabase
-    .from("allowed_domains")
+    .from("domains")
     .select("*")
     .eq("bot_id", botId)
     .eq("domain", domain)
@@ -19,31 +29,13 @@ export async function POST(req) {
 
   const allowed = !!data;
 
-  return new Response(
-    JSON.stringify({ allowed }),
-    {
-      status: 200,
-      headers: {
-        "Content-Type": "application/json",
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "POST, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type"
-      }
-    }
-  );
-
-}
-
-// Handle browser preflight request
-export async function OPTIONS() {
-
-  return new Response(null, {
+  return new Response(JSON.stringify({ allowed }), {
     status: 200,
     headers: {
+      "Content-Type": "application/json",
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type"
-    }
+      "Access-Control-Allow-Headers": "*",
+    },
   });
-
 }
