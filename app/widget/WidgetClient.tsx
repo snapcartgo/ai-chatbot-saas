@@ -132,9 +132,11 @@ export default function WidgetClient() {
 /* ---------------------------------- */
 
 const sendMessage = async () => {
-  if (!input.trim() || sending || !botId) return;
+
+  if (sending || !input.trim()) return;
 
   const userMessage = input.trim();
+
   setSending(true);
 
   setMessages(prev => [
@@ -145,50 +147,38 @@ const sendMessage = async () => {
   setInput("");
 
   try {
+
     let convId = conversationId;
 
-    // 1. Ensure Conversation exists
+    /* CREATE CONVERSATION IF MISSING */
+
     if (!convId) {
-      const { data, error } = await supabase
+
+      const { data } = await supabase
         .from("conversations")
-        .insert([{ chatbot_id: botId, visitor_id: crypto.randomUUID() }])
+        .insert({
+          chatbot_id: botId,
+          visitor_id: crypto.randomUUID()
+        })
         .select()
         .single();
 
-      if (error || !data) {
-        console.error("Conversation creation failed", error);
-        setSending(false);
-        return;
+      convId = data?.id || null;
+
+      if (convId) {
+        setConversationId(convId);
+        localStorage.setItem(`chat_conversation_${botId}`, convId);
       }
-      convId = data.id;
-      setConversationId(convId);
-      localStorage.setItem(`chat_conversation_${botId}`, convId!);
+
     }
 
-    // --- ADD THE NEW CODE HERE ---
-    // 2. Insert the message into Supabase to trigger the Webhook
-    const { error: insertError } = await supabase
-      .from("messages")
-      .insert([
-        {
-          conversation_id: convId!,
-          role: "user",
-          content: userMessage,
-        }
-      ]);
-
-    if (insertError) {
-      console.error("Failed to save message to DB:", insertError);
-      // Optional: stop here if the DB save is mandatory for your flow
-    }
-    // ------------------------------
-
-    // 3. Call your API for the assistant's response
     const res = await fetch(
       "https://ai-chatbot-saas-five.vercel.app/api/chat",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json"
+        },
         body: JSON.stringify({
           message: userMessage,
           conversation_id: convId,
@@ -198,36 +188,32 @@ const sendMessage = async () => {
     );
 
     const data = await res.json();
-    // ... rest of your code
 
-      setMessages(prev => [
-        ...prev,
-        {
-          role: "assistant",
-          content:
-            data.reply ||
-            "Sorry, I couldn't respond."
-        }
-      ]);
+    setMessages(prev => [
+      ...prev,
+      {
+        role: "assistant",
+        content: data.reply || "Sorry, I couldn't respond."
+      }
+    ]);
 
-    } catch (err) {
+  } catch (err) {
 
-      console.error("Chat error:", err);
+    console.error("Chat error:", err);
 
-      setMessages(prev => [
-        ...prev,
-        {
-          role: "assistant",
-          content:
-            "Something went wrong. Please try again."
-        }
-      ]);
+    setMessages(prev => [
+      ...prev,
+      {
+        role: "assistant",
+        content: "Something went wrong. Please try again."
+      }
+    ]);
 
-    }
+  }
 
-    setSending(false);
+  setSending(false);
 
-  };
+};
 
   /* ---------------------------------- */
   /* UI STATES */
