@@ -11,7 +11,7 @@ export default function ConversationsPage() {
     const loadMessages = async () => {
       setLoading(true);
 
-      // 1️⃣ Get logged in user
+      // 1️⃣ get logged user
       const {
         data: { user },
       } = await supabase.auth.getUser();
@@ -21,7 +21,7 @@ export default function ConversationsPage() {
         return;
       }
 
-      // 2️⃣ Get chatbots owned by this user
+      // 2️⃣ get user chatbots
       const { data: bots } = await supabase
         .from("chatbots")
         .select("id")
@@ -30,16 +30,28 @@ export default function ConversationsPage() {
       const botIds = bots?.map((b) => b.id) || [];
 
       if (botIds.length === 0) {
-        setMessages([]);
         setLoading(false);
         return;
       }
 
-      // 3️⃣ Load messages only for those bots
+      // 3️⃣ get conversations for those chatbots
+      const { data: conversations } = await supabase
+        .from("conversations")
+        .select("id")
+        .in("chatbot_id", botIds);
+
+      const conversationIds = conversations?.map((c) => c.id) || [];
+
+      if (conversationIds.length === 0) {
+        setLoading(false);
+        return;
+      }
+
+      // 4️⃣ get messages for those conversations
       const { data, error } = await supabase
         .from("messages")
         .select("*")
-        .in("bot_id", botIds)
+        .in("conversation_id", conversationIds)
         .order("created_at", { ascending: false })
         .limit(50);
 
@@ -57,7 +69,7 @@ export default function ConversationsPage() {
     <div style={{ padding: "30px" }}>
       <h1>Conversations</h1>
 
-      {loading && <p>Loading conversations...</p>}
+      {loading && <p>Loading...</p>}
 
       {!loading && messages.length === 0 && (
         <p>No conversations yet.</p>
