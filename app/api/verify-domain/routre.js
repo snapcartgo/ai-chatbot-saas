@@ -1,18 +1,19 @@
 import { createClient } from "@supabase/supabase-js";
 
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type",
+};
+
 export async function OPTIONS() {
   return new Response(null, {
     status: 200,
-    headers: {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "POST, OPTIONS",
-      "Access-Control-Allow-Headers": "*",
-    },
+    headers: corsHeaders,
   });
 }
 
 export async function POST(req) {
-
   const { botId, domain } = await req.json();
 
   const supabase = createClient(
@@ -23,8 +24,8 @@ export async function POST(req) {
   const { data } = await supabase
     .from("domains")
     .select("*")
-    .eq("bot_id", botId)
     .eq("domain", domain)
+    .eq("user_id", botId)
     .single();
 
   const allowed = !!data;
@@ -32,10 +33,8 @@ export async function POST(req) {
   return new Response(JSON.stringify({ allowed }), {
     status: 200,
     headers: {
+      ...corsHeaders,
       "Content-Type": "application/json",
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "POST, OPTIONS",
-      "Access-Control-Allow-Headers": "*",
     },
   });
 }
