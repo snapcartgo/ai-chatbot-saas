@@ -3,7 +3,6 @@ import { createClient } from "@supabase/supabase-js";
 export async function GET(req) {
 
   const { searchParams } = new URL(req.url);
-
   const botId = searchParams.get("botId");
   const domain = searchParams.get("domain");
 
@@ -16,10 +15,18 @@ export async function GET(req) {
     .from("domains")
     .select("*")
     .eq("domain", domain)
-    .eq("user_id", botId)
     .single();
 
   const allowed = !!data;
 
-  return Response.json({ allowed });
+  return new Response(
+    JSON.stringify({ allowed }),
+    {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*",
+      },
+    }
+  );
 }
