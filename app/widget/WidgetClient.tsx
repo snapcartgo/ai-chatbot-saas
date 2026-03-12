@@ -10,6 +10,7 @@ type Message = {
 };
 
 export default function WidgetPage() {
+
   const searchParams = useSearchParams();
   const botId = searchParams.get("botId");
 
@@ -27,18 +28,22 @@ export default function WidgetPage() {
   /* --------------------------------------------------- */
 
   useEffect(() => {
+
     const loadBot = async () => {
+
       try {
+
         if (!botId) {
           setLoading(false);
           return;
         }
 
         /* GET BOT */
+
         const { data: botData, error } = await supabase
           .from("chatbots")
           .select("*")
-          .eq("id", botId as string)
+          .eq("id", botId)
           .single();
 
         if (error || !botData) {
@@ -49,34 +54,38 @@ export default function WidgetPage() {
 
         setBot(botData);
 
-        /* PERSIST SESSION */
-        let storedConversation: string | null =
-  localStorage.getItem(`chat_conversation_${botId}`);
+        /* LOAD OR CREATE CONVERSATION */
 
-if (!storedConversation) {
-  const { data: newConversation } = await supabase
-    .from("conversations")
-    .insert({
-      chatbot_id: botId,
-      visitor_id: crypto.randomUUID(),
-    })
-    .select()
-    .single();
+        let storedConversation =
+          localStorage.getItem(`chat_conversation_${botId}`);
 
-  storedConversation = newConversation?.id || null;
+        if (!storedConversation) {
 
-  if (storedConversation) {
-    localStorage.setItem(
-      `chat_conversation_${botId}`,
-      storedConversation
-    );
-  }
-}
+          const { data: newConversation } = await supabase
+            .from("conversations")
+            .insert({
+              chatbot_id: botId,
+              visitor_id: crypto.randomUUID(),
+            })
+            .select()
+            .single();
 
-if (storedConversation) {
-  setConversationId(storedConversation);
-}
+          storedConversation = newConversation?.id || null;
+
+          if (storedConversation) {
+            localStorage.setItem(
+              `chat_conversation_${botId}`,
+              storedConversation
+            );
+          }
+        }
+
+        if (storedConversation) {
+          setConversationId(storedConversation);
+        }
+
         /* WELCOME MESSAGE */
+
         setMessages([
           {
             role: "assistant",
@@ -85,13 +94,18 @@ if (storedConversation) {
         ]);
 
         setLoading(false);
+
       } catch (err) {
+
         console.error(err);
         setLoading(false);
+
       }
+
     };
 
     loadBot();
+
   }, [botId]);
 
   /* --------------------------------------------------- */
@@ -107,29 +121,36 @@ if (storedConversation) {
   /* --------------------------------------------------- */
 
   const sendMessage = async () => {
+
     if (!conversationId || sending || !input.trim()) return;
 
     const userMessage = input.trim();
 
     setSending(true);
 
-    setMessages((prev) => [...prev, { role: "user", content: userMessage }]);
+    setMessages((prev) => [
+      ...prev,
+      { role: "user", content: userMessage }
+    ]);
 
     setInput("");
 
     try {
-      const res = await fetch("https://ai-chatbot-saas-five.vercel.app/api/chat", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-        message: userMessage,
-        conversation_id: conversationId,
-        bot_id: botId,
-        user_id: bot.user_id
-      }),
-      });
+
+      const res = await fetch(
+        "https://ai-chatbot-saas-five.vercel.app/api/chat",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            message: userMessage,
+            conversation_id: conversationId,
+            bot_id: botId
+          }),
+        }
+      );
 
       const data = await res.json();
 
@@ -137,22 +158,26 @@ if (storedConversation) {
         ...prev,
         {
           role: "assistant",
-          content: data.reply || "Sorry, I couldn't respond.",
-        },
+          content: data.reply || "Sorry, I couldn't respond."
+        }
       ]);
+
     } catch (err) {
+
       console.error("Chat error:", err);
 
       setMessages((prev) => [
         ...prev,
         {
           role: "assistant",
-          content: "Something went wrong. Please try again.",
-        },
+          content: "Something went wrong. Please try again."
+        }
       ]);
+
     }
 
     setSending(false);
+
   };
 
   /* --------------------------------------------------- */
@@ -180,6 +205,7 @@ if (storedConversation) {
   /* --------------------------------------------------- */
 
   return (
+
     <div
       style={{
         width: "100%",
@@ -191,7 +217,9 @@ if (storedConversation) {
         borderRadius: "12px",
       }}
     >
+
       {/* HEADER */}
+
       <div
         style={{
           background: "#2563eb",
@@ -206,6 +234,7 @@ if (storedConversation) {
       </div>
 
       {/* CHAT AREA */}
+
       <div
         style={{
           flex: 1,
@@ -214,7 +243,9 @@ if (storedConversation) {
           background: "#f3f4f6",
         }}
       >
+
         {messages.map((msg, index) => (
+
           <div
             key={index}
             style={{
@@ -222,6 +253,7 @@ if (storedConversation) {
               textAlign: msg.role === "user" ? "right" : "left",
             }}
           >
+
             <div
               style={{
                 display: "inline-block",
@@ -235,13 +267,17 @@ if (storedConversation) {
             >
               {msg.content}
             </div>
+
           </div>
+
         ))}
 
         <div ref={bottomRef} />
+
       </div>
 
       {/* INPUT */}
+
       <div
         style={{
           borderTop: "1px solid #e5e7eb",
@@ -249,7 +285,9 @@ if (storedConversation) {
           padding: "10px",
         }}
       >
+
         <div style={{ display: "flex" }}>
+
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -287,9 +325,11 @@ if (storedConversation) {
           >
             {sending ? "..." : "Send"}
           </button>
+
         </div>
 
         {/* POWERED BY */}
+
         <div
           style={{
             textAlign: "center",
@@ -302,12 +342,17 @@ if (storedConversation) {
           <a
             href="https://woodpetra.com"
             target="_blank"
-            style={{ color: "#2563eb", textDecoration: "none" }}
+            style={{
+              color: "#2563eb",
+              textDecoration: "none"
+            }}
           >
             Wood Petra
           </a>
         </div>
+
       </div>
+
     </div>
   );
 }
