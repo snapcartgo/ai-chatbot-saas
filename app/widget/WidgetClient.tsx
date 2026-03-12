@@ -9,15 +9,15 @@ type Message = {
   content: string;
 };
 
-export default function WidgetPage() {
+export default function WidgetClient() {
 
   const searchParams = useSearchParams();
   const botId = searchParams.get("botId");
 
   const [bot, setBot] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(null);
 
@@ -29,16 +29,13 @@ export default function WidgetPage() {
 
   useEffect(() => {
 
-    const loadBot = async () => {
+    const init = async () => {
+
+      if (!botId) return;
 
       try {
 
-        if (!botId) {
-          setLoading(false);
-          return;
-        }
-
-        /* GET BOT */
+        /* LOAD BOT */
 
         const { data: botData, error } = await supabase
           .from("chatbots")
@@ -56,7 +53,8 @@ export default function WidgetPage() {
 
         /* LOAD OR CREATE CONVERSATION */
 
-        let storedConversation = localStorage.getItem(chat_conversation_${botId});
+        let storedConversation =
+          localStorage.getItem(`chat_conversation_${botId}`);
 
         if (!storedConversation) {
 
@@ -64,7 +62,7 @@ export default function WidgetPage() {
             .from("conversations")
             .insert({
               chatbot_id: botId,
-              visitor_id: crypto.randomUUID(),
+              visitor_id: crypto.randomUUID()
             })
             .select()
             .single();
@@ -75,7 +73,10 @@ export default function WidgetPage() {
 
           if (data) {
             storedConversation = data.id;
-            localStorage.setItem(chat_conversation_${botId}, data.id);
+            localStorage.setItem(
+              `chat_conversation_${botId}`,
+              data.id
+            );
           }
         }
 
@@ -88,22 +89,20 @@ export default function WidgetPage() {
         setMessages([
           {
             role: "assistant",
-            content: botData.welcome_message || "Hello! How can I help you?",
-          },
+            content: botData.welcome_message || "Hello! How can I help you?"
+          }
         ]);
 
         setLoading(false);
 
       } catch (err) {
-
         console.error(err);
         setLoading(false);
-
       }
 
     };
 
-    loadBot();
+    init();
 
   }, [botId]);
 
@@ -121,16 +120,13 @@ export default function WidgetPage() {
 
   const sendMessage = async () => {
 
-  console.log("conversationId:", conversationId);
-  console.log("input:", input);
-
-  if (!conversationId || sending || !input.trim()) return;
+    if (!conversationId || sending || !input.trim()) return;
 
     const userMessage = input.trim();
 
     setSending(true);
 
-    setMessages((prev) => [
+    setMessages(prev => [
       ...prev,
       { role: "user", content: userMessage }
     ]);
@@ -144,19 +140,19 @@ export default function WidgetPage() {
         {
           method: "POST",
           headers: {
-            "Content-Type": "application/json",
+            "Content-Type": "application/json"
           },
           body: JSON.stringify({
             message: userMessage,
             conversation_id: conversationId,
             bot_id: botId
-          }),
+          })
         }
       );
 
       const data = await res.json();
 
-      setMessages((prev) => [
+      setMessages(prev => [
         ...prev,
         {
           role: "assistant",
@@ -168,7 +164,7 @@ export default function WidgetPage() {
 
       console.error("Chat error:", err);
 
-      setMessages((prev) => [
+      setMessages(prev => [
         ...prev,
         {
           role: "assistant",
@@ -187,19 +183,11 @@ export default function WidgetPage() {
   /* --------------------------------------------------- */
 
   if (loading) {
-    return (
-      <div style={{ padding: 20, fontFamily: "Arial" }}>
-        Loading chatbot...
-      </div>
-    );
+    return <div style={{ padding: 20 }}>Loading chatbot...</div>;
   }
 
   if (!bot) {
-    return (
-      <div style={{ padding: 20, fontFamily: "Arial" }}>
-        Chatbot not found
-      </div>
-    );
+    return <div style={{ padding: 20 }}>Chatbot not found</div>;
   }
 
   /* --------------------------------------------------- */
@@ -214,9 +202,8 @@ export default function WidgetPage() {
         height: "520px",
         display: "flex",
         flexDirection: "column",
-        background: "#ffffff",
-        fontFamily: "Arial, sans-serif",
-        borderRadius: "12px",
+        background: "#fff",
+        fontFamily: "Arial"
       }}
     >
 
@@ -227,9 +214,7 @@ export default function WidgetPage() {
           background: "#2563eb",
           color: "#fff",
           padding: "12px",
-          fontWeight: 600,
-          borderTopLeftRadius: "12px",
-          borderTopRightRadius: "12px",
+          fontWeight: 600
         }}
       >
         {bot.name || "AI Assistant"}
@@ -242,7 +227,7 @@ export default function WidgetPage() {
           flex: 1,
           padding: 12,
           overflowY: "auto",
-          background: "#f3f4f6",
+          background: "#f3f4f6"
         }}
       >
 
@@ -252,7 +237,7 @@ export default function WidgetPage() {
             key={index}
             style={{
               marginBottom: 10,
-              textAlign: msg.role === "user" ? "right" : "left",
+              textAlign: msg.role === "user" ? "right" : "left"
             }}
           >
 
@@ -263,8 +248,7 @@ export default function WidgetPage() {
                 borderRadius: 8,
                 background: msg.role === "user" ? "#2563eb" : "#111827",
                 color: "#fff",
-                maxWidth: "75%",
-                fontSize: "14px",
+                maxWidth: "75%"
               }}
             >
               {msg.content}
@@ -280,13 +264,7 @@ export default function WidgetPage() {
 
       {/* INPUT */}
 
-      <div
-        style={{
-          borderTop: "1px solid #e5e7eb",
-          background: "#ffffff",
-          padding: "10px",
-        }}
-      >
+      <div style={{ borderTop: "1px solid #e5e7eb", padding: 10 }}>
 
         <div style={{ display: "flex" }}>
 
@@ -296,13 +274,9 @@ export default function WidgetPage() {
             placeholder="Type your message..."
             style={{
               flex: 1,
-              padding: "10px",
-              borderRadius: "6px",
-              border: "1px solid #d1d5db",
-              backgroundColor: "#ffffff",
-              color: "#000",
-              fontSize: "14px",
-              outline: "none",
+              padding: 10,
+              borderRadius: 6,
+              border: "1px solid #ccc"
             }}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
@@ -321,36 +295,12 @@ export default function WidgetPage() {
               background: "#2563eb",
               color: "#fff",
               border: "none",
-              borderRadius: 6,
-              cursor: "pointer",
+              borderRadius: 6
             }}
           >
             {sending ? "..." : "Send"}
           </button>
 
-        </div>
-
-        {/* POWERED BY */}
-
-        <div
-          style={{
-            textAlign: "center",
-            fontSize: "12px",
-            marginTop: "6px",
-            color: "#6b7280",
-          }}
-        >
-          Powered by{" "}
-          <a
-            href="https://woodpetra.com"
-            target="_blank"
-            style={{
-              color: "#2563eb",
-              textDecoration: "none"
-            }}
-          >
-            Wood Petra
-          </a>
         </div>
 
       </div>
