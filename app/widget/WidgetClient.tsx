@@ -128,71 +128,77 @@ export default function WidgetClient() {
   }, [messages]);
 
   /* ---------------------------------- */
-  /* SEND MESSAGE */
-  /* ---------------------------------- */
+/* SEND MESSAGE */
+/* ---------------------------------- */
 
-  const sendMessage = async () => {
+const sendMessage = async () => {
+  if (!input.trim() || sending || !botId) return;
 
-    if (!input.trim() || sending || !botId) return;
+  const userMessage = input.trim();
+  setSending(true);
 
-    const userMessage = input.trim();
+  setMessages(prev => [
+    ...prev,
+    { role: "user", content: userMessage }
+  ]);
 
-    setSending(true);
+  setInput("");
 
-    setMessages(prev => [
-      ...prev,
-      { role: "user", content: userMessage }
-    ]);
+  try {
+    let convId = conversationId;
 
-    setInput("");
+    // 1. Ensure Conversation exists
+    if (!convId) {
+      const { data, error } = await supabase
+        .from("conversations")
+        .insert([{ chatbot_id: botId, visitor_id: crypto.randomUUID() }])
+        .select()
+        .single();
 
-    try {
+      if (error || !data) {
+        console.error("Conversation creation failed", error);
+        setSending(false);
+        return;
+      }
+      convId = data.id;
+      setConversationId(convId);
+      localStorage.setItem(`chat_conversation_${botId}`, convId!);
+    }
 
-      let convId = conversationId;
-
-      if (!convId) {
-
-        const { data, error } = await supabase
-          .from("conversations")
-          .insert([
-            {
-              chatbot_id: botId,
-              visitor_id: crypto.randomUUID()
-            }
-          ])
-          .select()
-          .single();
-
-        if (error || !data) {
-          console.error("Conversation creation failed", error);
-          setSending(false);
-          return;
-        }
-
-        convId = data.id;
-
-        setConversationId(convId);
-
-        // CORRECT
-        localStorage.setItem(`chat_conversation_${botId}`, String(convId));
-              }
-
-      const res = await fetch(
-        "https://ai-chatbot-saas-five.vercel.app/api/chat",
+    // --- ADD THE NEW CODE HERE ---
+    // 2. Insert the message into Supabase to trigger the Webhook
+    const { error: insertError } = await supabase
+      .from("messages")
+      .insert([
         {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            message: userMessage,
-            conversation_id: convId,
-            bot_id: botId
-          })
+          conversation_id: convId!,
+          role: "user",
+          content: userMessage,
         }
-      );
+      ]);
 
-      const data = await res.json();
+    if (insertError) {
+      console.error("Failed to save message to DB:", insertError);
+      // Optional: stop here if the DB save is mandatory for your flow
+    }
+    // ------------------------------
+
+    // 3. Call your API for the assistant's response
+    const res = await fetch(
+      "https://ai-chatbot-saas-five.vercel.app/api/chat",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: userMessage,
+          conversation_id: convId,
+          bot_id: botId
+        })
+      }
+    );
+
+    const data = await res.json();
+    // ... rest of your code
 
       setMessages(prev => [
         ...prev,
