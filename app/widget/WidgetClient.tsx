@@ -56,12 +56,11 @@ export default function WidgetPage() {
 
         /* LOAD OR CREATE CONVERSATION */
 
-        let storedConversation =
-          localStorage.getItem(`chat_conversation_${botId}`);
+        let storedConversation = localStorage.getItem(chat_conversation_${botId});
 
         if (!storedConversation) {
 
-          const { data: newConversation } = await supabase
+          const { data, error } = await supabase
             .from("conversations")
             .insert({
               chatbot_id: botId,
@@ -70,13 +69,13 @@ export default function WidgetPage() {
             .select()
             .single();
 
-          storedConversation = newConversation?.id || null;
+          if (error) {
+            console.error("Conversation creation error:", error);
+          }
 
-          if (storedConversation) {
-            localStorage.setItem(
-              `chat_conversation_${botId}`,
-              storedConversation
-            );
+          if (data) {
+            storedConversation = data.id;
+            localStorage.setItem(chat_conversation_${botId}, data.id);
           }
         }
 
