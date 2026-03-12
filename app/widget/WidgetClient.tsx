@@ -121,9 +121,11 @@ export default function WidgetPage() {
   /* --------------------------------------------------- */
 
   const sendMessage = async () => {
-    console.log("conversationId:", conversationId);
 
-    if (!conversationId || sending || !input.trim()) return;
+  console.log("conversationId:", conversationId);
+  console.log("input:", input);
+
+  if (!conversationId || sending || !input.trim()) return;
 
     const userMessage = input.trim();
 
