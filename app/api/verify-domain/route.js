@@ -12,15 +12,14 @@ export async function GET(req) {
     process.env.SUPABASE_SERVICE_ROLE_KEY
   );
 
-  // check if bot already has a domain
-  const { data: existing } = await supabase
+  // Get all domains for this bot
+  const { data: domains } = await supabase
     .from("domains")
     .select("*")
-    .eq("user_id", botId)
-    .maybeSingle();
+    .eq("user_id", botId);
 
-  // first domain
-  if (!existing) {
+  // FIRST INSTALL
+  if (!domains || domains.length === 0) {
 
     await supabase
       .from("domains")
@@ -35,14 +34,16 @@ export async function GET(req) {
 
   }
 
-  // same domain
-  if (existing.domain === domain) {
+  // SAME DOMAIN
+  const match = domains.find(d => d.domain === domain);
+
+  if (match) {
     return Response.json({ allowed: true }, {
       headers: { "Access-Control-Allow-Origin": "*" }
     });
   }
 
-  // different domain → block
+  // DIFFERENT DOMAIN → BLOCK
   return Response.json({ allowed: false }, {
     headers: { "Access-Control-Allow-Origin": "*" }
   });
