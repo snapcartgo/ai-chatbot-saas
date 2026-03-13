@@ -12,7 +12,7 @@ export async function GET(req) {
     process.env.SUPABASE_SERVICE_ROLE_KEY
   );
 
-  // get chatbot owner
+  // Get bot owner
   const { data: bot } = await supabase
     .from("chatbots")
     .select("user_id")
@@ -23,15 +23,14 @@ export async function GET(req) {
     return new Response(JSON.stringify({ allowed: false }));
   }
 
-  // check if domain already exists
-  const { data } = await supabase
+  // Check if domain already exists for this user
+  const { data: domains } = await supabase
     .from("domains")
     .select("*")
-    .eq("domain", domain)
-    .single();
+    .eq("user_id", bot.user_id);
 
-  // first domain → save automatically
-  if (!data) {
+  // FIRST WEBSITE → SAVE AUTOMATICALLY
+  if (!domains || domains.length === 0) {
 
     await supabase.from("domains").insert({
       domain: domain,
@@ -44,8 +43,17 @@ export async function GET(req) {
 
   }
 
-  // domain already exists
-  return new Response(JSON.stringify({ allowed: true }), {
+  // Check if this domain already allowed
+  const match = domains.find(d => d.domain === domain);
+
+  if (match) {
+    return new Response(JSON.stringify({ allowed: true }), {
+      headers: { "Content-Type": "application/json" }
+    });
+  }
+
+  // Different domain → BLOCK
+  return new Response(JSON.stringify({ allowed: false }), {
     headers: { "Content-Type": "application/json" }
   });
 
