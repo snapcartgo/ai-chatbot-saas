@@ -12,7 +12,6 @@ export async function GET(req) {
     process.env.SUPABASE_SERVICE_ROLE_KEY
   );
 
-  // Get bot owner
   const { data: bot } = await supabase
     .from("chatbots")
     .select("user_id")
@@ -20,16 +19,19 @@ export async function GET(req) {
     .single();
 
   if (!bot) {
-    return new Response(JSON.stringify({ allowed: false }));
+    return new Response(JSON.stringify({ allowed: false }), {
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Content-Type": "application/json"
+      }
+    });
   }
 
-  // Check if domain already exists for this user
   const { data: domains } = await supabase
     .from("domains")
     .select("*")
     .eq("user_id", bot.user_id);
 
-  // FIRST WEBSITE → SAVE AUTOMATICALLY
   if (!domains || domains.length === 0) {
 
     await supabase.from("domains").insert({
@@ -38,23 +40,30 @@ export async function GET(req) {
     });
 
     return new Response(JSON.stringify({ allowed: true }), {
-      headers: { "Content-Type": "application/json" }
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Content-Type": "application/json"
+      }
     });
 
   }
 
-  // Check if this domain already allowed
   const match = domains.find(d => d.domain === domain);
 
   if (match) {
     return new Response(JSON.stringify({ allowed: true }), {
-      headers: { "Content-Type": "application/json" }
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Content-Type": "application/json"
+      }
     });
   }
 
-  // Different domain → BLOCK
   return new Response(JSON.stringify({ allowed: false }), {
-    headers: { "Content-Type": "application/json" }
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Content-Type": "application/json"
+    }
   });
 
 }
