@@ -12,7 +12,7 @@ export async function GET(req) {
     process.env.SUPABASE_SERVICE_ROLE_KEY
   );
 
-  // get chatbot owner
+  // get bot owner
   const { data: bot } = await supabase
     .from("chatbots")
     .select("user_id")
@@ -20,11 +20,8 @@ export async function GET(req) {
     .single();
 
   if (!bot) {
-    return new Response(JSON.stringify({ allowed:false }),{
-      headers:{
-        "Content-Type":"application/json",
-        "Access-Control-Allow-Origin":"*"
-      }
+    return Response.json({ allowed:false },{
+      headers:{ "Access-Control-Allow-Origin":"*" }
     });
   }
 
@@ -48,11 +45,8 @@ export async function GET(req) {
 
   }
 
-  return new Response(JSON.stringify({ allowed:true }),{
-    headers:{
-      "Content-Type":"application/json",
-      "Access-Control-Allow-Origin":"*"
-    }
+  return Response.json({ allowed:true },{
+    headers:{ "Access-Control-Allow-Origin":"*" }
   });
 
 }
