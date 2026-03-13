@@ -7,17 +7,22 @@ export async function GET(req) {
   const botId = searchParams.get("botId");
   const domain = searchParams.get("domain");
 
+  console.log("BOT ID:", botId);
+  console.log("DOMAIN:", domain);
+
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
     process.env.SUPABASE_SERVICE_ROLE_KEY
   );
 
-  // get bot owner
-  const { data: bot } = await supabase
+  const { data: bot, error: botError } = await supabase
     .from("chatbots")
     .select("user_id")
     .eq("id", botId)
     .single();
+
+  console.log("BOT RESULT:", bot);
+  console.log("BOT ERROR:", botError);
 
   if (!bot) {
     return Response.json({ allowed:false },{
@@ -25,7 +30,6 @@ export async function GET(req) {
     });
   }
 
-  // check if domain exists
   const { data: existing } = await supabase
     .from("domains")
     .select("*")
@@ -33,16 +37,19 @@ export async function GET(req) {
     .eq("user_id", bot.user_id)
     .maybeSingle();
 
-  // insert if not exists
+  console.log("EXISTING DOMAIN:", existing);
+
   if (!existing) {
 
-    await supabase
+    const { data, error } = await supabase
       .from("domains")
       .insert({
         domain: domain,
         user_id: bot.user_id
       });
 
+    console.log("INSERT RESULT:", data);
+    console.log("INSERT ERROR:", error);
   }
 
   return Response.json({ allowed:true },{
