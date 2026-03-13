@@ -12,6 +12,7 @@ export async function GET(req) {
     process.env.SUPABASE_SERVICE_ROLE_KEY
   );
 
+  // get chatbot owner
   const { data: bot } = await supabase
     .from("chatbots")
     .select("user_id")
@@ -19,50 +20,38 @@ export async function GET(req) {
     .single();
 
   if (!bot) {
-    return new Response(JSON.stringify({ allowed: false }), {
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Content-Type": "application/json"
+    return new Response(JSON.stringify({ allowed:false }),{
+      headers:{
+        "Content-Type":"application/json",
+        "Access-Control-Allow-Origin":"*"
       }
     });
   }
 
-  const { data: domains } = await supabase
+  // check if domain exists
+  const { data: existing } = await supabase
     .from("domains")
     .select("*")
-    .eq("user_id", bot.user_id);
+    .eq("domain", domain)
+    .eq("user_id", bot.user_id)
+    .maybeSingle();
 
-  if (!domains || domains.length === 0) {
+  // insert if not exists
+  if (!existing) {
 
-    await supabase.from("domains").insert({
-      domain: domain,
-      user_id: bot.user_id
-    });
-
-    return new Response(JSON.stringify({ allowed: true }), {
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Content-Type": "application/json"
-      }
-    });
+    await supabase
+      .from("domains")
+      .insert({
+        domain: domain,
+        user_id: bot.user_id
+      });
 
   }
 
-  const match = domains.find(d => d.domain === domain);
-
-  if (match) {
-    return new Response(JSON.stringify({ allowed: true }), {
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Content-Type": "application/json"
-      }
-    });
-  }
-
-  return new Response(JSON.stringify({ allowed: false }), {
-    headers: {
-      "Access-Control-Allow-Origin": "*",
-      "Content-Type": "application/json"
+  return new Response(JSON.stringify({ allowed:true }),{
+    headers:{
+      "Content-Type":"application/json",
+      "Access-Control-Allow-Origin":"*"
     }
   });
 
