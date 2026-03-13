@@ -12,13 +12,14 @@ export async function GET(req) {
     process.env.SUPABASE_SERVICE_ROLE_KEY
   );
 
+  // check if bot already has a domain
   const { data: existing } = await supabase
     .from("domains")
     .select("*")
-    .eq("domain", domain)
     .eq("user_id", botId)
     .maybeSingle();
 
+  // first domain
   if (!existing) {
 
     await supabase
@@ -28,11 +29,22 @@ export async function GET(req) {
         user_id: botId
       });
 
+    return Response.json({ allowed: true }, {
+      headers: { "Access-Control-Allow-Origin": "*" }
+    });
+
   }
 
-  return Response.json(
-    { allowed: true },
-    { headers: { "Access-Control-Allow-Origin": "*" } }
-  );
+  // same domain
+  if (existing.domain === domain) {
+    return Response.json({ allowed: true }, {
+      headers: { "Access-Control-Allow-Origin": "*" }
+    });
+  }
+
+  // different domain → block
+  return Response.json({ allowed: false }, {
+    headers: { "Access-Control-Allow-Origin": "*" }
+  });
 
 }
