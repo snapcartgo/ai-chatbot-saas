@@ -8,25 +8,40 @@ const supabase = createClient(
 
 export async function POST(req: Request) {
 
-  const { lead_id, product_name, price, bot_id } =
-    await req.json();
+  try {
 
-  const { data, error } = await supabase
-    .from("orders")
-    .insert({
-      lead_id,
-      product_name,
-      price,
-      bot_id,
-      payment_status: "pending"
-    })
-    .select()
-    .single();
+    const body = await req.json();
 
-  if (error) {
-    return NextResponse.json({ error });
+    const { bot_id, product_name, price } = body;
+
+    const { data, error } = await supabase
+      .from("orders")
+      .insert({
+        bot_id,
+        product_name,
+        price,
+        payment_status: "pending"
+      })
+      .select();
+
+    if (error) {
+      console.error("Supabase insert error:", error);
+      return NextResponse.json({ error });
+    }
+
+    return NextResponse.json({
+      success: true,
+      data
+    });
+
+  } catch (err) {
+
+    console.error("Create order error:", err);
+
+    return NextResponse.json({
+      success: false
+    });
+
   }
-
-  return NextResponse.json({ order: data });
 
 }
