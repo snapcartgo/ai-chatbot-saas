@@ -31,7 +31,6 @@ export default function DomainsPage() {
 
     if (error) {
       console.error(error);
-      return;
     }
 
     setDomains(data || []);
@@ -55,7 +54,6 @@ export default function DomainsPage() {
   }
 
   return (
-
     <div style={{ padding: 40 }}>
 
       <h2>Allowed Domains</h2>
@@ -63,19 +61,17 @@ export default function DomainsPage() {
       {domains.length === 0 && <p>No domains found.</p>}
 
       {domains.map((d) => (
-
         <div
           key={d.id}
           style={{
             display: "flex",
             justifyContent: "space-between",
-            maxWidth: 500,
             padding: 10,
             border: "1px solid #ddd",
-            marginBottom: 10
+            marginBottom: 10,
+            maxWidth: 500
           }}
         >
-
           <span>{d.domain}</span>
 
           <button
@@ -91,11 +87,8 @@ export default function DomainsPage() {
           </button>
 
         </div>
-
       ))}
 
     </div>
-
   );
-
 }
