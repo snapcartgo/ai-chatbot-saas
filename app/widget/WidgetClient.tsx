@@ -22,102 +22,59 @@ export default function WidgetClient() {
 
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  /* 1. INITIALIZE BOT & CONVERSATION */
+  // 1. Initialize Bot & Conversation
   useEffect(() => {
     const init = async () => {
-      if (!botId) {
-        setLoading(false);
-        return;
-      }
+      if (!botId) { setLoading(false); return; }
 
       try {
-        const { data: botData, error: botError } = await supabase
-          .from("chatbots")
-          .select("*")
-          .eq("id", botId)
-          .single();
+        const { data: botData } = await supabase.from("chatbots").select("*").eq("id", botId).single();
+        if (botData) setBot(botData);
 
-        if (botError || !botData) {
-          console.error("Bot not found");
-          setLoading(false);
-          return;
-        }
-
-        setBot(botData);
-
-        let storedConvId = localStorage.getItem(`chat_conversation_${botId}`);
-
-        if (!storedConvId) {
-          const { data, error } = await supabase
-            .from("conversations")
-            .insert([
-              {
-                chatbot_id: botId,
-                visitor_id: crypto.randomUUID(),
-              },
-            ])
-            .select()
-            .single();
-
+        let storedId = localStorage.getItem(`chat_conv_${botId}`);
+        if (!storedId) {
+          const { data } = await supabase.from("conversations")
+            .insert([{ chatbot_id: botId, visitor_id: crypto.randomUUID() }])
+            .select().single();
           if (data) {
-            storedConvId = data.id;
-            localStorage.setItem(`chat_conversation_${botId}`, data.id);
+            storedId = data.id;
+            localStorage.setItem(`chat_conv_${botId}`, data.id);
           }
         }
-
-        setConversationId(storedConvId);
-        setMessages([
-          {
-            role: "assistant",
-            content: botData.welcome_message || "Hello! How can I help you?",
-          },
-        ]);
+        setConversationId(storedId);
+        setMessages([{ role: "assistant", content: botData?.welcome_message || "Hello!" }]);
       } catch (err) {
         console.error("Init Error:", err);
       } finally {
         setLoading(false);
       }
     };
-
     init();
   }, [botId]);
 
-  /* AUTO SCROLL */
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
-
-  /* 2. LEAD CAPTURE LOGIC (Updated for your Schema) */
+  // 2. Lead Capture (Requires "Unique" constraint on conversation_id in Supabase)
   const captureLead = async (text: string) => {
-    // Detects phone numbers or emails
     const phoneRegex = /(\+?\d{1,4}[\s-]?)?(\(?\d{3}\)?[\s-]?)?[\d\s-]{7,10}/g;
-    const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
-    
     const foundPhone = text.match(phoneRegex);
-    const foundEmail = text.match(emailRegex);
 
-    if ((foundPhone || foundEmail) && conversationId) {
-      console.log("Lead info detected, updating Supabase...");
-      
+    if (foundPhone && conversationId) {
       const { error } = await supabase
-        .from("leads") 
+        .from("leads")
         .upsert({ 
-          phone: foundPhone ? foundPhone[0] : null,
-          email: foundEmail ? foundEmail[0] : null,
+          phone: foundPhone[0],
           chatbot_id: botId,
           conversation_id: conversationId,
-          name: "Chat Visitor"
-        }, { onConflict: 'conversation_id' }); // Prevents duplicate rows for same chat
+          name: "Chat Lead"
+        }, { onConflict: 'conversation_id' });
 
-      if (error) console.error("Lead Update Error:", error.message);
+      if (error) console.error("Lead Save Error:", error.message);
     }
   };
 
-  /* 3. ORDER HANDLER */
+  // 3. Order Handler (Ensure your API uses table "order" singular)
   const handleBuyClick = async (e: React.MouseEvent, url: string) => {
     e.preventDefault();
     try {
-      // NOTE: Ensure your /api/create-order route uses table name "order" (singular)
       await fetch("/api/create-order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -126,56 +83,42 @@ export default function WidgetClient() {
           conversation_id: conversationId,
           product_name: "Google Maps Scraper",
           price: 29,
+          lead_id: conversationId // Renamed from 'laed_id'
         }),
       });
-    } catch (err) {
-      console.error("Order creation failed:", err);
-    }
+    } catch (err) { console.error("Order failed:", err); }
     window.open(url, "_blank");
   };
 
-  /* 4. SEND MESSAGE */
+  // 4. Send Message
   const sendMessage = async () => {
     if (!input.trim() || sending) return;
-
-    const userMessage = input.trim();
+    const userMsg = input.trim();
     setSending(true);
-
-    // Run lead detection
-    await captureLead(userMessage);
-
-    setMessages((prev) => [...prev, { role: "user", content: userMessage }]);
     setInput("");
+    setMessages(prev => [...prev, { role: "user", content: userMsg }]);
+
+    await captureLead(userMsg);
 
     try {
       const res = await fetch("https://ai-chatbot-saas-five.vercel.app/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: userMessage,
+          message: userMsg,
           conversation_id: conversationId,
           bot_id: botId,
-          category: bot?.category || "booking",
-        }),
+          category: bot?.category || "booking"
+        })
       });
-
       const data = await res.json();
-
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: data.reply || "Sorry, I couldn't respond.",
-        },
-      ]);
-    } catch (err) {
-      console.error("Chat Error:", err);
-    } finally {
-      setSending(false);
-    }
+      setMessages(prev => [...prev, { role: "assistant", content: data.reply || "..." }]);
+    } catch (err) { console.error("Chat Error:", err); }
+    setSending(false);
   };
 
-  /* RENDER HELPERS */
+  /* ... Render Helpers (renderMessage, etc) and JSX Return ... */
+   /* RENDER HELPERS */
   const renderMessage = (text: string) => {
     const urlRegex = /(https?:\/\/[^\s]+)/g;
     const parts = text.split(urlRegex);
