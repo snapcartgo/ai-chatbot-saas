@@ -135,26 +135,27 @@ export default function WidgetClient() {
 
   const urlRegex = /(https?:\/\/[^\s]+)/g;
 
-  return text.split(urlRegex).map((part, index) => {
+  const parts = text.split(urlRegex);
 
-    if (urlRegex.test(part)) {
+  return parts.map((part, index) => {
+
+    if (part.match(urlRegex)) {
 
       const cleanUrl = part.replace(/[()\[\]]/g, "");
 
       return (
-        <a
+        <span
           key={index}
-          href="#"
-          onClick={(e) => handleBuyClick(e, cleanUrl)}
+          onClick={(e) => handleBuyClick(e as any, cleanUrl)}
           style={{
             color: "#60a5fa",
             textDecoration: "underline",
-            wordBreak: "break-all",
-            cursor: "pointer"
+            cursor: "pointer",
+            wordBreak: "break-all"
           }}
         >
           {cleanUrl}
-        </a>
+        </span>
       );
 
     }
