@@ -3,8 +3,10 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useRouter, useParams } from "next/navigation";
+import Link from "next/link";
 
 export default function ChatbotSettings() {
+
   const router = useRouter();
   const params = useParams();
   const id = params.id as string;
@@ -14,7 +16,9 @@ export default function ChatbotSettings() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
+
     const loadBot = async () => {
+
       const {
         data: { user },
       } = await supabase.auth.getUser();
@@ -40,9 +44,13 @@ export default function ChatbotSettings() {
     };
 
     loadBot();
+
   }, [id, router]);
 
+
+
   const handleSave = async () => {
+
     setSaving(true);
 
     const {
@@ -77,9 +85,13 @@ export default function ChatbotSettings() {
 
     setBot(data);
     alert("Chatbot updated successfully!");
+
   };
 
+
+
   const handleDelete = async () => {
+
     const confirmDelete = confirm(
       "Are you sure you want to delete this chatbot?"
     );
@@ -113,14 +125,22 @@ export default function ChatbotSettings() {
 
     router.push("/dashboard/chatbots");
     router.refresh();
+
   };
+
+
 
   if (loading) return <p>Loading...</p>;
   if (!bot) return <p>Chatbot not found.</p>;
 
+
+
   return (
     <div style={{ padding: 40, maxWidth: 600 }}>
+
       <h1>Edit Chatbot</h1>
+
+      {/* NAME */}
 
       <div style={{ marginTop: 20 }}>
         <label>Name</label>
@@ -133,6 +153,9 @@ export default function ChatbotSettings() {
           style={{ width: "100%", padding: 8, marginTop: 5 }}
         />
       </div>
+
+
+      {/* MODEL */}
 
       <div style={{ marginTop: 20 }}>
         <label>Model</label>
@@ -147,6 +170,9 @@ export default function ChatbotSettings() {
           <option value="gpt-4o">gpt-4o</option>
         </select>
       </div>
+
+
+      {/* TEMPERATURE */}
 
       <div style={{ marginTop: 20 }}>
         <label>Temperature</label>
@@ -165,6 +191,9 @@ export default function ChatbotSettings() {
           style={{ width: "100%", padding: 8, marginTop: 5 }}
         />
       </div>
+
+
+      {/* WELCOME MESSAGE */}
 
       <div style={{ marginTop: 20 }}>
         <label>Welcome Message</label>
@@ -185,6 +214,10 @@ export default function ChatbotSettings() {
         />
       </div>
 
+
+
+      {/* SAVE BUTTON */}
+
       <button
         onClick={handleSave}
         disabled={saving}
@@ -199,10 +232,15 @@ export default function ChatbotSettings() {
         {saving ? "Saving..." : "Save Changes"}
       </button>
 
+
+
+      {/* DELETE BUTTON */}
+
       <button
         onClick={handleDelete}
         style={{
           marginTop: 15,
+          marginLeft: 10,
           padding: "10px 20px",
           background: "red",
           color: "white",
@@ -211,6 +249,30 @@ export default function ChatbotSettings() {
       >
         Delete Chatbot
       </button>
+
+
+
+      {/* MANAGE DOMAINS BUTTON */}
+
+      <div style={{ marginTop: 20 }}>
+        <Link
+          href={`/dashboard/chatbots/${id}/domains`}
+          style={{
+            padding: "10px 20px",
+            background: "#10b981",
+            color: "white",
+            borderRadius: 6,
+            textDecoration: "none",
+            display: "inline-block",
+          }}
+        >
+          Manage Domains
+        </Link>
+      </div>
+
+
+
+      {/* EMBED SCRIPT */}
 
       <div style={{ marginTop: 40 }}>
         <h3>Embed Script</h3>
@@ -248,7 +310,9 @@ export default function ChatbotSettings() {
         >
           Copy Script
         </button>
+
       </div>
+
     </div>
   );
 }
