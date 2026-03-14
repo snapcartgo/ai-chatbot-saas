@@ -15,23 +15,27 @@ export default function DomainsPage() {
   const [domains, setDomains] = useState<Domain[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Replace with dynamic botId later
-  const botId = "YOUR_BOT_ID";
-
   useEffect(() => {
     fetchDomains();
   }, []);
 
   async function fetchDomains() {
 
+    // Get logged in user
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+
     const { data, error } = await supabase
       .from("domains")
       .select("*")
-      .eq("user_id", botId);
+      .eq("user_id", user.id);
 
     if (error) {
-      console.error("Error fetching domains:", error);
-      return;
+      console.error(error);
     }
 
     setDomains(data || []);
@@ -47,7 +51,7 @@ export default function DomainsPage() {
       .eq("id", id);
 
     if (error) {
-      console.error("Error deleting domain:", error);
+      console.error(error);
       return;
     }
 
@@ -66,7 +70,7 @@ export default function DomainsPage() {
       <h2>Allowed Domains</h2>
 
       {domains.length === 0 && (
-        <p>No domains added yet.</p>
+        <p>No domains found.</p>
       )}
 
       {domains.map((d) => (
@@ -74,13 +78,13 @@ export default function DomainsPage() {
         <div
           key={d.id}
           style={{
-            marginBottom: 12,
+            marginBottom: 10,
             padding: 10,
             border: "1px solid #ddd",
             borderRadius: 6,
             display: "flex",
             justifyContent: "space-between",
-            maxWidth: 400
+            maxWidth: 500
           }}
         >
 
@@ -89,12 +93,11 @@ export default function DomainsPage() {
           <button
             onClick={() => removeDomain(d.id)}
             style={{
-              background: "#ef4444",
+              background: "red",
               color: "white",
               border: "none",
-              padding: "4px 10px",
-              borderRadius: 4,
-              cursor: "pointer"
+              padding: "5px 12px",
+              borderRadius: 4
             }}
           >
             Remove
