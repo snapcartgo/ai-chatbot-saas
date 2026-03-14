@@ -96,7 +96,38 @@ export default function WidgetClient() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  /* CONVERT TEXT → LINKS */
+  /* HANDLE BUY CLICK */
+
+  const handleBuyClick = async (
+    e: React.MouseEvent<HTMLAnchorElement>,
+    url: string
+  ) => {
+
+    e.preventDefault();
+
+    try {
+
+      await fetch("/api/create-order", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          bot_id: botId,
+          product_name: "Automation Product",
+          price: 29
+        })
+      });
+
+    } catch (err) {
+      console.error("Order creation failed:", err);
+    }
+
+    window.open(url, "_blank");
+
+  };
+
+  /* CONVERT TEXT TO CLICKABLE LINKS */
 
   const renderMessage = (text: string) => {
 
@@ -106,19 +137,23 @@ export default function WidgetClient() {
 
       if (urlRegex.test(part)) {
 
+        const cleanUrl = part.replace(/[()\[\]]/g, "");
+
         return (
           <a
             key={index}
-            href={part.replace(/[()]/g, "")}
+            href={cleanUrl}
+            onClick={(e) => handleBuyClick(e, cleanUrl)}
             target="_blank"
             rel="noopener noreferrer"
             style={{
               color: "#60a5fa",
               textDecoration: "underline",
-              wordBreak: "break-all"
+              wordBreak: "break-all",
+              cursor: "pointer"
             }}
           >
-            {part}
+            {cleanUrl}
           </a>
         );
 
@@ -147,8 +182,6 @@ export default function WidgetClient() {
 
     setInput("");
 
-    let convId = conversationId;
-
     const res = await fetch(
       "https://ai-chatbot-saas-five.vercel.app/api/chat",
       {
@@ -158,7 +191,7 @@ export default function WidgetClient() {
         },
         body: JSON.stringify({
           message: userMessage,
-          conversation_id: convId,
+          conversation_id: conversationId,
           bot_id: botId,
           category: bot?.category || "booking"
         })
