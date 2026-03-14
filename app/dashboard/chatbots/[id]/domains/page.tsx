@@ -4,23 +4,17 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useParams } from "next/navigation";
 
-type Domain = {
-  id: string;
-  domain: string;
-  user_id: string;
-};
-
 export default function DomainsPage() {
 
   const params = useParams();
   const botId = params.id as string;
 
-  const [domains, setDomains] = useState<Domain[]>([]);
+  const [domains, setDomains] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     fetchDomains();
-  }, []);
+  }, [botId]);
 
   async function fetchDomains() {
 
@@ -30,12 +24,13 @@ export default function DomainsPage() {
       .eq("bot_id", botId);
 
     if (error) {
-      console.error(error);
+      console.error("Domain load error:", error);
+      setLoading(false);
+      return;
     }
 
     setDomains(data || []);
     setLoading(false);
-
   }
 
   async function removeDomain(id: string) {
@@ -46,30 +41,30 @@ export default function DomainsPage() {
       .eq("id", id);
 
     fetchDomains();
-
   }
 
-  if (loading) {
-    return <div style={{ padding: 40 }}>Loading domains...</div>;
-  }
+  if (loading) return <p>Loading domains...</p>;
 
   return (
     <div style={{ padding: 40 }}>
 
       <h2>Allowed Domains</h2>
 
-      {domains.length === 0 && <p>No domains found.</p>}
+      {domains.length === 0 && (
+        <p>No domains found.</p>
+      )}
 
       {domains.map((d) => (
         <div
           key={d.id}
           style={{
-            display: "flex",
-            justifyContent: "space-between",
+            marginTop: 15,
             padding: 10,
             border: "1px solid #ddd",
-            marginBottom: 10,
-            maxWidth: 500
+            borderRadius: 6,
+            display: "flex",
+            justifyContent: "space-between",
+            maxWidth: 400
           }}
         >
           <span>{d.domain}</span>
@@ -80,7 +75,8 @@ export default function DomainsPage() {
               background: "red",
               color: "white",
               border: "none",
-              padding: "4px 10px"
+              padding: "5px 10px",
+              borderRadius: 4
             }}
           >
             Remove
