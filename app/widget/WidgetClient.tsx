@@ -22,7 +22,7 @@ export default function WidgetClient() {
 
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  /* 1. LOAD BOT & INITIALIZE CONVERSATION */
+  /* 1. INITIALIZE BOT & CONVERSATION */
   useEffect(() => {
     const init = async () => {
       if (!botId) {
@@ -87,42 +87,43 @@ export default function WidgetClient() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  /* 2. LEAD CAPTURE LOGIC (NEW) */
+  /* 2. LEAD CAPTURE LOGIC (Updated for your Schema) */
   const captureLead = async (text: string) => {
+    // Detects phone numbers or emails
+    const phoneRegex = /(\+?\d{1,4}[\s-]?)?(\(?\d{3}\)?[\s-]?)?[\d\s-]{7,10}/g;
     const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
+    
+    const foundPhone = text.match(phoneRegex);
     const foundEmail = text.match(emailRegex);
 
-    if (foundEmail && conversationId) {
-      console.log("Lead detected, updating Supabase...");
-      // Option A: Update the existing conversation with the email
-      await supabase
-        .from("conversations")
-        .update({ email: foundEmail[0] })
-        .eq("id", conversationId);
-        
-      // Option B: Insert into a dedicated 'leads' table
-      await supabase
-        .from("leads")
+    if ((foundPhone || foundEmail) && conversationId) {
+      console.log("Lead info detected, updating Supabase...");
+      
+      const { error } = await supabase
+        .from("leads") 
         .upsert({ 
-          email: foundEmail[0], 
-          chatbot_id: botId, 
-          conversation_id: conversationId 
-        });
+          phone: foundPhone ? foundPhone[0] : null,
+          email: foundEmail ? foundEmail[0] : null,
+          chatbot_id: botId,
+          conversation_id: conversationId,
+          name: "Chat Visitor"
+        }, { onConflict: 'conversation_id' }); // Prevents duplicate rows for same chat
+
+      if (error) console.error("Lead Update Error:", error.message);
     }
   };
 
-  /* 3. UPDATED ORDER HANDLER */
+  /* 3. ORDER HANDLER */
   const handleBuyClick = async (e: React.MouseEvent, url: string) => {
     e.preventDefault();
-    console.log("Creating order for conversation:", conversationId);
-
     try {
+      // NOTE: Ensure your /api/create-order route uses table name "order" (singular)
       await fetch("/api/create-order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           bot_id: botId,
-          conversation_id: conversationId, // CRITICAL: Link order to chat
+          conversation_id: conversationId,
           product_name: "Google Maps Scraper",
           price: 29,
         }),
@@ -130,46 +131,18 @@ export default function WidgetClient() {
     } catch (err) {
       console.error("Order creation failed:", err);
     }
-
     window.open(url, "_blank");
   };
 
-  /* RENDER MESSAGE WITH LINK DETECTION */
-  const renderMessage = (text: string) => {
-    const urlRegex = /(https?:\/\/[^\s]+)/g;
-    const parts = text.split(urlRegex);
-
-    return parts.map((part, index) => {
-      if (part.match(urlRegex)) {
-        const cleanUrl = part.replace(/[()\[\]]/g, "");
-        return (
-          <span
-            key={index}
-            onClick={(e) => handleBuyClick(e, cleanUrl)}
-            style={{
-              color: "#60a5fa",
-              textDecoration: "underline",
-              cursor: "pointer",
-              wordBreak: "break-all",
-            }}
-          >
-            {cleanUrl}
-          </span>
-        );
-      }
-      return part;
-    });
-  };
-
-  /* 4. SEND MESSAGE WITH LEAD DETECTION */
+  /* 4. SEND MESSAGE */
   const sendMessage = async () => {
     if (!input.trim() || sending) return;
 
     const userMessage = input.trim();
     setSending(true);
 
-    // Check for leads (emails) immediately
-    captureLead(userMessage);
+    // Run lead detection
+    await captureLead(userMessage);
 
     setMessages((prev) => [...prev, { role: "user", content: userMessage }]);
     setInput("");
@@ -202,46 +175,40 @@ export default function WidgetClient() {
     }
   };
 
+  /* RENDER HELPERS */
+  const renderMessage = (text: string) => {
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const parts = text.split(urlRegex);
+
+    return parts.map((part, index) => {
+      if (part.match(urlRegex)) {
+        const cleanUrl = part.replace(/[()\[\]]/g, "");
+        return (
+          <span
+            key={index}
+            onClick={(e) => handleBuyClick(e, cleanUrl)}
+            style={{ color: "#60a5fa", textDecoration: "underline", cursor: "pointer" }}
+          >
+            {cleanUrl}
+          </span>
+        );
+      }
+      return part;
+    });
+  };
+
   if (loading) return <div style={{ padding: 20 }}>Loading chatbot...</div>;
 
   return (
-    <div
-      style={{
-        width: "100%",
-        height: "520px",
-        display: "flex",
-        flexDirection: "column",
-        background: "#fff",
-        fontFamily: "Arial",
-      }}
-    >
-      {/* Header */}
+    <div style={{ width: "100%", height: "520px", display: "flex", flexDirection: "column", background: "#fff", fontFamily: "Arial" }}>
       <div style={{ background: "#2563eb", color: "#fff", padding: "12px", fontWeight: 600 }}>
         {bot?.name || "AI Assistant"}
       </div>
 
-      {/* Messages */}
       <div style={{ flex: 1, padding: 12, overflowY: "auto", background: "#f3f4f6" }}>
         {messages.map((msg, index) => (
-          <div
-            key={index}
-            style={{
-              marginBottom: 10,
-              textAlign: msg.role === "user" ? "right" : "left",
-            }}
-          >
-            <div
-              style={{
-                display: "inline-block",
-                padding: "8px 12px",
-                borderRadius: 8,
-                background: msg.role === "user" ? "#2563eb" : "#111827",
-                color: "#fff",
-                maxWidth: "75%",
-                wordBreak: "break-word",
-                overflowWrap: "anywhere",
-              }}
-            >
+          <div key={index} style={{ marginBottom: 10, textAlign: msg.role === "user" ? "right" : "left" }}>
+            <div style={{ display: "inline-block", padding: "8px 12px", borderRadius: 8, background: msg.role === "user" ? "#2563eb" : "#111827", color: "#fff", maxWidth: "75%" }}>
               {renderMessage(msg.content)}
             </div>
           </div>
@@ -249,7 +216,6 @@ export default function WidgetClient() {
         <div ref={bottomRef} />
       </div>
 
-      {/* Input */}
       <div style={{ borderTop: "1px solid #e5e7eb", padding: 10 }}>
         <div style={{ display: "flex" }}>
           <input
@@ -262,14 +228,7 @@ export default function WidgetClient() {
           <button
             onClick={sendMessage}
             disabled={sending}
-            style={{
-              marginLeft: 8,
-              padding: "8px 14px",
-              background: "#2563eb",
-              color: "#fff",
-              border: "none",
-              borderRadius: 6,
-            }}
+            style={{ marginLeft: 8, padding: "8px 14px", background: "#2563eb", color: "#fff", border: "none", borderRadius: 6 }}
           >
             {sending ? "..." : "Send"}
           </button>
