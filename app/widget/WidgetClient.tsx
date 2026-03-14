@@ -23,7 +23,7 @@ export default function WidgetClient() {
 
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  /* LOAD BOT + CREATE CONVERSATION */
+  /* LOAD BOT */
 
   useEffect(() => {
 
@@ -34,69 +34,55 @@ export default function WidgetClient() {
         return;
       }
 
-      try {
+      const { data: botData } = await supabase
+        .from("chatbots")
+        .select("*")
+        .eq("id", botId)
+        .single();
 
-        const { data: botData, error } = await supabase
-          .from("chatbots")
-          .select("*")
-          .eq("id", botId)
+      if (!botData) {
+        setLoading(false);
+        return;
+      }
+
+      setBot(botData);
+
+      let storedConversation =
+        localStorage.getItem(`chat_conversation_${botId}`);
+
+      if (!storedConversation) {
+
+        const { data } = await supabase
+          .from("conversations")
+          .insert([
+            {
+              chatbot_id: botId,
+              visitor_id: crypto.randomUUID()
+            }
+          ])
+          .select()
           .single();
 
-        if (error || !botData) {
-          console.error("Bot not found");
-          setLoading(false);
-          return;
-        }
+        storedConversation = data.id;
 
-        setBot(botData);
-
-        let storedConversation =
-          localStorage.getItem(`chat_conversation_${botId}`);
-
-        if (!storedConversation) {
-
-          const { data, error } = await supabase
-            .from("conversations")
-            .insert([
-              {
-                chatbot_id: botId,
-                visitor_id: crypto.randomUUID()
-              }
-            ])
-            .select()
-            .single();
-
-          if (error || !data) {
-            console.error("Conversation creation error:", error);
-            setLoading(false);
-            return;
-          }
-
-          storedConversation = data.id;
-
-          localStorage.setItem(
-            `chat_conversation_${botId}`,
-            data.id
-          );
-        }
-
-        setConversationId(storedConversation);
-
-        setMessages([
-          {
-            role: "assistant",
-            content:
-              botData.welcome_message ||
-              "Hello! How can I help you?"
-          }
-        ]);
-
-        setLoading(false);
-
-      } catch (err) {
-        console.error(err);
-        setLoading(false);
+        localStorage.setItem(
+          `chat_conversation_${botId}`,
+          data.id
+        );
       }
+
+      setConversationId(storedConversation);
+
+      setMessages([
+        {
+          role: "assistant",
+          content:
+            botData.welcome_message ||
+            "Hello! How can I help you?"
+        }
+      ]);
+
+      setLoading(false);
 
     };
 
@@ -109,6 +95,40 @@ export default function WidgetClient() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  /* CONVERT TEXT → LINKS */
+
+  const renderMessage = (text: string) => {
+
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+
+    return text.split(urlRegex).map((part, index) => {
+
+      if (urlRegex.test(part)) {
+
+        return (
+          <a
+            key={index}
+            href={part}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              color: "#60a5fa",
+              textDecoration: "underline",
+              wordBreak: "break-all"
+            }}
+          >
+            {part}
+          </a>
+        );
+
+      }
+
+      return part;
+
+    });
+
+  };
 
   /* SEND MESSAGE */
 
@@ -127,91 +147,42 @@ export default function WidgetClient() {
 
     setInput("");
 
-    try {
+    let convId = conversationId;
 
-      let convId = conversationId;
-
-      if (!convId) {
-
-        const { data, error } = await supabase
-          .from("conversations")
-          .insert([
-            {
-              chatbot_id: botId,
-              visitor_id: crypto.randomUUID()
-            }
-          ])
-          .select()
-          .single();
-
-        if (error || !data) {
-          console.error("Conversation creation failed:", error);
-          setSending(false);
-          return;
-        }
-
-        convId = data.id;
-
-        setConversationId(convId);
-
-        localStorage.setItem(
-          `chat_conversation_${botId}`,
-          convId as string
-        );
+    const res = await fetch(
+      "https://ai-chatbot-saas-five.vercel.app/api/chat",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          message: userMessage,
+          conversation_id: convId,
+          bot_id: botId,
+          category: bot?.category || "booking"
+        })
       }
+    );
 
-      const res = await fetch(
-        "https://ai-chatbot-saas-five.vercel.app/api/chat",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            message: userMessage,
-            conversation_id: convId,
-            bot_id: botId,
-            category: bot?.category || "booking"
-          })
-        }
-      );
+    const data = await res.json();
 
-      const data = await res.json();
-
-      setMessages(prev => [
-        ...prev,
-        {
-          role: "assistant",
-          content:
-            data.reply ||
-            "Sorry, I couldn't respond."
-        }
-      ]);
-
-    } catch (err) {
-
-      console.error("Chat error:", err);
-
-      setMessages(prev => [
-        ...prev,
-        {
-          role: "assistant",
-          content:
-            "Something went wrong. Please try again."
-        }
-      ]);
-
-    }
+    setMessages(prev => [
+      ...prev,
+      {
+        role: "assistant",
+        content:
+          data.reply ||
+          "Sorry, I couldn't respond."
+      }
+    ]);
 
     setSending(false);
+
   };
 
   if (loading) {
     return <div style={{ padding: 20 }}>Loading chatbot...</div>;
-  }
-
-  if (!bot) {
-    return <div style={{ padding: 20 }}>Chatbot not found</div>;
   }
 
   return (
@@ -270,10 +241,12 @@ export default function WidgetClient() {
                     ? "#2563eb"
                     : "#111827",
                 color: "#fff",
-                maxWidth: "75%"
+                maxWidth: "75%",
+                wordBreak: "break-word",
+                overflowWrap: "anywhere"
               }}
             >
-              {msg.content}
+              {renderMessage(msg.content)}
             </div>
 
           </div>
