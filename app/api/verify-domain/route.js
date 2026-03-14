@@ -25,7 +25,7 @@ export async function GET(req) {
       .from("domains")
       .insert({
         domain: domain,
-        user_id: botId
+        bot_id: botId
       });
 
     return Response.json({ allowed: true }, {

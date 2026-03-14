@@ -27,7 +27,7 @@ export default function DomainsPage() {
     const { data, error } = await supabase
       .from("domains")
       .select("*")
-      .eq("user_id", botId);
+      .eq("bot_id", botId);
 
     if (error) {
       console.error(error);
