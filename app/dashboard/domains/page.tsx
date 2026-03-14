@@ -32,7 +32,7 @@ export default function DomainsPage() {
     const { data, error } = await supabase
       .from("domains")
       .select("*")
-      .eq("user_id", user.id);
+      .eq("user_id", "68d88301-949c-4b5d-a6a9-6d0b5ac8ce6b");
 
     if (error) {
       console.error(error);
