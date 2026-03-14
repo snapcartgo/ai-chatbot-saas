@@ -3,11 +3,31 @@ import { NextResponse } from "next/server";
 export async function POST(req: Request) {
   try {
 
-    const { message, conversation_id, bot_id, user_id } = await req.json();
+    const {
+      message,
+      conversation_id,
+      bot_id,
+      user_id,
+      category
+    } = await req.json();
+
+    if (!message || !bot_id) {
+      return new NextResponse(
+        JSON.stringify({ reply: "Missing required fields." }),
+        { status: 400 }
+      );
+    }
 
     const webhookUrl = process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL;
 
-    const webhookResponse = await fetch(webhookUrl!, {
+    if (!webhookUrl) {
+      return new NextResponse(
+        JSON.stringify({ reply: "Webhook URL not configured." }),
+        { status: 500 }
+      );
+    }
+
+    const webhookResponse = await fetch(webhookUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -16,7 +36,8 @@ export async function POST(req: Request) {
         message,
         conversation_id,
         bot_id,
-        user_id
+        user_id,
+        category
       }),
     });
 
