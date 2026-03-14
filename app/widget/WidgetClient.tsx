@@ -109,7 +109,7 @@ export default function WidgetClient() {
         return (
           <a
             key={index}
-            href={part}
+            href={part.replace(/[()]/g, "")}
             target="_blank"
             rel="noopener noreferrer"
             style={{
