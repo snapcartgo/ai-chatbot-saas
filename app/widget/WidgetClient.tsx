@@ -118,3 +118,64 @@ export default function WidgetClient() {
   };
 
   /* ... Render Helpers (renderMessage, etc) and JSX Return ... */
+    const renderMessage = (text: string) => {
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const parts = text.split(urlRegex);
+
+    return parts.map((part, index) => {
+      if (part.match(urlRegex)) {
+        const cleanUrl = part.replace(/[()\[\]]/g, "");
+        return (
+          <span
+            key={index}
+            onClick={(e) => handleBuyClick(e, cleanUrl)}
+            style={{ color: "#60a5fa", textDecoration: "underline", cursor: "pointer" }}
+          >
+            {cleanUrl}
+          </span>
+        );
+      }
+      return part;
+    });
+  };
+
+  if (loading) return <div style={{ padding: 20 }}>Loading chatbot...</div>;
+
+  return (
+    <div style={{ width: "100%", height: "520px", display: "flex", flexDirection: "column", background: "#fff", fontFamily: "Arial" }}>
+      <div style={{ background: "#2563eb", color: "#fff", padding: "12px", fontWeight: 600 }}>
+        {bot?.name || "AI Assistant"}
+      </div>
+
+      <div style={{ flex: 1, padding: 12, overflowY: "auto", background: "#f3f4f6" }}>
+        {messages.map((msg, index) => (
+          <div key={index} style={{ marginBottom: 10, textAlign: msg.role === "user" ? "right" : "left" }}>
+            <div style={{ display: "inline-block", padding: "8px 12px", borderRadius: 8, background: msg.role === "user" ? "#2563eb" : "#111827", color: "#fff", maxWidth: "75%" }}>
+              {renderMessage(msg.content)}
+            </div>
+          </div>
+        ))}
+        <div ref={bottomRef} />
+      </div>
+
+      <div style={{ borderTop: "1px solid #e5e7eb", padding: 10 }}>
+        <div style={{ display: "flex" }}>
+          <input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Type your message..."
+            style={{ flex: 1, padding: 10, borderRadius: 6, border: "1px solid #ccc" }}
+            onKeyDown={(e) => e.key === "Enter" && sendMessage()}
+          />
+          <button
+            onClick={sendMessage}
+            disabled={sending}
+            style={{ marginLeft: 8, padding: "8px 14px", background: "#2563eb", color: "#fff", border: "none", borderRadius: 6 }}
+          >
+            {sending ? "..." : "Send"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
