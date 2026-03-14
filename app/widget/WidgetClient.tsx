@@ -131,34 +131,34 @@ export default function WidgetClient() {
 
       let convId = conversationId;
 
-if (!convId) {
+      if (!convId) {
 
-  const { data, error } = await supabase
-    .from("conversations")
-    .insert([
-      {
-        chatbot_id: botId,
-        visitor_id: crypto.randomUUID()
+        const { data, error } = await supabase
+          .from("conversations")
+          .insert([
+            {
+              chatbot_id: botId,
+              visitor_id: crypto.randomUUID()
+            }
+          ])
+          .select()
+          .single();
+
+        if (error || !data) {
+          console.error("Conversation creation failed:", error);
+          setSending(false);
+          return;
+        }
+
+        convId = data.id;
+
+        setConversationId(convId);
+
+        localStorage.setItem(
+          `chat_conversation_${botId}`,
+          convId as string
+        );
       }
-    ])
-    .select()
-    .single();
-
-  if (error || !data) {
-    console.error("Conversation creation failed:", error);
-    setSending(false);
-    return;
-  }
-
-  convId = data.id;
-
-  setConversationId(convId);
-
-  localStorage.setItem(
-    `chat_conversation_${botId}`,
-    convId as string
-  );
-}
 
       const res = await fetch(
         "https://ai-chatbot-saas-five.vercel.app/api/chat",
@@ -170,7 +170,8 @@ if (!convId) {
           body: JSON.stringify({
             message: userMessage,
             conversation_id: convId,
-            bot_id: botId
+            bot_id: botId,
+            category: bot?.category || "booking"
           })
         }
       );
