@@ -10,11 +10,7 @@ export async function POST(req: Request) {
 
   const body = await req.json();
 
-  const {
-    transaction_id,
-    order_id,
-    status
-  } = body;
+  const { order_id, transaction_id, status } = body;
 
   if (status === "success") {
 
