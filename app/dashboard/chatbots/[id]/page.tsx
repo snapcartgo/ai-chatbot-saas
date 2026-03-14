@@ -69,6 +69,7 @@ export default function ChatbotSettings() {
         model: bot.model,
         temperature: bot.temperature,
         welcome_message: bot.welcome_message,
+        category: bot.category,   // NEW FIELD
       })
       .eq("id", id)
       .eq("user_id", user.id)
@@ -152,6 +153,24 @@ export default function ChatbotSettings() {
           }
           style={{ width: "100%", padding: 8, marginTop: 5 }}
         />
+      </div>
+
+
+      {/* CATEGORY */}
+
+      <div style={{ marginTop: 20 }}>
+        <label>Business Category</label>
+
+        <select
+          value={bot.category || "booking"}
+          onChange={(e) =>
+            setBot({ ...bot, category: e.target.value })
+          }
+          style={{ width: "100%", padding: 8, marginTop: 5 }}
+        >
+          <option value="booking">Booking</option>
+          <option value="ecommerce">Ecommerce</option>
+        </select>
       </div>
 
 
