@@ -37,9 +37,15 @@ export default function ChatbotSettings() {
 
       if (error) {
         console.error("Load bot error:", error);
+        return;
       }
 
-      setBot(data);
+      // IMPORTANT FIX: ensure category is never null
+      setBot({
+        ...data,
+        category: data?.category || "booking",
+      });
+
       setLoading(false);
     };
 
@@ -69,7 +75,7 @@ export default function ChatbotSettings() {
         model: bot.model,
         temperature: bot.temperature,
         welcome_message: bot.welcome_message,
-        category: bot.category,   // NEW FIELD
+        category: bot.category,
       })
       .eq("id", id)
       .eq("user_id", user.id)
@@ -162,7 +168,7 @@ export default function ChatbotSettings() {
         <label>Business Category</label>
 
         <select
-          value={bot.category || "booking"}
+          value={bot.category}
           onChange={(e) =>
             setBot({ ...bot, category: e.target.value })
           }
@@ -271,7 +277,7 @@ export default function ChatbotSettings() {
 
 
 
-      {/* MANAGE DOMAINS BUTTON */}
+      {/* MANAGE DOMAINS */}
 
       <div style={{ marginTop: 20 }}>
         <Link
