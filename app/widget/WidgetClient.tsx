@@ -105,7 +105,7 @@ export default function WidgetClient() {
 
   e.preventDefault();
 
-  console.log("ORDER CLICKED");
+  console.log("Create order clicked");
 
   try {
 
