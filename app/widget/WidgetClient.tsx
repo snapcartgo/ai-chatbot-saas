@@ -99,71 +99,73 @@ export default function WidgetClient() {
   /* HANDLE BUY CLICK */
 
   const handleBuyClick = async (
-    e: React.MouseEvent<HTMLAnchorElement>,
-    url: string
-  ) => {
+  e: React.MouseEvent<HTMLAnchorElement>,
+  url: string
+) => {
 
-    e.preventDefault();
+  e.preventDefault();
 
-    try {
+  console.log("ORDER CLICKED");
 
-      await fetch("/api/create-order", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          bot_id: botId,
-          product_name: "Automation Product",
-          price: 29
-        })
-      });
+  try {
 
-    } catch (err) {
-      console.error("Order creation failed:", err);
-    }
+    await fetch("/api/create-order", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        bot_id: botId,
+        product_name: "Google Maps Scraper",
+        price: 29
+      })
+    });
 
-    window.open(url, "_blank");
+  } catch (err) {
+    console.error("Order creation failed:", err);
+  }
 
-  };
+  window.open(url, "_blank");
+
+};
 
   /* CONVERT TEXT TO CLICKABLE LINKS */
 
   const renderMessage = (text: string) => {
 
-    const urlRegex = /(https?:\/\/[^\s]+)/g;
+  const urlRegex = /(https?:\/\/[^\s]+)/g;
 
-    return text.split(urlRegex).map((part, index) => {
+  return text.split(urlRegex).map((part, index) => {
 
-      if (urlRegex.test(part)) {
+    if (urlRegex.test(part)) {
 
-        const cleanUrl = part.replace(/[()\[\]]/g, "");
+      const cleanUrl = part.replace(/[()\[\]]/g, "");
 
-        return (
-          <a
-            key={index}
-            href={cleanUrl}
-            onClick={(e) => handleBuyClick(e, cleanUrl)}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{
-              color: "#60a5fa",
-              textDecoration: "underline",
-              wordBreak: "break-all",
-              cursor: "pointer"
-            }}
-          >
-            {cleanUrl}
-          </a>
-        );
+      return (
+        <a
+          key={index}
+          href="#"
+          onClick={(e) => handleBuyClick(e, cleanUrl)}
+          style={{
+            color: "#60a5fa",
+            textDecoration: "underline",
+            wordBreak: "break-all",
+            cursor: "pointer"
+          }}
+        >
+          {cleanUrl}
+        </a>
+      );
 
-      }
+    }
 
-      return part;
+    return part;
 
-    });
+  });
 
-  };
+};
+
+
 
   /* SEND MESSAGE */
 
