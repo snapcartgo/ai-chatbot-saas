@@ -12,40 +12,85 @@ export async function GET(req) {
     process.env.SUPABASE_SERVICE_ROLE_KEY
   );
 
-  // Get all domains for this bot
-  const { data: domains } = await supabase
-    .from("domains")
-    .select("*")
-    .eq("user_id", botId);
-
-  // FIRST INSTALL
-  if (!domains || domains.length === 0) {
-
-    await supabase
-      .from("domains")
-      .insert({
-        domain: domain,
-        bot_id: botId
-      });
-
-    return Response.json({ allowed: true }, {
-      headers: { "Access-Control-Allow-Origin": "*" }
-    });
-
+  if (!botId || !domain) {
+    return new Response(
+      JSON.stringify({ allowed: false }),
+      {
+        status: 400,
+        headers: { "Content-Type": "application/json" }
+      }
+    );
   }
 
-  // SAME DOMAIN
+  // Get existing domain for this bot
+  const { data: domains, error } = await supabase
+    .from("domains")
+    .select("*")
+    .eq("bot_id", botId);
+
+  if (error) {
+    console.error("Domain query error:", error);
+    return new Response(
+      JSON.stringify({ allowed: false }),
+      {
+        status: 500,
+        headers: { "Content-Type": "application/json" }
+      }
+    );
+  }
+
+  // FIRST INSTALL → save domain
+  if (!domains || domains.length === 0) {
+
+    const { error: insertError } = await supabase
+      .from("domains")
+      .insert({
+        bot_id: botId,
+        domain: domain
+      });
+
+    if (insertError) {
+      console.error("Insert domain error:", insertError);
+    }
+
+    return new Response(
+      JSON.stringify({ allowed: true }),
+      {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*"
+        }
+      }
+    );
+  }
+
+  // SAME DOMAIN → allow
   const match = domains.find(d => d.domain === domain);
 
   if (match) {
-    return Response.json({ allowed: true }, {
-      headers: { "Access-Control-Allow-Origin": "*" }
-    });
+    return new Response(
+      JSON.stringify({ allowed: true }),
+      {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*"
+        }
+      }
+    );
   }
 
-  // DIFFERENT DOMAIN → BLOCK
-  return Response.json({ allowed: false }, {
-    headers: { "Access-Control-Allow-Origin": "*" }
-  });
+  // DIFFERENT DOMAIN → block
+  return new Response(
+    JSON.stringify({ allowed: false }),
+    {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*"
+      }
+    }
+  );
 
 }
