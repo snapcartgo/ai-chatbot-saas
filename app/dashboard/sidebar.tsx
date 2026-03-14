@@ -28,6 +28,10 @@ export default function Sidebar() {
           Pipeline
         </a>
 
+        <a href="/dashboard/orders" className="block px-4 py-3">
+          Orders
+        </a>
+
         <a href="/dashboard/knowledge-base" className="block px-4 py-3">
           Knowledge Base
         </a>
