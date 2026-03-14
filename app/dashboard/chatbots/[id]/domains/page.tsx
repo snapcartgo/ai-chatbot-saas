@@ -2,15 +2,18 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { useParams } from "next/navigation";
 
 type Domain = {
   id: string;
   domain: string;
   user_id: string;
-  created_at: string;
 };
 
 export default function DomainsPage() {
+
+  const params = useParams();
+  const botId = params.id as string;
 
   const [domains, setDomains] = useState<Domain[]>([]);
   const [loading, setLoading] = useState(true);
@@ -21,21 +24,14 @@ export default function DomainsPage() {
 
   async function fetchDomains() {
 
-    // Get logged in user
-    const { data: { user } } = await supabase.auth.getUser();
-
-    if (!user) {
-      setLoading(false);
-      return;
-    }
-
     const { data, error } = await supabase
       .from("domains")
       .select("*")
-      .eq("user_id", "68d88301-949c-4b5d-a6a9-6d0b5ac8ce6b");
+      .eq("user_id", botId);
 
     if (error) {
       console.error(error);
+      return;
     }
 
     setDomains(data || []);
@@ -45,15 +41,10 @@ export default function DomainsPage() {
 
   async function removeDomain(id: string) {
 
-    const { error } = await supabase
+    await supabase
       .from("domains")
       .delete()
       .eq("id", id);
-
-    if (error) {
-      console.error(error);
-      return;
-    }
 
     fetchDomains();
 
@@ -69,22 +60,19 @@ export default function DomainsPage() {
 
       <h2>Allowed Domains</h2>
 
-      {domains.length === 0 && (
-        <p>No domains found.</p>
-      )}
+      {domains.length === 0 && <p>No domains found.</p>}
 
       {domains.map((d) => (
 
         <div
           key={d.id}
           style={{
-            marginBottom: 10,
-            padding: 10,
-            border: "1px solid #ddd",
-            borderRadius: 6,
             display: "flex",
             justifyContent: "space-between",
-            maxWidth: 500
+            maxWidth: 500,
+            padding: 10,
+            border: "1px solid #ddd",
+            marginBottom: 10
           }}
         >
 
@@ -96,8 +84,7 @@ export default function DomainsPage() {
               background: "red",
               color: "white",
               border: "none",
-              padding: "5px 12px",
-              borderRadius: 4
+              padding: "4px 10px"
             }}
           >
             Remove
