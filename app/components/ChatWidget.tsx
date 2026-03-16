@@ -85,31 +85,31 @@ export default function ChatWidget() {
         // 2. DETECT PAYMENT LINK AND TRIGGER ORDER CREATION
         // Inside handleSendMessage in components/ChatWidget.tsx
 if (data.content.includes("u.payu.in")) {
-  console.log("Payment detected. Syncing with Supabase...");
+    console.log("Payment link detected. Updating orders table...");
+    
+    const orderPayload = {
+        user_id: "36f39a53-c183-43b3-9923-e7019d176f43", // Must match a real UUID in your profiles table
+        bot_id: "f7b1a0c1-f55f-4bbc-8a27-d08b6076c3ea",  // Must match a real UUID in your chatbots table
+        product_name: "Google Maps Business Intelligence Scraper",
+        price: 29, // Sent as a number for the 'numeric' column
+        customer_email: "shubhm@gmail.com",
+        payment_status: "pending"
+        // lead_id is OMITTED so it doesn't cause a 400 error by being an empty string
+    };
 
-  const orderPayload = {
-    user_id: "36f39a53-c183-43b3-9923-e7019d176f43", // Valid UUID string
-    bot_id: "f7b1a0c1-f55f-4bbc-8a27-d08b6076c3ea",  // Valid UUID string
-    product_name: "Google Maps Business Intelligence Scraper",
-    price: 29, // Number type for 'numeric' column
-    customer_email: "shubhm@gmail.com",
-    payment_status: "pending"
-    // lead_id is omitted so it defaults to NULL instead of an empty string
-  };
+    const orderResponse = await fetch("/api/create-order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(orderPayload)
+    });
 
-  const orderResponse = await fetch("/api/create-order", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(orderPayload)
-  });
-
-  const orderResult = await orderResponse.json();
-  if (orderResult.success) {
-    console.log("Order Table Updated Successfully!");
-  } else {
-    // This will help you see the EXACT error message from Supabase
-    console.error("Supabase Error Details:", orderResult.error);
-  }
+    const orderResult = await orderResponse.json();
+    if (orderResult.success) {
+        console.log("Order Table Updated Successfully!");
+    } else {
+        // This will print the exact database error in your browser console
+        console.error("Supabase Error Details:", orderResult.error);
+    }
 }
       }
     } catch (error) {
