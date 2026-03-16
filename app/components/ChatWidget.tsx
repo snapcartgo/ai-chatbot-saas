@@ -85,6 +85,8 @@ export default function ChatWidget() {
 
   // Inside your ChatWidget component...
 
+// Inside handleSendMessage function...
+
 const handleSendMessage = async () => {
   if (!userInput.trim()) return;
 
@@ -101,7 +103,7 @@ const handleSendMessage = async () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         message: currentInput,
-        conversation_id: sessionId,
+        conversation_id: "session_test_new",
         bot_id: "f7b1a0c1-f55f-4bbc-8a27-d08b6076c3ea",
         user_id: "36f39a53-c183-43b3-9923-e7019d176f43"
       })
@@ -110,12 +112,11 @@ const handleSendMessage = async () => {
     const data = await response.json();
 
     if (data.content) {
-      // 2. Display the AI response (which contains the PayU link)
       setMessages((prev) => [...prev, { role: "assistant", content: data.content }]);
 
-      // 3. AUTOMATION: If the response contains a payment link, update Supabase
+      // 2. TRIGGER SUPABASE UPDATE IF PAYMENT LINK EXISTS
       if (data.content.includes("u.payu.in")) {
-        console.log("Payment link detected! Updating Supabase...");
+        console.log("Payment link detected. Syncing with Supabase...");
         
         await fetch("/api/create-order", {
           method: "POST",
@@ -123,15 +124,15 @@ const handleSendMessage = async () => {
           body: JSON.stringify({
             user_id: "36f39a53-c183-43b3-9923-e7019d176f43",
             bot_id: "f7b1a0c1-f55f-4bbc-8a27-d08b6076c3ea",
-            product_name: "Google Maps Scraper",
+            product_name: "Google Maps Business Intelligence Scraper",
             price: 29,
-            customer_email: "shubhm@gmail.com" // You can extract this from state if available
+            customer_email: "shubhm@gmail.com" 
           })
         });
       }
     }
   } catch (error) {
-    console.error("Workflow Error:", error);
+    console.error("Fetch error:", error);
   } finally {
     setIsLoading(false);
   }

@@ -1,24 +1,40 @@
-import { createClient } from '@supabase/supabase-js'; // Or your local supabase config
+import { createClient } from '@supabase/supabase-js';
+import { NextResponse } from 'next/server';
 
 export async function POST(req: Request) {
-  const { user_id, bot_id, product_name, price, customer_email } = await req.json();
+  try {
+    const body = await req.json();
+    
+    // Initialize Supabase with Service Role to bypass RLS
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
 
-  const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+    // Insert data using the exact column names from your screenshot
+    const { data, error } = await supabase
+      .from('orders')
+      .insert([
+        {
+          user_id: body.user_id,
+          bot_id: body.bot_id,
+          product_name: body.product_name,
+          price: body.price,
+          customer_email: body.customer_email,
+          payment_status: 'pending', // Starts as pending
+          created_at: new Date().toISOString()
+        }
+      ])
+      .select();
 
-  const { data, error } = await supabase
-    .from('orders')
-    .insert([
-      {
-        user_id,
-        bot_id,
-        product_name,
-        price,
-        customer_email,
-        payment_status: 'pending', // Always start as pending
-      }
-    ])
-    .select();
+    if (error) {
+      console.error("Supabase Error:", error.message);
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
 
-  if (error) return new Response(JSON.stringify({ error: error.message }), { status: 500 });
-  return new Response(JSON.stringify(data), { status: 200 });
+    return NextResponse.json({ success: true, data }, { status: 200 });
+  } catch (err: any) {
+    console.error("Internal Server Error:", err.message);
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+  }
 }
