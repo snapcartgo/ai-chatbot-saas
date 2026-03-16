@@ -83,57 +83,59 @@ export default function ChatWidget() {
   }, []);
 
 
-  const handleSendMessage = async () => {
+  // Inside your ChatWidget component...
 
-    if (!userInput.trim()) return;
+const handleSendMessage = async () => {
+  if (!userInput.trim()) return;
 
-    const userMsg = { role: "user", content: userInput };
+  const userMsg = { role: "user", content: userInput };
+  setMessages((prev) => [...prev, userMsg]);
+  const currentInput = userInput;
+  setUserInput("");
+  setIsLoading(true);
 
-    setMessages((prev) => [...prev, userMsg]);
+  try {
+    // 1. Send message to n8n
+    const response = await fetch(process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL!, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: currentInput,
+        conversation_id: sessionId,
+        bot_id: "f7b1a0c1-f55f-4bbc-8a27-d08b6076c3ea",
+        user_id: "36f39a53-c183-43b3-9923-e7019d176f43"
+      })
+    });
 
-    const currentInput = userInput;
+    const data = await response.json();
 
-    setUserInput("");
-    setIsLoading(true);
+    if (data.content) {
+      // 2. Display the AI response (which contains the PayU link)
+      setMessages((prev) => [...prev, { role: "assistant", content: data.content }]);
 
-    try {
-
-      const response = await fetch(
-        process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL!,
-        {
+      // 3. AUTOMATION: If the response contains a payment link, update Supabase
+      if (data.content.includes("u.payu.in")) {
+        console.log("Payment link detected! Updating Supabase...");
+        
+        await fetch("/api/create-order", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            message: currentInput,
-            conversation_id: sessionId,
+            user_id: "36f39a53-c183-43b3-9923-e7019d176f43",
             bot_id: "f7b1a0c1-f55f-4bbc-8a27-d08b6076c3ea",
-            user_id: "36f39a53-c183-43b3-9923-e7019d176f43"
+            product_name: "Google Maps Scraper",
+            price: 29,
+            customer_email: "shubhm@gmail.com" // You can extract this from state if available
           })
-        }
-      );
-
-      const data = await response.json();
-
-      if (data.content) {
-
-        setMessages((prev) => [
-          ...prev,
-          { role: "assistant", content: data.content }
-        ]);
-
+        });
       }
-
-    } catch (error) {
-
-      console.error("Fetch error:", error);
-
-    } finally {
-
-      setIsLoading(false);
-
     }
-
-  };
+  } catch (error) {
+    console.error("Workflow Error:", error);
+  } finally {
+    setIsLoading(false);
+  }
+};
 
 
   return (
