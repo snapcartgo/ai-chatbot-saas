@@ -83,7 +83,9 @@ export default function ChatWidget() {
   }, []);
 
 
-  // Inside your ChatWidget component...
+  
+
+// Inside handleSendMessage function...
 
 // Inside handleSendMessage function...
 
@@ -97,7 +99,7 @@ const handleSendMessage = async () => {
   setIsLoading(true);
 
   try {
-    // 1. Send message to n8n
+    // 1. Send to n8n Webhook
     const response = await fetch(process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL!, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -114,25 +116,32 @@ const handleSendMessage = async () => {
     if (data.content) {
       setMessages((prev) => [...prev, { role: "assistant", content: data.content }]);
 
-      // 2. TRIGGER SUPABASE UPDATE IF PAYMENT LINK EXISTS
+      // 2. DETECT PAYMENT LINK AND UPDATE ORDERS TABLE
       if (data.content.includes("u.payu.in")) {
-        console.log("Payment link detected. Syncing with Supabase...");
+        console.log("Payment link found! Syncing with Supabase...");
         
-        await fetch("/api/create-order", {
+        const orderResponse = await fetch("/api/create-order", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            user_id: "36f39a53-c183-43b3-9923-e7019d176f43",
-            bot_id: "f7b1a0c1-f55f-4bbc-8a27-d08b6076c3ea",
-            product_name: "Google Maps Business Intelligence Scraper",
+            user_id: "36f39a53-c183-43b3-9923-e7019d176f43", // Must be a valid UUID
+            bot_id: "f7b1a0c1-f55f-4bbc-8a27-d08b6076c3ea",  // Must be a valid UUID
+            product_name: "Google Maps Scraper",
             price: 29,
             customer_email: "shubhm@gmail.com" 
           })
         });
+
+        const orderResult = await orderResponse.json();
+        if (orderResult.success) {
+          console.log("Order Table Updated Successfully!");
+        } else {
+          console.error("Order Table Update Failed:", orderResult.error);
+        }
       }
     }
   } catch (error) {
-    console.error("Fetch error:", error);
+    console.error("Chat Error:", error);
   } finally {
     setIsLoading(false);
   }
