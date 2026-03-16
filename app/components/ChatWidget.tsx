@@ -4,8 +4,7 @@ import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 
 export default function ChatWidget() {
-
-  const [messages, setMessages] = useState<{role: string, content: string}[]>([]);
+  const [messages, setMessages] = useState<{ role: string; content: string }[]>([]);
   const [userInput, setUserInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [open, setOpen] = useState(false);
@@ -14,9 +13,7 @@ export default function ChatWidget() {
 
   // LOAD WELCOME MESSAGE FROM SUPABASE
   useEffect(() => {
-
     const loadBot = async () => {
-
       const { data } = await supabase
         .from("chatbots")
         .select("welcome_message")
@@ -24,31 +21,16 @@ export default function ChatWidget() {
         .single();
 
       if (data?.welcome_message) {
-        setMessages([
-          {
-            role: "assistant",
-            content: data.welcome_message
-          }
-        ]);
+        setMessages([{ role: "assistant", content: data.welcome_message }]);
       } else {
-        setMessages([
-          {
-            role: "assistant",
-            content: "Hello 👋 How can I help you today?"
-          }
-        ]);
+        setMessages([{ role: "assistant", content: "Hello 👋 How can I help you today?" }]);
       }
-
     };
-
     loadBot();
-
   }, []);
-
 
   // REALTIME LISTENER
   useEffect(() => {
-
     const channel = supabase
       .channel("schema-db-changes")
       .on(
@@ -57,21 +39,13 @@ export default function ChatWidget() {
           event: "INSERT",
           schema: "public",
           table: "messages",
-          filter: `conversation_id=eq.${sessionId}`
+          filter: `conversation_id=eq.${sessionId}`,
         },
         (payload) => {
-
           if (payload.new.role === "assistant") {
-
-            setMessages((prev) => [
-              ...prev,
-              { role: "assistant", content: payload.new.content }
-            ]);
-
+            setMessages((prev) => [...prev, { role: "assistant", content: payload.new.content }]);
             setIsLoading(false);
-
           }
-
         }
       )
       .subscribe();
@@ -79,134 +53,93 @@ export default function ChatWidget() {
     return () => {
       supabase.removeChannel(channel);
     };
-
   }, []);
 
+  const handleSendMessage = async () => {
+    if (!userInput.trim()) return;
 
-  
+    const userMsg = { role: "user", content: userInput };
+    setMessages((prev) => [...prev, userMsg]);
+    const currentInput = userInput;
+    setUserInput("");
+    setIsLoading(true);
 
-// Inside handleSendMessage function...
+    try {
+      // 1. Send to n8n Webhook
+      const response = await fetch(process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL!, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: currentInput,
+          conversation_id: sessionId,
+          bot_id: "f7b1a0c1-f55f-4bbc-8a27-d08b6076c3ea",
+          user_id: "36f39a53-c183-43b3-9923-e7019d176f43",
+        }),
+      });
 
-// Inside handleSendMessage function...
+      const data = await response.json();
 
-const handleSendMessage = async () => {
-  if (!userInput.trim()) return;
+      if (data.content) {
+        setMessages((prev) => [...prev, { role: "assistant", content: data.content }]);
 
-  const userMsg = { role: "user", content: userInput };
-  setMessages((prev) => [...prev, userMsg]);
-  const currentInput = userInput;
-  setUserInput("");
-  setIsLoading(true);
+        // 2. DETECT PAYMENT LINK AND TRIGGER ORDER CREATION
+        if (data.content.includes("u.payu.in")) {
+          console.log("Payment link detected. Syncing with Supabase...");
 
-  try {
-    // 1. Send to n8n Webhook
-    const response = await fetch(process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL!, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        message: currentInput,
-        conversation_id: "session_test_new",
-        bot_id: "f7b1a0c1-f55f-4bbc-8a27-d08b6076c3ea",
-        user_id: "36f39a53-c183-43b3-9923-e7019d176f43"
-      })
-    });
+          // Call your internal API route
+          const orderResponse = await fetch("/api/create-order", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              user_id: "36f39a53-c183-43b3-9923-e7019d176f43",
+              bot_id: "f7b1a0c1-f55f-4bbc-8a27-d08b6076c3ea",
+              product_name: "Google Maps Business Intelligence Scraper",
+              price: 29, // Sent as a number to match 'numeric' type
+              customer_email: "shubhm@gmail.com",
+              payment_status: "pending",
+            }),
+          });
 
-    const data = await response.json();
-
-    if (data.content) {
-      setMessages((prev) => [...prev, { role: "assistant", content: data.content }]);
-
-      // 2. DETECT PAYMENT LINK AND UPDATE ORDERS TABLE
-      if (data.content.includes("u.payu.in")) {
-        console.log("Payment link found! Syncing with Supabase...");
-        
-        const orderResponse = await fetch("/api/create-order", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            user_id: "36f39a53-c183-43b3-9923-e7019d176f43", // Must be a valid UUID
-            bot_id: "f7b1a0c1-f55f-4bbc-8a27-d08b6076c3ea",  // Must be a valid UUID
-            product_name: "Google Maps Scraper",
-            price: 29,
-            customer_email: "shubhm@gmail.com" 
-          })
-        });
-
-        const orderResult = await orderResponse.json();
-        if (orderResult.success) {
-          console.log("Order Table Updated Successfully!");
-        } else {
-          console.error("Order Table Update Failed:", orderResult.error);
+          const orderResult = await orderResponse.json();
+          if (orderResult.success) {
+            console.log("Order Table Updated Successfully!");
+          } else {
+            console.error("Order Table Update Failed:", orderResult.error);
+          }
         }
       }
+    } catch (error) {
+      console.error("Chat Error:", error);
+    } finally {
+      setIsLoading(false);
     }
-  } catch (error) {
-    console.error("Chat Error:", error);
-  } finally {
-    setIsLoading(false);
-  }
-};
-
+  };
 
   return (
-
     <div className="fixed bottom-6 right-6 z-50 font-sans">
-
       {/* CHAT WINDOW */}
-
       {open && (
-
         <div className="w-[360px] h-[520px] bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden mb-3 border">
-
           {/* HEADER */}
-
           <div className="bg-blue-600 text-white p-4 flex items-center justify-between">
-
             <div className="flex items-center gap-2">
-
               <div className="w-8 h-8 bg-white rounded-full flex items-center justify-center text-blue-600 font-bold">
                 AI
               </div>
-
               <div>
-
-                <div className="font-semibold text-sm">
-                  Booking Assistant
-                </div>
-
-                <div className="text-xs text-blue-200">
-                  Online
-                </div>
-
+                <div className="font-semibold text-sm">Booking Assistant</div>
+                <div className="text-xs text-blue-200">Online</div>
               </div>
-
             </div>
-
-            <button
-              onClick={() => setOpen(false)}
-              className="text-white text-lg"
-            >
+            <button onClick={() => setOpen(false)} className="text-white text-lg">
               ✖
             </button>
-
           </div>
 
-
           {/* MESSAGES */}
-
           <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50">
-
             {messages.map((msg, i) => (
-
-              <div
-                key={i}
-                className={`flex ${
-                  msg.role === "user"
-                    ? "justify-end"
-                    : "justify-start"
-                }`}
-              >
-
+              <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
                 <div
                   className={`max-w-[80%] px-4 py-3 rounded-2xl text-sm shadow ${
                     msg.role === "user"
@@ -214,89 +147,53 @@ const handleSendMessage = async () => {
                       : "bg-gray-100 text-black border rounded-tl-none"
                   }`}
                 >
-
                   {msg.content}
-
                 </div>
-
               </div>
-
             ))}
-
             {isLoading && (
-
               <div className="flex justify-start">
-
                 <div className="bg-gray-200 text-gray-600 px-4 py-2 rounded-xl animate-pulse">
                   AI is typing...
                 </div>
-
               </div>
-
             )}
-
           </div>
 
-
-          {/* INPUT + BRANDING */}
-
+          {/* INPUT AREA */}
           <div className="border-t bg-white">
-
             <div className="p-3 flex gap-2">
-
               <input
-                className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-black text-sm
-                focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-black text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="Ask something..."
                 value={userInput}
                 onChange={(e) => setUserInput(e.target.value)}
-                onKeyDown={(e) =>
-                  e.key === "Enter" && handleSendMessage()
-                }
+                onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
               />
-
               <button
                 onClick={handleSendMessage}
                 className="bg-blue-600 text-white px-4 rounded-lg hover:bg-blue-700 transition"
               >
                 Send
               </button>
-
             </div>
-
-            {/* POWERED BY */}
-
             <div className="text-center text-xs text-gray-400 pb-2">
-
               Powered by{" "}
-              <a
-                href="https://woodpetra.com"
-                target="_blank"
-                className="text-blue-600 font-semibold"
-              >
+              <a href="https://woodpetra.com" target="_blank" className="text-blue-600 font-semibold">
                 Woodpetra
               </a>
-
             </div>
-
           </div>
-
         </div>
-
       )}
 
-
       {/* FLOATING BUTTON */}
-
       <button
         onClick={() => setOpen(!open)}
         className="w-14 h-14 bg-blue-600 text-white rounded-full shadow-xl flex items-center justify-center text-xl hover:bg-blue-700 transition"
       >
         💬
       </button>
-
     </div>
-
   );
-
 }
