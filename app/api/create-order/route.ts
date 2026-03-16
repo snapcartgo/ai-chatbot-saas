@@ -7,32 +7,32 @@ export async function POST(req: Request) {
 
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY! // Bypasses RLS
+      process.env.SUPABASE_SERVICE_ROLE_KEY! // Essential to bypass RLS
     );
 
-    // Prepare the insert object
-    const insertData = {
-      user_id: body.user_id,
-      bot_id: body.bot_id,
-      product_name: body.product_name,
-      price: body.price,
-      customer_email: body.customer_email,
-      payment_status: body.payment_status || 'pending',
-    };
-
+    // Map your incoming data to the actual table columns
     const { data, error } = await supabase
       .from('orders')
-      .insert([insertData])
+      .insert([
+        {
+          user_id: body.user_id,
+          bot_id: body.bot_id,
+          product_name: body.product_name,
+          price: body.price,
+          customer_email: body.customer_email,
+          payment_status: body.payment_status || 'pending'
+        }
+      ])
       .select();
 
     if (error) {
-      console.error("SUPABASE ERROR:", error.message);
+      console.error("Supabase Insert Error:", error.message);
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
     return NextResponse.json({ success: true, data }, { status: 200 });
   } catch (err: any) {
-    console.error("CRASH:", err.message);
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    console.error("API Route Failure:", err.message);
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }
 }

@@ -83,30 +83,34 @@ export default function ChatWidget() {
         setMessages((prev) => [...prev, { role: "assistant", content: data.content }]);
 
         // 2. DETECT PAYMENT LINK AND TRIGGER ORDER CREATION
-        if (data.content.includes("u.payu.in")) {
-          console.log("Payment link detected. Syncing with Supabase...");
+        // Inside handleSendMessage in components/ChatWidget.tsx
+if (data.content.includes("u.payu.in")) {
+  console.log("Payment detected. Syncing with Supabase...");
 
-          // Call your internal API route
-          const orderResponse = await fetch("/api/create-order", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              user_id: "36f39a53-c183-43b3-9923-e7019d176f43",
-              bot_id: "f7b1a0c1-f55f-4bbc-8a27-d08b6076c3ea",
-              product_name: "Google Maps Business Intelligence Scraper",
-              price: 29, // Sent as a number to match 'numeric' type
-              customer_email: "shubhm@gmail.com",
-              payment_status: "pending",
-            }),
-          });
+  const orderPayload = {
+    user_id: "36f39a53-c183-43b3-9923-e7019d176f43", // Valid UUID string
+    bot_id: "f7b1a0c1-f55f-4bbc-8a27-d08b6076c3ea",  // Valid UUID string
+    product_name: "Google Maps Business Intelligence Scraper",
+    price: 29, // Number type for 'numeric' column
+    customer_email: "shubhm@gmail.com",
+    payment_status: "pending"
+    // lead_id is omitted so it defaults to NULL instead of an empty string
+  };
 
-          const orderResult = await orderResponse.json();
-          if (orderResult.success) {
-            console.log("Order Table Updated Successfully!");
-          } else {
-            console.error("Order Table Update Failed:", orderResult.error);
-          }
-        }
+  const orderResponse = await fetch("/api/create-order", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(orderPayload)
+  });
+
+  const orderResult = await orderResponse.json();
+  if (orderResult.success) {
+    console.log("Order Table Updated Successfully!");
+  } else {
+    // This will help you see the EXACT error message from Supabase
+    console.error("Supabase Error Details:", orderResult.error);
+  }
+}
       }
     } catch (error) {
       console.error("Chat Error:", error);
