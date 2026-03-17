@@ -1,34 +1,45 @@
-// app/api/create-order/route.ts
-import { createClient } from '@supabase/supabase-js';
-import { NextResponse } from 'next/server';
+import { createClient } from "@supabase/supabase-js";
+import { NextResponse } from "next/server";
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
+
+    const {
+      bot_id,
+      user_id,
+      product_name,
+      price,
+      payment_link,
+      customer_email
+    } = body;
+
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY! // Uses key from your .env.local
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
-    const { data, error } = await supabase
-      .from('orders')
-      .insert([
-        {
-          user_id: body.user_id,
-          bot_id: body.bot_id,
-          product_name: body.product_name,
-          price: body.price,
-          customer_email: body.customer_email,
-          payment_status: body.payment_status || 'pending'
-        }
-      ])
-      .select();
+    const { error } = await supabase
+      .from("orders")
+      .insert({
+        bot_id,
+        user_id,
+        product_name,
+        price,
+        payment_link,
+        customer_email, // ✅ IMPORTANT
+        payment_status: "pending"
+      });
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
+      console.error(error);
+      return NextResponse.json({ error }, { status: 500 });
     }
-    return NextResponse.json({ success: true, data }, { status: 200 });
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+
+    return NextResponse.json({ success: true });
+
+  } catch (err) {
+    console.error(err);
+    return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }
