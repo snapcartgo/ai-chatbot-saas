@@ -19,24 +19,30 @@ export async function POST(req: Request) {
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
-    const { error } = await supabase
-      .from("orders")
-      .insert({
-        bot_id,
-        user_id,
-        product_name,
-        price,
-        payment_link,
-        customer_email, // ✅ IMPORTANT
-        payment_status: "pending"
-      });
+    const { data, error } = await supabase
+  .from("orders")
+  .insert([
+    {
+      bot_id,
+      user_id,
+      product_name,
+      price,
+      customer_email,
+      payment_status: "pending"
+    }
+  ])
+  .select()   // ✅ VERY IMPORTANT
+  .single();  // ✅ VERY IMPORTANT
 
     if (error) {
       console.error(error);
       return NextResponse.json({ error }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({
+  success: true,
+  order_id: data.id   // ✅ THIS IS KEY
+});
 
   } catch (err) {
     console.error(err);
