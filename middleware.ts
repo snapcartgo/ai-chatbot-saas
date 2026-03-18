@@ -1,5 +1,5 @@
-import { createServerClient, type NextRequest } from '@supabase/ssr'
-import { NextResponse } from 'next/server'
+import { createServerClient } from '@supabase/ssr'
+import { NextResponse, type NextRequest } from 'next/server' // Fixed this line
 
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({
@@ -26,20 +26,15 @@ export async function middleware(request: NextRequest) {
     }
   )
 
-  // This line REFRESHES the session so you don't get "Session Expired"
+  // This refreshes the session token so you stay logged in
   await supabase.auth.getUser()
 
   return response
 }
 
-
- // middleware.ts
 export const config = {
   matcher: [
-    /* * This covers /dashboard/Settings/payments and any other 
-     * case variations in your folder structure.
-     */
-    '/dashboard/:path*', 
+    '/dashboard/:path*',
     '/((?!_next/static|_next/image|favicon.ico).*)',
   ],
 }
