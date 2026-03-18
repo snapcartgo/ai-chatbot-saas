@@ -7,10 +7,11 @@ export default function PaymentSettingsPage() {
   const [user, setUser] = useState<any>(null);
   const [merchantKey, setMerchantKey] = useState("");
   const [merchantSalt, setMerchantSalt] = useState("");
+  const [payuActive, setPayuActive] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  // 🔹 Load existing data
+  // 🔹 Load data
   useEffect(() => {
     const loadData = async () => {
       const {
@@ -25,14 +26,15 @@ export default function PaymentSettingsPage() {
       setUser(user);
 
       const { data } = await supabase
-        .from("payment_settings")
+        .from("profiles")
         .select("*")
-        .eq("user_id", user.id)
+        .eq("id", user.id)
         .single();
 
       if (data) {
-        setMerchantKey(data.merchant_key || "");
-        setMerchantSalt(data.merchant_salt || "");
+        setMerchantKey(data.payu_merchant_key || "");
+        setMerchantSalt(data.payu_merchant_salt || "");
+        setPayuActive(data.payu_active || false);
       }
 
       setLoading(false);
@@ -48,12 +50,13 @@ export default function PaymentSettingsPage() {
     setSaving(true);
 
     const { error } = await supabase
-      .from("payment_settings")
-      .upsert({
-        user_id: user.id,
-        merchant_key: merchantKey,
-        merchant_salt: merchantSalt,
-      });
+      .from("profiles")
+      .update({
+        payu_merchant_key: merchantKey,
+        payu_merchant_salt: merchantSalt,
+        payu_active: payuActive,
+      })
+      .eq("id", user.id);
 
     setSaving(false);
 
@@ -72,7 +75,7 @@ export default function PaymentSettingsPage() {
   return (
     <div style={{ padding: 30, maxWidth: 600 }}>
       <h1 style={{ fontSize: 22, marginBottom: 20 }}>
-        Payment Settings (PayU)
+        PayU Settings
       </h1>
 
       {/* Merchant Key */}
@@ -97,6 +100,18 @@ export default function PaymentSettingsPage() {
           placeholder="Enter PayU Merchant Salt"
           style={inputStyle}
         />
+      </div>
+
+      {/* Active Toggle */}
+      <div style={{ marginBottom: 20 }}>
+        <label>
+          <input
+            type="checkbox"
+            checked={payuActive}
+            onChange={(e) => setPayuActive(e.target.checked)}
+          />{" "}
+          Enable PayU
+        </label>
       </div>
 
       <button onClick={handleSave} disabled={saving} style={btnStyle}>
