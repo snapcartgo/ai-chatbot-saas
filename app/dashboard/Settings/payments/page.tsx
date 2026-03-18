@@ -37,32 +37,34 @@ export default function PaymentSettings() {
   }, [supabase]);
 
   // 2. Save the keys to the profiles table
-  const handleSave = async () => {
-    setUpdating(true);
-    const { data: { user } } = await supabase.auth.getUser();
-    
-    if (!user) {
-      alert("You must be logged in to save settings.");
-      setUpdating(false);
-      return;
-    }
+ const handleSave = async () => {
+  setUpdating(true);
+  
+  // Try to get the session specifically
+  const { data: { session } } = await supabase.auth.getSession();
+  const user = session?.user;
 
-    const { error } = await supabase
-      .from("profiles")
-      .update({
-        payu_merchant_key: key,
-        payu_merchant_salt: salt,
-      })
-      .eq("id", user.id);
-
-    if (error) {
-      alert("Error saving settings: " + error.message);
-    } else {
-      alert("Payment settings updated successfully!");
-    }
-    
+  if (!user) {
+    alert("Session not found. Please refresh the page and try again.");
     setUpdating(false);
-  };
+    return;
+  }
+
+  const { error } = await supabase
+    .from("profiles")
+    .update({
+      payu_merchant_key: key,
+      payu_merchant_salt: salt,
+    })
+    .eq("id", user.id);
+
+  if (error) {
+    alert("Error: " + error.message);
+  } else {
+    alert("Saved successfully!");
+  }
+  setUpdating(false);
+};
 
   if (loading) return <div className="p-8">Loading settings...</div>;
 
