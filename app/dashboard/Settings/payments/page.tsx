@@ -40,16 +40,17 @@ export default function PaymentSettings() {
  const handleSave = async () => {
   setUpdating(true);
   
-  // Try to get the session specifically
-  const { data: { session } } = await supabase.auth.getSession();
-  const user = session?.user;
+  // 1. Force a refresh of the user object directly from Supabase
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
 
-  if (!user) {
-    alert("Session not found. Please refresh the page and try again.");
+  if (authError || !user) {
+    console.log("Auth error details:", authError);
+    alert("Session not found. Please log out and log back in to refresh your keys.");
     setUpdating(false);
     return;
   }
 
+  // 2. Perform the update using the confirmed user ID
   const { error } = await supabase
     .from("profiles")
     .update({
@@ -59,10 +60,11 @@ export default function PaymentSettings() {
     .eq("id", user.id);
 
   if (error) {
-    alert("Error: " + error.message);
+    alert("Database Error: " + error.message);
   } else {
-    alert("Saved successfully!");
+    alert("Success! Your PayU keys are now linked to your account.");
   }
+  
   setUpdating(false);
 };
 
