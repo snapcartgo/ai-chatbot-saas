@@ -36,7 +36,7 @@ export default function Sidebar() {
           Knowledge Base
         </a>
 
-         <a href="dashboard/Settings/payments" className="block px-4 py-3">
+         <a href="dashboard/settings/payments" className="block px-4 py-3">
           Payment Settings
         </a>
 
