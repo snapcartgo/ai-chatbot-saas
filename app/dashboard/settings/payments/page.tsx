@@ -49,21 +49,19 @@ export default function PaymentSettingsPage() {
 
     setSaving(true);
 
-    const { error } = await supabase
-      .from("profiles")
-      .update({
-        payu_merchant_key: merchantKey,
-        payu_merchant_salt: merchantSalt,
-        payu_active: payuActive,
-      })
-      .eq("id", user.id);
+   const { error } = await supabase
+  .from("profiles")
+  .upsert({
+    id: user.id,
+    payu_merchant_key: merchantKey,
+    payu_merchant_salt: merchantSalt,
+    payu_active: payuActive,
+  });
 
-    setSaving(false);
-
-    if (error) {
-      alert("Error saving settings");
-      return;
-    }
+if (error) {
+  console.error("ERROR:", error);
+  alert(error.message);
+}
 
     alert("Saved successfully!");
   };
