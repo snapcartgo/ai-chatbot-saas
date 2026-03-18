@@ -3,118 +3,70 @@ import { useState, useEffect } from "react";
 import { createBrowserClient } from "@supabase/ssr";
 
 export default function PaymentSettings() {
-  // Use the specific browser client creator
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   );
 
-  const [loading, setLoading] = useState(true);
-  const [updating, setUpdating] = useState(false);
   const [key, setKey] = useState("");
   const [salt, setSalt] = useState("");
+  const [updating, setUpdating] = useState(false);
 
-  // 1. Load existing keys from Supabase when page opens
-  useEffect(() => {
-    async function getProfile() {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        const { data, error } = await supabase
-          .from("profiles")
-          .select("payu_merchant_key, payu_merchant_salt")
-          .eq("id", user.id)
-          .single();
-        
-        if (data) {
-          setKey(data.payu_merchant_key || "");
-          setSalt(data.payu_merchant_salt || "");
-        }
-        if (error) console.error("Error fetching profile:", error);
-      }
-      setLoading(false);
+  const handleSave = async () => {
+    setUpdating(true);
+    
+    // Use getUser() as it is more secure and refreshes the session
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      alert("Session expired. Please log out and log back in.");
+      setUpdating(false);
+      return;
     }
-    getProfile();
-  }, [supabase]);
 
-  // 2. Save the keys to the profiles table
- const handleSave = async () => {
-  setUpdating(true);
-  
-  // 1. Force a refresh of the user object directly from Supabase
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
+    const { error } = await supabase
+      .from("profiles")
+      .update({
+        payu_merchant_key: key,
+        payu_merchant_salt: salt,
+      })
+      .eq("id", user.id);
 
-  if (authError || !user) {
-    console.log("Auth error details:", authError);
-    alert("Session not found. Please log out and log back in to refresh your keys.");
+    if (error) {
+      alert("Error saving: " + error.message);
+    } else {
+      alert("Payment details saved successfully!");
+    }
     setUpdating(false);
-    return;
-  }
-
-  // 2. Perform the update using the confirmed user ID
-  const { error } = await supabase
-    .from("profiles")
-    .update({
-      payu_merchant_key: key,
-      payu_merchant_salt: salt,
-    })
-    .eq("id", user.id);
-
-  if (error) {
-    alert("Database Error: " + error.message);
-  } else {
-    alert("Success! Your PayU keys are now linked to your account.");
-  }
-  
-  setUpdating(false);
-};
-
-  if (loading) return <div className="p-8">Loading settings...</div>;
+  };
 
   return (
-    <div className="max-w-2xl p-8 bg-white rounded-lg shadow-sm border mt-10 ml-10">
-      <h1 className="text-2xl font-bold mb-2">eCommerce Payment Settings</h1>
-      <p className="text-gray-500 mb-8 text-sm">
-        Enter your PayU credentials below. These will be used for your customers' transactions.
-      </p>
-
-      <div className="space-y-6">
+    <div className="p-8 max-w-2xl">
+      <h1 className="text-2xl font-bold mb-6">Payment Settings</h1>
+      <div className="space-y-4">
         <div>
-          <label className="block text-sm font-semibold mb-2 text-gray-700">PayU Merchant Key</label>
-          <input
-            type="text"
-            className="w-full p-3 border rounded-md focus:ring-2 focus:ring-blue-500 outline-none transition"
-            value={key}
-            onChange={(e) => setKey(e.target.value)}
-            placeholder="Paste your Merchant Key here"
+          <label className="block text-sm font-medium mb-1">PayU Merchant Key</label>
+          <input 
+            className="w-full p-2 border rounded text-black" 
+            value={key} 
+            onChange={(e) => setKey(e.target.value)} 
           />
         </div>
-
         <div>
-          <label className="block text-sm font-semibold mb-2 text-gray-700">PayU Merchant Salt</label>
-          <input
+          <label className="block text-sm font-medium mb-1">PayU Merchant Salt (32-bit)</label>
+          <input 
+            className="w-full p-2 border rounded text-black" 
             type="password"
-            className="w-full p-3 border rounded-md focus:ring-2 focus:ring-blue-500 outline-none transition"
-            value={salt}
-            onChange={(e) => setSalt(e.target.value)}
-            placeholder="Paste your Merchant Salt here"
+            value={salt} 
+            onChange={(e) => setSalt(e.target.value)} 
           />
         </div>
-
-        <div className="bg-blue-50 p-4 rounded-md border border-blue-100">
-          <p className="text-xs text-blue-800 font-medium">
-            <strong>Important:</strong> Set your PayU Webhook URL to:<br/>
-            <code className="bg-white px-1 py-0.5 rounded border mt-1 inline-block">
-              https://ai-chatbot-saas-five.vercel.app/api/payu/webhook
-            </code>
-          </p>
-        </div>
-
-        <button
+        <button 
           onClick={handleSave}
           disabled={updating}
-          className="w-full bg-blue-600 text-white font-bold py-3 rounded-md hover:bg-blue-700 disabled:opacity-50 transition shadow-md"
+          className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 disabled:bg-gray-400"
         >
-          {updating ? "Saving Credentials..." : "Save Payment Details"}
+          {updating ? "Saving..." : "Save Payment Details"}
         </button>
       </div>
     </div>
