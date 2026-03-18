@@ -37,7 +37,7 @@ export default function Sidebar() {
         </a>
 
          <a href="dashboard/Settings/payments" className="block px-4 py-3">
-          payu payments
+          Payment Settings
         </a>
 
         <a href="/dashboard/Billing" className="block px-4 py-3">
