@@ -34,7 +34,7 @@ export default function PaymentSettingsPage() {
       if (data) {
         setMerchantKey(data.payu_merchant_key || "");
         setMerchantSalt(data.payu_merchant_salt || "");
-        setPayuActive(data.payu_active || false);
+        setPayuActive(data.payu_is_active || false);
       }
 
       setLoading(false);
@@ -55,7 +55,7 @@ export default function PaymentSettingsPage() {
     id: user.id,
     payu_merchant_key: merchantKey,
     payu_merchant_salt: merchantSalt,
-    payu_active: payuActive,
+    payu_is_active: payuActive,
   });
 
 if (error) {
