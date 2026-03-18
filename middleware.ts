@@ -1,5 +1,5 @@
 import { createServerClient } from '@supabase/ssr'
-import { NextResponse, type NextRequest } from 'next/server' // Fixed this line
+import { NextResponse, type NextRequest } from 'next/server' // Fixed: NextRequest moved here
 
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({
@@ -26,7 +26,7 @@ export async function middleware(request: NextRequest) {
     }
   )
 
-  // This refreshes the session token so you stay logged in
+  // This line is essential to refresh the session and prevent expiration
   await supabase.auth.getUser()
 
   return response
@@ -34,7 +34,12 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    '/dashboard/:path*',
+    /*
+     * Match all request paths except for the ones starting with:
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico (favicon file)
+     */
     '/((?!_next/static|_next/image|favicon.ico).*)',
   ],
 }
