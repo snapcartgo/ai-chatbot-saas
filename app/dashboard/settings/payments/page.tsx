@@ -3,95 +3,121 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 
-export default function PaymentsPage() {
-  const [orders, setOrders] = useState<any[]>([]);
+export default function PaymentSettingsPage() {
+  const [user, setUser] = useState<any>(null);
+  const [merchantKey, setMerchantKey] = useState("");
+  const [merchantSalt, setMerchantSalt] = useState("");
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
 
+  // 🔹 Load existing data
   useEffect(() => {
-    const fetchOrders = async () => {
+    const loadData = async () => {
       const {
         data: { user },
       } = await supabase.auth.getUser();
 
-      // ✅ IMPORTANT: do not break page if no session
       if (!user) {
         setLoading(false);
         return;
       }
 
-      const { data, error } = await supabase
-        .from("orders")
+      setUser(user);
+
+      const { data } = await supabase
+        .from("payment_settings")
         .select("*")
         .eq("user_id", user.id)
-        .order("created_at", { ascending: false });
+        .single();
 
-      if (error) {
-        console.error("Error fetching orders:", error);
-      } else {
-        setOrders(data || []);
+      if (data) {
+        setMerchantKey(data.merchant_key || "");
+        setMerchantSalt(data.merchant_salt || "");
       }
 
       setLoading(false);
     };
 
-    fetchOrders();
+    loadData();
   }, []);
 
+  // 🔹 Save
+  const handleSave = async () => {
+    if (!user) return;
+
+    setSaving(true);
+
+    const { error } = await supabase
+      .from("payment_settings")
+      .upsert({
+        user_id: user.id,
+        merchant_key: merchantKey,
+        merchant_salt: merchantSalt,
+      });
+
+    setSaving(false);
+
+    if (error) {
+      alert("Error saving settings");
+      return;
+    }
+
+    alert("Saved successfully!");
+  };
+
   if (loading) {
-    return <p style={{ padding: 20 }}>Loading payments...</p>;
+    return <p style={{ padding: 20 }}>Loading...</p>;
   }
 
   return (
-    <div style={{ padding: 20 }}>
-      <h1 style={{ fontSize: 22, marginBottom: 20 }}>Payments</h1>
+    <div style={{ padding: 30, maxWidth: 600 }}>
+      <h1 style={{ fontSize: 22, marginBottom: 20 }}>
+        Payment Settings (PayU)
+      </h1>
 
-      {orders.length === 0 ? (
-        <p>No payments found.</p>
-      ) : (
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead>
-            <tr>
-              <th style={th}>Product</th>
-              <th style={th}>Price</th>
-              <th style={th}>Email</th>
-              <th style={th}>Status</th>
-              <th style={th}>Date</th>
-            </tr>
-          </thead>
+      {/* Merchant Key */}
+      <div style={{ marginBottom: 20 }}>
+        <label>Merchant Key</label>
+        <input
+          type="text"
+          value={merchantKey}
+          onChange={(e) => setMerchantKey(e.target.value)}
+          placeholder="Enter PayU Merchant Key"
+          style={inputStyle}
+        />
+      </div>
 
-          <tbody>
-            {orders.map((order) => (
-              <tr key={order.id}>
-                <td style={td}>{order.product_name}</td>
-                <td style={td}>₹{order.price}</td>
-                <td style={td}>{order.customer_email}</td>
-                <td style={td}>
-                  {order.payment_status === "success" ? (
-                    <span style={{ color: "green" }}>Success</span>
-                  ) : (
-                    <span style={{ color: "orange" }}>Pending</span>
-                  )}
-                </td>
-                <td style={td}>
-                  {new Date(order.created_at).toLocaleDateString()}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+      {/* Merchant Salt */}
+      <div style={{ marginBottom: 20 }}>
+        <label>Merchant Salt</label>
+        <input
+          type="text"
+          value={merchantSalt}
+          onChange={(e) => setMerchantSalt(e.target.value)}
+          placeholder="Enter PayU Merchant Salt"
+          style={inputStyle}
+        />
+      </div>
+
+      <button onClick={handleSave} disabled={saving} style={btnStyle}>
+        {saving ? "Saving..." : "Save"}
+      </button>
     </div>
   );
 }
 
-// styles
-const th = {
-  borderBottom: "1px solid #ccc",
-  textAlign: "left" as const,
-  padding: "10px",
+const inputStyle = {
+  width: "100%",
+  padding: 10,
+  marginTop: 5,
+  borderRadius: 6,
+  border: "1px solid #ccc",
 };
 
-const td = {
-  borderBottom: "1px solid #eee",
-  padding: "10px",
+const btnStyle = {
+  padding: "10px 20px",
+  background: "#2563eb",
+  color: "#fff",
+  border: "none",
+  borderRadius: 6,
 };
