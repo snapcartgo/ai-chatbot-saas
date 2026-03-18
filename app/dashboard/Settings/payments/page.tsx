@@ -2,43 +2,45 @@
 import { useState, useEffect } from "react";
 import { createBrowserClient } from "@supabase/ssr";
 
-export default function PaymentSettings() {
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
+// Initialize this OUTSIDE the component function
+const supabase = createBrowserClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
+export default function PaymentSettings() {
+  // ... rest of your code
   const [key, setKey] = useState("");
   const [salt, setSalt] = useState("");
   const [updating, setUpdating] = useState(false);
 
   const handleSave = async () => {
-    setUpdating(true);
-    
-    // Use getUser() as it is more secure and refreshes the session
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
+  setUpdating(true);
+  
+  // Directly get the session to verify the user is still active
+  const { data: { session }, error: authError } = await supabase.auth.getSession();
 
-    if (authError || !user) {
-      alert("Session expired. Please log out and log back in.");
-      setUpdating(false);
-      return;
-    }
-
-    const { error } = await supabase
-      .from("profiles")
-      .update({
-        payu_merchant_key: key,
-        payu_merchant_salt: salt,
-      })
-      .eq("id", user.id);
-
-    if (error) {
-      alert("Error saving: " + error.message);
-    } else {
-      alert("Payment details saved successfully!");
-    }
+  if (authError || !session?.user) {
+    alert("Session not found. Please log out and back in once to refresh your credentials.");
     setUpdating(false);
-  };
+    return;
+  }
+
+  const { error } = await supabase
+    .from("profiles")
+    .update({
+      payu_merchant_key: key,
+      payu_merchant_salt: salt,
+    })
+    .eq("id", session.user.id);
+
+  if (error) {
+    alert("Database Error: " + error.message);
+  } else {
+    alert("Success! Your PayU keys are now saved.");
+  }
+  setUpdating(false);
+};
 
   return (
     <div className="p-8 max-w-2xl">
