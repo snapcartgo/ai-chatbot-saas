@@ -17,11 +17,11 @@ export default function PaymentSettings() {
   const handleSave = async () => {
   setUpdating(true);
   
-  // Use getSession to quickly verify the browser's state
+  // getSession is the most reliable way to check the current browser state
   const { data: { session } } = await supabase.auth.getSession();
 
-  if (!session?.user) {
-    alert("Session not found. Please log out and back in once to refresh your keys.");
+  if (!session) {
+    alert("Session not found. Please clear your browser cookies and log in again.");
     setUpdating(false);
     return;
   }
@@ -30,14 +30,14 @@ export default function PaymentSettings() {
     .from("profiles")
     .update({
       payu_merchant_key: key,
-      payu_merchant_salt: salt, // Ensure this is the 32-bit salt
+      payu_merchant_salt: salt,
     })
     .eq("id", session.user.id);
 
   if (error) {
     alert("Database Error: " + error.message);
   } else {
-    alert("Success! Your PayU keys are now saved.");
+    alert("Success! Your PayU credentials have been saved.");
   }
   setUpdating(false);
 };
