@@ -17,11 +17,11 @@ export default function PaymentSettings() {
   const handleSave = async () => {
   setUpdating(true);
   
-  // Directly get the session to verify the user is still active
-  const { data: { session }, error: authError } = await supabase.auth.getSession();
+  // Use getSession to quickly verify the browser's state
+  const { data: { session } } = await supabase.auth.getSession();
 
-  if (authError || !session?.user) {
-    alert("Session not found. Please log out and back in once to refresh your credentials.");
+  if (!session?.user) {
+    alert("Session not found. Please log out and back in once to refresh your keys.");
     setUpdating(false);
     return;
   }
@@ -30,7 +30,7 @@ export default function PaymentSettings() {
     .from("profiles")
     .update({
       payu_merchant_key: key,
-      payu_merchant_salt: salt,
+      payu_merchant_salt: salt, // Ensure this is the 32-bit salt
     })
     .eq("id", session.user.id);
 
