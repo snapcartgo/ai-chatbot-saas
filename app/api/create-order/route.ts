@@ -73,24 +73,26 @@ export async function POST(req: Request) {
     const hash = crypto.createHash("sha512").update(hashString).digest("hex");
 
     // 4️⃣ RETURN DATA
-    return NextResponse.json({
-      success: true,
-      order_id: txnid,
-      payUrl: `https://ai-chatbot-saas-five.vercel.app/payu?order_id=${txnid}`, // Redirect user here
-      payu_data: {
-        key,
-        txnid,
-        amount,
-        productinfo: product_name,
-        firstname,
-        email: customer_email,
-        phone: "9999999999",
-        surl: `https://ai-chatbot-saas-five.vercel.app/api/payment-success`,
-        furl: `https://ai-chatbot-saas-five.vercel.app/payment-failed`,
-        service_provider: "payu_paisa", // REQUIRED for India
-        hash
-      }
-    });
+   // ... inside your POST function
+return NextResponse.json({
+  success: true,
+  order_id: txnid,
+  payUrl: `https://ai-chatbot-saas-five.vercel.app/payu?order_id=${txnid}`,
+  // Inside your return NextResponse.json block:
+payu_data: {
+  key,
+  txnid,
+  amount,
+  productinfo: product_name,
+  firstname,
+  email: customer_email,
+  phone: "9999999999", // 🟢 Add this line! It cannot be empty.
+  surl: `https://ai-chatbot-saas-five.vercel.app/api/payment-success?order_id=${txnid}`,
+  furl: `https://ai-chatbot-saas-five.vercel.app/payment-failed`,
+  service_provider: "payu_paisa", // 🟢 Also ensure this is here
+  hash
+}
+});
 
   } catch (err) {
     console.error("Critical API Error:", err);
