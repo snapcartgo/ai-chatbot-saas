@@ -85,7 +85,7 @@ export async function POST(req: Request) {
         firstname,
         email: customer_email,
         phone: "9999999999",
-        surl: `https://ai-chatbot-saas-five.vercel.app/api/payment-success?order_id=${txnid}`,
+        surl: `https://ai-chatbot-saas-five.vercel.app/api/payment-success`,
         furl: `https://ai-chatbot-saas-five.vercel.app/payment-failed`,
         service_provider: "payu_paisa", // REQUIRED for India
         hash
