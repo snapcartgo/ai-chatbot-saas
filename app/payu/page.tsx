@@ -7,7 +7,7 @@ import { supabase } from '@/lib/supabase';
 // 1. Move the logic into a sub-component
 function PayUContent() {
   const searchParams = useSearchParams();
-  const orderId = searchParams.get('order_id');
+  const orderId = searchParams.get('id');
   const [payuData, setPayuData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const formRef = useRef<HTMLFormElement>(null);
