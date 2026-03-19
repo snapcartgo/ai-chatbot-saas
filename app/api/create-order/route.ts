@@ -11,7 +11,7 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
 
-    const {
+    let {
       bot_id,
       user_id,
       product_name,
@@ -19,21 +19,27 @@ export async function POST(req: Request) {
       customer_email
     } = body;
 
+    // 🛡️ SERVER-SIDE SANITIZATION (Fixes the 22P02 Error)
+    // This removes leading "=" or whitespace from the IDs sent by n8n
+    const sanitizeId = (id: string) => id?.replace(/^=/, '').trim();
+    
+    const cleanUserId = sanitizeId(user_id);
+    const cleanBotId = sanitizeId(bot_id);
+
+    console.log("DEBUG -> Raw User ID:", user_id);
+    console.log("DEBUG -> Clean User ID:", cleanUserId);
+
     // 1️⃣ FETCH CLIENT PAYU KEYS
     const { data: profile, error: profileError } = await supabase
         .from("profiles")
         .select("payu_merchant_key, payu_merchant_salt")
-        .eq("id", user_id)
-        .maybeSingle(); // also change this
-
-      // 🔥 ADD THIS HERE
-      console.log("USER ID:", user_id);
-      console.log("PROFILE:", profile);
-      console.log("ERROR:", profileError);
+        .eq("id", cleanUserId) // Use the cleaned ID here
+        .maybeSingle();
 
     if (profileError || !profile?.payu_merchant_key) {
+      console.error("Profile Error:", profileError);
       return NextResponse.json(
-        { error: "Client has not configured PayU keys" },
+        { error: "Client has not configured PayU keys or User ID is invalid" },
         { status: 400 }
       );
     }
@@ -43,10 +49,10 @@ export async function POST(req: Request) {
       .from("orders")
       .insert([
         {
-          bot_id,
-          user_id,
+          bot_id: cleanBotId, // Use the cleaned ID here
+          user_id: cleanUserId, // Use the cleaned ID here
           product_name,
-          price,
+          price: parseFloat(price),
           customer_email,
           payment_status: "pending"
         }
@@ -62,13 +68,14 @@ export async function POST(req: Request) {
     }
 
     // 3️⃣ GENERATE PAYU DATA
-    const txnid = order.id + "_" + Date.now();
+    const txnid = `ORD_${order.id.slice(0, 8)}_${Date.now()}`;
     const amount = parseFloat(price).toFixed(2);
-    const firstname = customer_email.split("@")[0];
+    const firstname = customer_email ? customer_email.split("@")[0] : "Customer";
 
     const key = profile.payu_merchant_key;
     const salt = profile.payu_merchant_salt;
 
+    // Hash Logic: key|txnid|amount|productinfo|firstname|email|udf1|udf2|udf3|udf4|udf5||||||salt
     const hashString = `${key}|${txnid}|${amount}|${product_name}|${firstname}|${customer_email}|||||||||||${salt}`;
     const hash = crypto.createHash("sha512").update(hashString).digest("hex");
 
@@ -76,10 +83,7 @@ export async function POST(req: Request) {
     return NextResponse.json({
       success: true,
       order_id: txnid,
-
-      // 🔥 THIS IS IMPORTANT FOR n8n
       payUrl: `https://ai-chatbot-saas-five.vercel.app/payu?order_id=${txnid}`,
-
       payu_data: {
         key,
         txnid,
@@ -87,21 +91,18 @@ export async function POST(req: Request) {
         productinfo: product_name,
         firstname,
         email: customer_email,
-        phone: "9999999999",
-
-        // 🔥 IMPORTANT CHANGE
+        phone: "9999999999", 
         surl: `https://ai-chatbot-saas-five.vercel.app/api/payment-success?order_id=${txnid}`,
         furl: "https://ai-chatbot-saas-five.vercel.app/payment-failed",
         service_provider: "payu_paisa",
-
         hash
       }
     });
 
   } catch (err) {
-    console.error(err);
+    console.error("Critical Server Error:", err);
     return NextResponse.json(
-      { error: "Server error" },
+      { error: "Server error occurred during order creation" },
       { status: 500 }
     );
   }
