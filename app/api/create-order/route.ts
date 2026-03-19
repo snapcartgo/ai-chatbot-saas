@@ -19,27 +19,26 @@ export async function POST(req: Request) {
       customer_email
     } = body;
 
-    // 🔥 DEBUG (IMPORTANT)
-    console.log("USER ID:", user_id);
-
-    // ✅ FETCH PROFILE (SAFE WAY)
+    // 1️⃣ FETCH CLIENT PAYU KEYS
     const { data: profile, error: profileError } = await supabase
-      .from("profiles")
-      .select("payu_merchant_key, payu_merchant_salt")
-      .eq("id", user_id)
-      .maybeSingle(); // 🔥 use maybeSingle instead of single
+        .from("profiles")
+        .select("payu_merchant_key, payu_merchant_salt")
+        .eq("id", user_id)
+        .maybeSingle(); // also change this
 
-    console.log("PROFILE:", profile);
-    console.log("PROFILE ERROR:", profileError);
+      // 🔥 ADD THIS HERE
+      console.log("USER ID:", user_id);
+      console.log("PROFILE:", profile);
+      console.log("ERROR:", profileError);
 
-    if (!profile || !profile.payu_merchant_key) {
+    if (profileError || !profile?.payu_merchant_key) {
       return NextResponse.json(
-        { error: "PayU not configured for this user" },
+        { error: "Client has not configured PayU keys" },
         { status: 400 }
       );
     }
 
-    // ✅ CREATE ORDER
+    // 2️⃣ CREATE ORDER
     const { data: order, error: orderError } = await supabase
       .from("orders")
       .insert([
@@ -55,29 +54,32 @@ export async function POST(req: Request) {
       .select()
       .single();
 
-    if (orderError) {
-      console.error(orderError);
-      return NextResponse.json({ error: orderError.message }, { status: 500 });
+    if (orderError || !order) {
+      return NextResponse.json(
+        { error: orderError?.message || "Order creation failed" },
+        { status: 500 }
+      );
     }
 
-    // ✅ GENERATE UNIQUE TXN ID
+    // 3️⃣ GENERATE PAYU DATA
     const txnid = order.id + "_" + Date.now();
-
-    const amount = Number(price).toFixed(2);
+    const amount = parseFloat(price).toFixed(2);
     const firstname = customer_email.split("@")[0];
 
     const key = profile.payu_merchant_key;
     const salt = profile.payu_merchant_salt;
 
-    // ✅ HASH
     const hashString = `${key}|${txnid}|${amount}|${product_name}|${firstname}|${customer_email}|||||||||||${salt}`;
-
     const hash = crypto.createHash("sha512").update(hashString).digest("hex");
 
-    // ✅ RETURN DATA
+    // 4️⃣ RETURN PAYU DATA + PAY PAGE URL
     return NextResponse.json({
       success: true,
-      order_id: order.id,
+      order_id: txnid,
+
+      // 🔥 THIS IS IMPORTANT FOR n8n
+      payUrl: `https://ai-chatbot-saas-five.vercel.app/payu?order_id=${txnid}`,
+
       payu_data: {
         key,
         txnid,
@@ -86,15 +88,21 @@ export async function POST(req: Request) {
         firstname,
         email: customer_email,
         phone: "9999999999",
-        surl: "https://ai-chatbot-saas-five.vercel.app/api/payment-success",
+
+        // 🔥 IMPORTANT CHANGE
+        surl: `https://ai-chatbot-saas-five.vercel.app/api/payment-success?order_id=${txnid}`,
         furl: "https://ai-chatbot-saas-five.vercel.app/payment-failed",
         service_provider: "payu_paisa",
+
         hash
       }
     });
 
   } catch (err) {
     console.error(err);
-    return NextResponse.json({ error: "Server error" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Server error" },
+      { status: 500 }
+    );
   }
 }
