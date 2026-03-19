@@ -21,10 +21,15 @@ export async function POST(req: Request) {
 
     // 1️⃣ FETCH CLIENT PAYU KEYS
     const { data: profile, error: profileError } = await supabase
-      .from("profiles")
-      .select("payu_merchant_key, payu_merchant_salt")
-      .eq("id", user_id)
-      .single();
+        .from("profiles")
+        .select("payu_merchant_key, payu_merchant_salt")
+        .eq("id", user_id)
+        .maybeSingle(); // also change this
+
+      // 🔥 ADD THIS HERE
+      console.log("USER ID:", user_id);
+      console.log("PROFILE:", profile);
+      console.log("ERROR:", profileError);
 
     if (profileError || !profile?.payu_merchant_key) {
       return NextResponse.json(
