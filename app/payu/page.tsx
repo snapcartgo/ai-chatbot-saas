@@ -12,25 +12,39 @@ function PayUContent() {
   const [loading, setLoading] = useState(true);
   const formRef = useRef<HTMLFormElement>(null);
 
-  useEffect(() => {
-    async function fetchOrder() {
-      if (!orderId) {
-        setLoading(false);
-        return;
-      }
-      const { data, error } = await supabase
+ useEffect(() => {
+  async function fetchOrder() {
+    if (!orderId) {
+      setLoading(false);
+      return;
+    }
+
+    // Changed 'order_id' to 'id' to match your Supabase table
+    const { data, error } = await supabase
         .from('orders')
         .select('*')
-        .eq('order_id', orderId)
+        .eq('id', orderId) // Using 'id' as you confirmed
         .single();
 
-      if (!error && data) {
-        setPayuData(data.payu_data);
-      }
+        if (data) {
+        // If your column is named 'payu_data', this line is correct:
+        setPayuData(data.payu_data); 
+        }
+
+    if (error) {
+      console.error("Supabase Fetch Error:", error.message);
       setLoading(false);
+      return;
     }
-    fetchOrder();
-  }, [orderId]);
+
+    if (data) {
+      // Ensure 'payu_data' is the correct column name for your JSON
+      setPayuData(data.payu_data); 
+    }
+    setLoading(false);
+  }
+  fetchOrder();
+}, [orderId]);
 
   useEffect(() => {
     if (payuData && formRef.current) {
