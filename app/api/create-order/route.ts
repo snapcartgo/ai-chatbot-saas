@@ -62,7 +62,7 @@ export async function POST(req: Request) {
     }
 
     // 3️⃣ GENERATE PAYU DATA
-    const txnid = order.id;
+    const txnid = order.id + "_" + Date.now();
     const amount = parseFloat(price).toFixed(2);
     const firstname = customer_email.split("@")[0];
 
@@ -92,6 +92,7 @@ export async function POST(req: Request) {
         // 🔥 IMPORTANT CHANGE
         surl: `https://ai-chatbot-saas-five.vercel.app/api/payment-success?order_id=${txnid}`,
         furl: "https://ai-chatbot-saas-five.vercel.app/payment-failed",
+        service_provider: "payu_paisa",
 
         hash
       }

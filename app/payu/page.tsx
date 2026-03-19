@@ -19,8 +19,8 @@ export default function PayUPage() {
 
       const form = document.createElement("form");
       form.method = "POST";
-      form.action = "https://secure.payu.in/_payment";
-
+      form.action = "https://test.payu.in/_payment";
+      
       Object.keys(payu).forEach((key) => {
         const input = document.createElement("input");
         input.type = "hidden";
