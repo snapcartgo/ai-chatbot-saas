@@ -1,64 +1,58 @@
 'use client';
 
-import { useEffect, useRef, useState, Suspense } from 'react';
+import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { supabase } from '@/lib/supabase';
+import { supabase } from '@/lib/supabase'; // Fixed import based on your file structure
 
-// 1. Move the logic into a sub-component
-function PayUContent() {
+// This line prevents the Vercel build error you saw
+export const dynamic = 'force-dynamic';
+
+export default function PayUPage() {
   const searchParams = useSearchParams();
-  const orderId = searchParams.get('id');
+  const orderId = searchParams.get('order_id');
   const [payuData, setPayuData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const formRef = useRef<HTMLFormElement>(null);
-
- useEffect(() => {
-  async function fetchOrder() {
-    if (!orderId) {
-      setLoading(false);
-      return;
-    }
-
-    // Changed 'order_id' to 'id' to match your Supabase table
-    const { data, error } = await supabase
-        .from('orders')
-        .select('*')
-        .eq('id', orderId) // Using 'id' as you confirmed
-        .single();
-
-        if (data) {
-        // If your column is named 'payu_data', this line is correct:
-        setPayuData(data.payu_data); 
-        }
-
-    if (error) {
-      console.error("Supabase Fetch Error:", error.message);
-      setLoading(false);
-      return;
-    }
-
-    if (data) {
-      // Ensure 'payu_data' is the correct column name for your JSON
-      setPayuData(data.payu_data); 
-    }
-    setLoading(false);
-  }
-  fetchOrder();
-}, [orderId]);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (payuData && formRef.current) {
-      formRef.current.submit();
-    }
-  }, [payuData]);
+    async function fetchOrder() {
+      if (!orderId) {
+        setError("No Order ID found in URL.");
+        setLoading(false);
+        return;
+      }
 
-  if (loading) return <div className="p-10 text-center">Loading payment details...</div>;
-  if (!payuData) return <div className="p-10 text-center">Invalid Order.</div>;
+      // Fetch the order from Supabase
+      const { data, error: sbError } = await supabase
+        .from('orders')
+        .select('*')
+        .eq('id', orderId)
+        .single();
+
+      if (sbError || !data) {
+        console.error("Supabase Error:", sbError);
+        setError("Order not found in database.");
+      } else {
+        // Look for the payu_data field you saved from n8n
+        setPayuData(data.payu_data);
+      }
+      setLoading(false);
+    }
+
+    fetchOrder();
+  }, [orderId]);
+
+  if (loading) return <div className="p-10">Loading payment details...</div>;
+  
+  if (error || !payuData) return <div className="p-10 text-red-500">{error || "Invalid Order Data."}</div>;
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen">
-      <h1 className="text-xl font-semibold">Redirecting to PayU...</h1>
-      <form ref={formRef} action="https://secure.payu.in/_payment" method="POST">
+    <div className="p-10 flex flex-col items-center">
+      <h1 className="text-2xl font-bold mb-4">Complete Your Payment</h1>
+      <p className="mb-6">Order ID: {orderId}</p>
+      
+      {/* This is the hidden form that sends the user to PayU */}
+      <form action="https://secure.payu.in/_payment" method="POST">
         <input type="hidden" name="key" value={payuData.key} />
         <input type="hidden" name="txnid" value={payuData.txnid} />
         <input type="hidden" name="amount" value={payuData.amount} />
@@ -70,16 +64,14 @@ function PayUContent() {
         <input type="hidden" name="furl" value={payuData.furl} />
         <input type="hidden" name="hash" value={payuData.hash} />
         <input type="hidden" name="service_provider" value="payu_paisa" />
+        
+        <button 
+          type="submit" 
+          className="bg-blue-600 text-white px-8 py-3 rounded-lg font-bold hover:bg-blue-700 transition"
+        >
+          Pay Now ₹{payuData.amount}
+        </button>
       </form>
     </div>
-  );
-}
-
-// 2. Export the page wrapped in Suspense
-export default function PayUPage() {
-  return (
-    <Suspense fallback={<div>Loading...</div>}>
-      <PayUContent />
-    </Suspense>
   );
 }
