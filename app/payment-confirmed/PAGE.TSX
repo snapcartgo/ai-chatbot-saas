@@ -1,18 +1,43 @@
 export default function PaymentConfirmed() {
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 p-6">
-      <div className="bg-white p-10 rounded-3xl shadow-lg text-center max-w-sm">
-        <div className="text-6xl mb-4">✅</div>
-        <h1 className="text-3xl font-bold text-gray-800">Paid Successfully!</h1>
-        <p className="mt-4 text-gray-600">
-          Your order has been confirmed. You can now return to the chat.
+    <div style={{
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      height: '100vh',
+      backgroundColor: '#f9fafb',
+      fontFamily: 'sans-serif',
+      padding: '20px',
+      textAlign: 'center'
+    }}>
+      <div style={{
+        backgroundColor: 'white',
+        padding: '40px',
+        borderRadius: '20px',
+        boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
+        maxWidth: '400px'
+      }}>
+        <div style={{ fontSize: '60px', marginBottom: '20px' }}>✅</div>
+        <h1 style={{ color: '#111827', fontSize: '24px', fontWeight: 'bold', margin: '0' }}>
+          Payment Successful!
+        </h1>
+        <p style={{ color: '#4b5563', marginTop: '15px', lineHeight: '1.5' }}>
+          Your order has been confirmed and updated in our system.
         </p>
-        <button 
-          onClick={() => window.close()} 
-          className="mt-8 bg-blue-600 text-white px-8 py-3 rounded-xl font-semibold"
-        >
-          Done
-        </button>
+        <p style={{ color: '#6b7280', fontSize: '14px', marginTop: '10px' }}>
+          You can now safely close this tab and return to the chat.
+        </p>
+        <div style={{
+          marginTop: '30px',
+          padding: '12px',
+          backgroundColor: '#eff6ff',
+          borderRadius: '10px',
+          color: '#1d4ed8',
+          fontWeight: '600'
+        }}>
+          Order Status: PAID
+        </div>
       </div>
     </div>
   );
