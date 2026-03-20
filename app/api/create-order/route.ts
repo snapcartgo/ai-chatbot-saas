@@ -11,72 +11,31 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
 
-    // 🛡️ Get the ID from n8n (your ORD_... string)
-    let {
-      id, // This is the 'order_id' sent from n8n
-      bot_id,
-      user_id,
-      product_name,
-      price,
-      customer_email,
-      phone
-    } = body;
+    // 🛡️ Get the ID and other fields from n8n
+    let { id, bot_id, user_id, product_name, price, customer_email, phone } = body;
 
-    // 🛡️ AUTO-CLEAN IDs: Removes any "=" or spaces coming from n8n
     const cleanOrderId = id?.replace(/^=/, '').trim();
     const cleanUserId = user_id?.replace(/^=/, '').trim();
     const cleanBotId = bot_id?.replace(/^=/, '').trim();
 
-    // 1️⃣ FETCH CLIENT PAYU KEYS
-    const { data: profile, error: profileError } = await supabase
+    // 1️⃣ Fetch Merchant Keys from Profiles
+    const { data: profile } = await supabase
       .from("profiles")
       .select("payu_merchant_key, payu_merchant_salt")
       .eq("id", cleanUserId)
       .maybeSingle();
 
-    if (profileError || !profile?.payu_merchant_key) {
-      console.error("Profile Fetch Error:", profileError);
-      return NextResponse.json(
-        { error: "Client keys not found in Profiles table." },
-        { status: 400 }
-      );
+    if (!profile?.payu_merchant_key) {
+      return NextResponse.json({ error: "Merchant keys not found" }, { status: 400 });
     }
 
-    // 2️⃣ CREATE ORDER IN DATABASE
-    // We pass 'id' explicitly so it doesn't try to generate a UUID
-    const { data: order, error: orderError } = await supabase
-      .from("orders")
-      .insert([
-        {
-          id: cleanOrderId, // 🟢 CRITICAL: Use the ID from n8n here
-          bot_id: cleanBotId,
-          user_id: cleanUserId,
-          product_name: product_name || "AI Service",
-          price: parseFloat(price) || 0,
-          customer_email,
-          payment_status: "pending"
-        }
-      ])
-      .select()
-      .single();
-
-    if (orderError || !order) {
-      console.error("Supabase Insert Error:", orderError);
-      return NextResponse.json(
-        { error: orderError?.message || "Order creation failed" },
-        { status: 500 }
-      );
-    }
-
-    // 3️⃣ GENERATE PAYU DATA
+    // 2️⃣ Prepare PayU Data
     const amount = parseFloat(price).toFixed(2);
     const firstname = customer_email ? customer_email.split("@")[0] : "Customer";
     const key = profile.payu_merchant_key;
     const salt = profile.payu_merchant_salt;
-    const userPhone = phone || "9999999999";
-
-    // MANDATORY HASH ORDER: key|txnid|amount|productinfo|firstname|email|udf1|udf2|udf3|udf4|udf5||||||salt
-    // Note: We use the cleanOrderId as the txnid for PayU consistency
+    
+    // key|txnid|amount|productinfo|firstname|email|udf1|udf2|udf3|udf4|udf5||||||salt
     const hashString = `${key}|${cleanOrderId}|${amount}|${product_name}|${firstname}|${customer_email}|||||||||||${salt}`;
     const hash = crypto.createHash("sha512").update(hashString).digest("hex");
 
@@ -87,29 +46,35 @@ export async function POST(req: Request) {
       productinfo: product_name,
       firstname,
       email: customer_email,
-      phone: userPhone,
-      surl: `https://ai-chatbot-saas-five.vercel.app/api/payment-success?order_id=${cleanOrderId}`,
-      furl: `https://ai-chatbot-saas-five.vercel.app/payment-failed`,
-      service_provider: "payu_paisa",
+      phone: phone || "9999999999",
+      surl: `https://${req.headers.get('host')}/api/payment-success?order_id=${cleanOrderId}`,
+      furl: `https://${req.headers.get('host')}/payment-failed`,
       hash
     };
 
-    // 4️⃣ SAVE PAYU DATA BACK TO THE ORDER
-    await supabase
+    // 3️⃣ Insert the Order WITH the payu_data object
+    const { error: orderError } = await supabase
       .from("orders")
-      .update({ payu_data })
-      .eq("id", cleanOrderId);
+      .insert([{
+        id: cleanOrderId,
+        bot_id: cleanBotId,
+        user_id: cleanUserId,
+        product_name,
+        price: parseFloat(price),
+        customer_email,
+        payment_status: "pending",
+        payu_data: payu_data // 🟢 THIS IS THE MISSING PIECE
+      }]);
 
-    // 5️⃣ RETURN RESPONSE
+    if (orderError) throw orderError;
+
     return NextResponse.json({
       success: true,
-      order_id: cleanOrderId,
-      payUrl: `https://ai-chatbot-saas-five.vercel.app/payu?order_id=${cleanOrderId}`,
-      payu_data
+      payUrl: `https://${req.headers.get('host')}/payu?order_id=${cleanOrderId}`
     });
 
-  } catch (err) {
-    console.error("Critical API Error:", err);
-    return NextResponse.json({ error: "Server error" }, { status: 500 });
+  } catch (err: any) {
+    console.error("API Error:", err);
+    return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
