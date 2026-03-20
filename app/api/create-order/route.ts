@@ -29,45 +29,47 @@ export async function POST(req: Request) {
     }
 
     // 3. Prepare Variables
-    const amount = parseFloat(price).toFixed(2);
-    const firstname = customer_email ? customer_email.split("@")[0] : "Customer";
-    const key = profile.payu_merchant_key;
-    const salt = profile.payu_merchant_salt;
-    const userPhone = phone || "9999999999";
+    // ... existing imports (crypto, supabase, etc.)
 
-    // 4. GENERATE THE HASH (This fixes your error!)
-    // Formula: key|txnid|amount|productinfo|firstname|email|udf1|udf2|udf3|udf4|udf5||||||salt
-    const hashString = `${key}|${cleanOrderId}|${amount}|${product_name}|${firstname}|${customer_email}|||||||||||${salt}`;
-    const generatedHash = crypto.createHash("sha512").update(hashString).digest("hex");
+// 1. Prepare your variables first
+const amount = parseFloat(price).toFixed(2);
+const firstname = customer_email ? customer_email.split("@")[0] : "Customer";
+const key = profile.payu_merchant_key;
+const salt = profile.payu_merchant_salt;
 
-    // 5. Create the PayU Data Object
-    const payu_data = {
-      key,
-      txnid: cleanOrderId,
-      amount,
-      productinfo: product_name,
-      firstname,
-      email: customer_email,
-      phone: userPhone,
-      surl: `https://${req.headers.get('host')}/api/payment-success?order_id=${cleanOrderId}`,
-      furl: `https://${req.headers.get('host')}/payment-failed`,
-      service_provider: "payu_paisa",
-      hash: generatedHash // Now 'generatedHash' is defined!
-    };
+// 2. GENERATE THE HASH (This fixes the 'generatedHash' error)
+// The string must follow this exact order: key|txnid|amount|productinfo|firstname|email|||||||||||salt
+const hashString = `${key}|${cleanOrderId}|${amount}|${product_name}|${firstname}|${customer_email}|||||||||||${salt}`;
+const generatedHash = crypto.createHash("sha512").update(hashString).digest("hex");
 
-    // 6. Insert Order into Supabase
-    const { error: orderError } = await supabase
-      .from("orders")
-      .insert([{
-        id: cleanOrderId,
-        bot_id: bot_id?.replace(/^=/, '').trim(),
-        user_id: cleanUserId,
-        product_name,
-        price: parseFloat(price),
-        customer_email,
-        payment_status: "pending",
-        payu_data: payu_data // This ensures the loading screen disappears
-      }]);
+// 3. Create the PayU Data object
+const payu_data = {
+  key,
+  txnid: cleanOrderId,
+  amount,
+  productinfo: product_name,
+  firstname,
+  email: customer_email,
+  phone: phone || "9999999999",
+  surl: `https://${req.headers.get('host')}/api/payment-success?order_id=${cleanOrderId}`,
+  furl: `https://${req.headers.get('host')}/payment-failed`,
+  service_provider: "payu_paisa",
+  hash: generatedHash // Now this variable exists!
+};
+
+// 4. Insert into Supabase with the payu_data included
+const { error: orderError } = await supabase
+  .from("orders")
+  .insert([{
+    id: cleanOrderId,
+    bot_id: bot_id?.replace(/^=/, '').trim(),
+    user_id: cleanUserId,
+    product_name,
+    price: parseFloat(price),
+    customer_email,
+    payment_status: "pending",
+    payu_data: payu_data // 🟢 THIS IS THE KEY TO REMOVING THE LOADING SCREEN
+  }]);
 
     if (orderError) throw orderError;
 
