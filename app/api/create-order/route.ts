@@ -10,15 +10,14 @@ const supabase = createClient(
 export async function POST(req: Request) {
   try {
     const body = await req.json();
+    const { id, bot_id, user_id, product_name, price, customer_email, phone } = body;
 
-    // 🛡️ Get the ID and other fields from n8n
-    let { id, bot_id, user_id, product_name, price, customer_email, phone } = body;
-
+    // 1️⃣ Clean IDs from n8n
     const cleanOrderId = id?.replace(/^=/, '').trim();
     const cleanUserId = user_id?.replace(/^=/, '').trim();
     const cleanBotId = bot_id?.replace(/^=/, '').trim();
 
-    // 1️⃣ Fetch Merchant Keys from Profiles
+    // 2️⃣ Fetch PayU Keys from the Profiles table
     const { data: profile } = await supabase
       .from("profiles")
       .select("payu_merchant_key, payu_merchant_salt")
@@ -29,13 +28,13 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Merchant keys not found" }, { status: 400 });
     }
 
-    // 2️⃣ Prepare PayU Data
+    // 3️⃣ Generate PayU JSON Object
     const amount = parseFloat(price).toFixed(2);
     const firstname = customer_email ? customer_email.split("@")[0] : "Customer";
     const key = profile.payu_merchant_key;
     const salt = profile.payu_merchant_salt;
     
-    // key|txnid|amount|productinfo|firstname|email|udf1|udf2|udf3|udf4|udf5||||||salt
+    // Hash format: key|txnid|amount|productinfo|firstname|email|udf1|udf2|udf3|udf4|udf5||||||salt
     const hashString = `${key}|${cleanOrderId}|${amount}|${product_name}|${firstname}|${customer_email}|||||||||||${salt}`;
     const hash = crypto.createHash("sha512").update(hashString).digest("hex");
 
@@ -49,10 +48,11 @@ export async function POST(req: Request) {
       phone: phone || "9999999999",
       surl: `https://${req.headers.get('host')}/api/payment-success?order_id=${cleanOrderId}`,
       furl: `https://${req.headers.get('host')}/payment-failed`,
+      service_provider: "payu_paisa",
       hash
     };
 
-    // 3️⃣ Insert the Order WITH the payu_data object
+    // 4️⃣ INSERT EVERYTHING AT ONCE (Important!)
     const { error: orderError } = await supabase
       .from("orders")
       .insert([{
@@ -63,7 +63,7 @@ export async function POST(req: Request) {
         price: parseFloat(price),
         customer_email,
         payment_status: "pending",
-        payu_data: payu_data // 🟢 THIS IS THE MISSING PIECE
+        payu_data: payu_data // 🟢 This fills the NULL column
       }]);
 
     if (orderError) throw orderError;
