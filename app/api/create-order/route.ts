@@ -31,18 +31,19 @@ export async function POST(req: Request) {
     // 3. Prepare Variables
     // ... existing imports (crypto, supabase, etc.)
 
-// 1. Prepare your variables first
+  // 1. First, calculate the hash string
 const amount = parseFloat(price).toFixed(2);
 const firstname = customer_email ? customer_email.split("@")[0] : "Customer";
 const key = profile.payu_merchant_key;
 const salt = profile.payu_merchant_salt;
 
-// 2. GENERATE THE HASH (This fixes the 'generatedHash' error)
-// The string must follow this exact order: key|txnid|amount|productinfo|firstname|email|||||||||||salt
+// Formula: key|txnid|amount|productinfo|firstname|email|||||||||||salt
 const hashString = `${key}|${cleanOrderId}|${amount}|${product_name}|${firstname}|${customer_email}|||||||||||${salt}`;
+
+// 2. Create the actual hash variable (This fixes your "Cannot find name" error)
 const generatedHash = crypto.createHash("sha512").update(hashString).digest("hex");
 
-// 3. Create the PayU Data object
+// 3. Put that hash INTO the payu_data object
 const payu_data = {
   key,
   txnid: cleanOrderId,
@@ -54,10 +55,10 @@ const payu_data = {
   surl: `https://${req.headers.get('host')}/api/payment-success?order_id=${cleanOrderId}`,
   furl: `https://${req.headers.get('host')}/payment-failed`,
   service_provider: "payu_paisa",
-  hash: generatedHash // Now this variable exists!
+  hash: generatedHash 
 };
 
-// 4. Insert into Supabase with the payu_data included
+// 4. SAVE IT TO SUPABASE (This is the most important part)
 const { error: orderError } = await supabase
   .from("orders")
   .insert([{
@@ -68,7 +69,7 @@ const { error: orderError } = await supabase
     price: parseFloat(price),
     customer_email,
     payment_status: "pending",
-    payu_data: payu_data // 🟢 THIS IS THE KEY TO REMOVING THE LOADING SCREEN
+    payu_data: payu_data // This column must NOT be NULL in Supabase
   }]);
 
     if (orderError) throw orderError;
