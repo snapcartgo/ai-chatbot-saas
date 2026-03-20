@@ -52,8 +52,8 @@ const payu_data = {
   firstname,
   email: customer_email,
   phone: phone || "9999999999",
-  surl: `https://${req.headers.get('host')}/api/payment-success?order_id=${cleanOrderId}`,
-  furl: `https://${req.headers.get('host')}/payment-failed`,
+  surl: `https://ai-chatbot-saas-five.vercel.app//api/payment-success`,
+  furl: `https://ai-chatbot-saas-five.vercel.app//api/payment-success`,
   service_provider: "payu_paisa",
   hash: generatedHash 
 };
