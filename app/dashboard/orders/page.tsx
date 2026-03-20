@@ -14,9 +14,18 @@ export default function OrdersPage() {
 
   const loadOrders = async () => {
 
-    const { data, error } = await supabase
+    const { data } = await supabase.auth.getSession();
+    const user = data.session?.user;
+
+    if (!user) {
+      console.error("User not found");
+      return;
+    }
+
+    const { data: ordersData, error } = await supabase
       .from("orders")
       .select("*")
+      .eq("user_id", user.id)
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -24,7 +33,7 @@ export default function OrdersPage() {
       return;
     }
 
-    setOrders(data || []);
+    setOrders(ordersData || []);
     setLoading(false);
   };
 
@@ -33,9 +42,7 @@ export default function OrdersPage() {
   }
 
   return (
-
     <div style={{ padding: 40 }}>
-
       <h1>Orders</h1>
 
       <table
@@ -45,7 +52,6 @@ export default function OrdersPage() {
           borderCollapse: "collapse"
         }}
       >
-
         <thead>
           <tr style={{ background: "#f3f4f6" }}>
             <th style={{ padding: 10 }}>Product</th>
@@ -57,40 +63,19 @@ export default function OrdersPage() {
         </thead>
 
         <tbody>
-
           {orders.map((order) => (
-
             <tr key={order.id} style={{ borderTop: "1px solid #eee" }}>
-
-              <td style={{ padding: 10 }}>
-                {order.product_name}
-              </td>
-
-              <td style={{ padding: 10 }}>
-                ${order.price}
-              </td>
-
-              <td style={{ padding: 10 }}>
-                {order.payment_status}
-              </td>
-
-              <td style={{ padding: 10 }}>
-                {order.payment_id || "-"}
-              </td>
-
+              <td style={{ padding: 10 }}>{order.product_name}</td>
+              <td style={{ padding: 10 }}>${order.price}</td>
+              <td style={{ padding: 10 }}>{order.payment_status}</td>
+              <td style={{ padding: 10 }}>{order.payment_id || "-"}</td>
               <td style={{ padding: 10 }}>
                 {new Date(order.created_at).toLocaleString()}
               </td>
-
             </tr>
-
           ))}
-
         </tbody>
-
       </table>
-
     </div>
-
   );
 }
