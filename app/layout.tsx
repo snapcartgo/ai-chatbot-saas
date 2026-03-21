@@ -1,6 +1,6 @@
 import "./globals.css";
 import type { Metadata, Viewport } from "next";
-import Footer from "@/components/Footer"; // 1. Import your new Footer
+import Footer from "./components/Footer";
 
 export const metadata: Metadata = {
   title: "AI Chatbot SaaS",
