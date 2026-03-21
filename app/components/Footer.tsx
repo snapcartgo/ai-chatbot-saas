@@ -34,10 +34,9 @@ export default function Footer() {
           <ul className="space-y-4 text-gray-500 text-sm">
             {/* THIS IS YOUR PARTNER LINK */}
             <li>
-              <Link href="/partner-dashboard" className="text-blue-400 font-semibold hover:text-blue-300 transition flex items-center gap-2">
-                Partner Program 
-                <span className="bg-blue-500/10 text-[10px] px-2 py-0.5 rounded-full border border-blue-500/20">Agencies</span>
-              </Link>
+              <Link href="/partners" className="...">
+                Partner Program
+                </Link>
             </li>
             <li><Link href="/contact" className="hover:text-blue-500 transition">Contact Us</Link></li>
             <li><Link href="/terms" className="hover:text-blue-500 transition">Terms of Service</Link></li>

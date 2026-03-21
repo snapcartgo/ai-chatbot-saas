@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js'; // Or your local supabase path
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
+import PartnerRegistrationForm from "./PartnerRegistrationForm";
 
 export default async function PartnerDashboard() {
   const cookieStore = await cookies();
@@ -26,19 +27,20 @@ export default async function PartnerDashboard() {
     .single();
 
   // 4. If they aren't a partner yet, show a "Join" button or redirect
-  if (!partner) {
-    return (
-      <div className="min-h-screen bg-black text-white flex flex-col items-center justify-center p-6">
-        <h1 className="text-3xl font-bold mb-4">Become a Partner</h1>
-        <p className="text-gray-400 mb-6 text-center max-w-md">
-          Join our agency program to earn 20% commission on every client you refer to our AI Chatbot platform.
-        </p>
-        <button className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-lg font-bold">
-          Apply to Join
-        </button>
-      </div>
-    );
-  }
+  // Inside your PartnerDashboard() function, where you check if (!partner)
+if (!partner) {
+  return (
+    <div className="min-h-screen bg-black text-white flex flex-col items-center justify-center p-6 text-center">
+      <h2 className="text-2xl font-bold mb-2">Complete Your Partner Profile</h2>
+      <p className="text-gray-400 mb-8">You are logged in! Just give us your business name to get your referral link.</p>
+      
+      {/* Create a Client Component for this form so you can 
+         handle the "Submit" and generate the code.
+      */}
+      <PartnerRegistrationForm userId={user.id} />
+    </div>
+  );
+}
 
   // 5. Fetch their Referrals for the list
   const { data: referrals } = await supabase
