@@ -9,36 +9,29 @@ export default function PartnerRegistrationForm({ userId }: { userId: string }) 
   const router = useRouter();
 
   const handleJoin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    // STOP if userId is empty to prevent the UUID error
-    if (!userId || userId === "") {
-      alert("User session not found. Please refresh the page and try again.");
-      return;
-    }
+  e.preventDefault();
+  setLoading(true);
 
-    setLoading(true);
+  // 1. Generate the referral code
+  const code = `${name.substring(0, 3).toUpperCase()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
 
-    // Generate a clean referral code
-    const cleanName = name.trim().substring(0, 3).toUpperCase();
-    const randomStr = Math.random().toString(36).substring(2, 7).toUpperCase();
-    const code = `${cleanName}-${randomStr}`;
+  // 2. Insert into Supabase
+  const { error } = await supabase.from('partners').insert([{
+    user_id: userId,
+    business_name: name,
+    referral_code: code,
+    commission_rate: 20
+  }]);
 
-    const { error } = await supabase.from('partners').insert([{
-      user_id: userId, // This must be a valid UUID string
-      business_name: name,
-      referral_code: code,
-      commission_rate: 20
-    }]);
-
-    if (error) {
-      console.error("Supabase Error:", error);
-      alert(error.message);
-      setLoading(false);
-    } else {
-      router.refresh(); 
-    }
-  };
+  if (error) {
+    alert("Error: " + error.message);
+    setLoading(false);
+  } else {
+    // 3. FORCE A HARD RELOAD
+    // This is the fix! It forces the server to see the new partner record.
+    window.location.href = "/partner-dashboard";
+  }
+};
 
   return (
     <form onSubmit={handleJoin} className="flex flex-col gap-4 w-full max-w-xs">
