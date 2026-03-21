@@ -1,49 +1,38 @@
-import { createClient } from '@supabase/supabase-js';
-import PartnerRegistrationForm from "./PartnerRegistrationForm";
+import { cookies } from 'next/headers';
+import { redirect } from 'next/navigation';
+import { supabase } from '@/lib/supabase'; // Use your existing working client
+import PartnerRegistrationForm from './PartnerRegistrationForm';
 
-export default async function PartnerDashboardPage() {
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
-
+export default async function PartnerDashboard() {
+  // Fetch the user session from the server side
   const { data: { user } } = await supabase.auth.getUser();
 
-  // 1. If no user, the middleware handles the login redirect.
-  // 2. Check if they exist in the 'partners' table
+  // If no user is found, redirect to login page
+  if (!user) {
+    redirect('/login');
+  }
+
+  // Check if they are already a partner
   const { data: partner } = await supabase
     .from('partners')
     .select('*')
-    .eq('user_id', user?.id)
+    .eq('user_id', user.id)
     .single();
 
-  // 3. IF NO PARTNER FOUND -> Show the Form (This is what's missing!)
-  if (!partner) {
+  if (partner) {
     return (
-      <div style={{ 
-        backgroundColor: "#000", 
-        minHeight: "100vh", 
-        display: "flex", 
-        flexDirection: "column", 
-        alignItems: "center", 
-        justifyContent: "center",
-        color: "#fff" 
-      }}>
-        <h1 style={{ fontSize: "2rem", marginBottom: "10px" }}>Partner Registration</h1>
-        <p style={{ color: "#888", marginBottom: "30px" }}>Enter your business details to start earning 20% commission.</p>
-        
-        {/* This is the form component we created earlier */}
-        <PartnerRegistrationForm userId={user?.id || ''} />
+      <div className="min-h-screen bg-black text-white p-10">
+        <h1 className="text-2xl font-bold">Welcome, {partner.business_name}</h1>
+        <p className="mt-4 text-gray-400">Referral Code: {partner.referral_code}</p>
       </div>
     );
   }
 
-  // 4. IF PARTNER EXISTS -> Show the actual stats dashboard
+  // Pass the REAL user.id to the form component
   return (
-    <div style={{ padding: "40px", color: "#fff", backgroundColor: "#000" }}>
-      <h1>Welcome, {partner.business_name}</h1>
-      <p>Referral Link: https://your-site.com?ref={partner.referral_code}</p>
-      {/* Your stats cards here */}
+    <div className="min-h-screen bg-black text-white flex flex-col items-center justify-center p-4">
+      <h2 className="text-3xl font-bold mb-6">Partner Registration</h2>
+      <PartnerRegistrationForm userId={user.id} />
     </div>
   );
 }
