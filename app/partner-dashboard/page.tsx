@@ -1,47 +1,53 @@
+import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { createServerClient } from '@/lib/supabaseServer';
+import { supabase } from '@/lib/supabase'; // Using your existing working client
 import PartnerRegistrationForm from './PartnerRegistrationForm';
 
 export default async function PartnerDashboard() {
-  const supabase = createServerClient();
+  // 1. Get user session from cookies securely
+  const cookieStore = cookies();
+  const { data: { user } } = await supabase.auth.getUser();
 
-  // 1. Get the user. This is the part that was failing and redirecting you.
-  // By using the server client with cookies, this will now see your session.
-  const { data: { user }, error } = await supabase.auth.getUser();
-
-  // 2. If no user, redirect to login
-  if (!user || error) {
-    console.error("Auth error or no user found:", error);
+  // 2. Redirect to login if no user is found
+  if (!user) {
     redirect('/login');
   }
 
-  // 3. Check if they are already a partner
+  // 3. Check if this user is already in the 'partners' table
   const { data: partner } = await supabase
     .from('partners')
     .select('*')
     .eq('user_id', user.id)
     .single();
 
-  // 4. If partner exists, show the dashboard info
+  // 4. Show dashboard if they are already a partner
   if (partner) {
     return (
-      <div className="min-h-screen bg-black text-white p-10">
-        <h1 className="text-3xl font-bold mb-4">Partner Dashboard</h1>
-        <div className="p-6 bg-[#111] border border-gray-800 rounded-xl">
-          <p className="text-gray-400">Welcome, {partner.business_name}</p>
-          <p className="mt-2 text-blue-400">Referral Code: {partner.referral_code}</p>
+      <div className="min-h-screen bg-black text-white p-10 flex flex-col items-center">
+        <h1 className="text-3xl font-bold">Partner Dashboard</h1>
+        <div className="mt-8 p-6 bg-[#111] border border-gray-800 rounded-xl w-full max-w-2xl text-center">
+          <p className="text-xl font-semibold">Welcome, {partner.business_name}!</p>
+          <div className="mt-6 p-4 bg-black border border-blue-900/30 rounded-lg">
+            <p className="text-sm text-gray-400 mb-2">Your Referral Link:</p>
+            <code className="text-blue-400 break-all">
+              https://ai-chatbot-saas-five.vercel.app?ref={partner.referral_code}
+            </code>
+          </div>
+          <p className="mt-4 text-green-500 font-medium">Commission Rate: {partner.commission_rate}%</p>
         </div>
       </div>
     );
   }
 
-  // 5. If NOT a partner, show the form and pass the valid user.id
+  // 5. Otherwise, show the registration form and pass the REAL user.id
   return (
-    <div className="min-h-screen bg-black text-white flex flex-col items-center justify-center p-4">
+    <div className="min-h-screen bg-black text-white flex flex-col items-center justify-center p-4 text-center">
       <h2 className="text-3xl font-bold mb-2">Partner Registration</h2>
-      <p className="text-gray-400 mb-8">Enter your details to create your partner account.</p>
+      <p className="text-gray-400 mb-8 max-w-sm">
+        Enter your agency or business name to start earning 20% commission on every referral.
+      </p>
       
-      {/* user.id is now guaranteed to be a valid UUID string here */}
+      {/* Passing user.id here ensures we don't get the 'invalid uuid' error */}
       <PartnerRegistrationForm userId={user.id} />
     </div>
   );
