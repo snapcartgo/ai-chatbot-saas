@@ -1,5 +1,21 @@
+"use client";
+
+import { useEffect } from "react";
 import ChatWidget from "./components/ChatWidget";
+
 export default function Home() {
+
+  // 🔥 REFERRAL TRACKING (ADD THIS)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const ref = params.get("ref");
+
+    if (ref) {
+      console.log("Referral detected:", ref);
+      localStorage.setItem("referral", ref);
+    }
+  }, []);
+
   return (
     <main className="min-h-screen bg-gray-950 text-white">
 
@@ -8,13 +24,13 @@ export default function Home() {
         <h1 className="text-xl font-bold text-blue-500">AI Chatbot SaaS</h1>
 
         <div className="space-x-6">
-          <a href="/login" className="text-gray-300 hover:text-white">Login</a>
-          <a
-            href="/signup"
-            className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg"
-          >
-            Start Free
-          </a>
+          <a href="/login" className="text-gray-300 hover:text-white">
+  Login
+</a>
+
+          <a href="/signup" className="bg-blue-600 px-4 py-2 rounded-lg">
+  Start Free
+</a>
         </div>
       </nav>
 
