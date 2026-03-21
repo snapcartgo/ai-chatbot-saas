@@ -10,13 +10,19 @@ export default function PartnerRegistrationForm({ userId }: { userId: string }) 
 
   const handleJoin = async (e: React.FormEvent) => {
   e.preventDefault();
+  console.log("Button clicked!"); // LOG 1
   setLoading(true);
 
-  // 1. Generate the referral code
-  const code = `${name.substring(0, 3).toUpperCase()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+  if (!userId) {
+    console.error("No User ID found!"); // LOG 2
+    setLoading(false);
+    return;
+  }
 
-  // 2. Insert into Supabase
-  const { error } = await supabase.from('partners').insert([{
+  const code = `${name.substring(0, 3).toUpperCase()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+  console.log("Generated code:", code); // LOG 3
+
+  const { data, error } = await supabase.from('partners').insert([{
     user_id: userId,
     business_name: name,
     referral_code: code,
@@ -24,11 +30,11 @@ export default function PartnerRegistrationForm({ userId }: { userId: string }) 
   }]);
 
   if (error) {
-    alert("Error: " + error.message);
+    console.error("Supabase Database Error:", error); // LOG 4
+    alert("Database Error: " + error.message);
     setLoading(false);
   } else {
-    // 3. FORCE A HARD RELOAD
-    // This is the fix! It forces the server to see the new partner record.
+    console.log("Success! Data saved:", data); // LOG 5
     window.location.href = "/partner-dashboard";
   }
 };
