@@ -1,50 +1,24 @@
-import { createServerClient } from '@supabase/ssr'
-import { NextResponse, type NextRequest } from 'next/server'
+// middleware.ts
+import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
 
-export async function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl;
+export function middleware(request: NextRequest) {
+  const { searchParams } = new URL(request.url);
+  const refCode = searchParams.get('ref');
 
-  // ✅ STEP 1: SKIP PAYMENT ROUTES
-  if (
-    pathname.startsWith("/api/payment-success") ||
-    pathname.startsWith("/api/payment-webhook")
-  ) {
-    return NextResponse.next();
+  const response = NextResponse.next();
+
+  if (refCode) {
+    // Save the code in a cookie for 30 days
+    response.cookies.set('referral_code', refCode, {
+      maxAge: 30 * 24 * 60 * 60, // 30 days in seconds
+      path: '/',
+    });
   }
-
-  let response = NextResponse.next({
-    request: {
-      headers: request.headers,
-    },
-  });
-
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        get(name: string) {
-          return request.cookies.get(name)?.value
-        },
-        set(name: string, value: string, options: any) {
-          response.cookies.set({ name, value, ...options })
-        },
-        remove(name: string, options: any) {
-          response.cookies.set({ name, value: '', ...options })
-        },
-      },
-    }
-  );
-
-  // ✅ refresh session
-  await supabase.auth.getUser();
 
   return response;
 }
 
 export const config = {
-  matcher: [
-    '/dashboard/:path*',
-    '/settings/:path*'
-  ],
-}
+  matcher: ['/'], // Only runs on the homepage or landing page
+};
