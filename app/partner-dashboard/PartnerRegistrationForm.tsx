@@ -1,36 +1,33 @@
 'use client';
 
 import { useState } from 'react';
-// Using your existing client as you intended in line 5 of your screenshot
-import { supabase } from '@/lib/supabase'; 
-// Fix: Import useRouter from 'next/navigation', NOT 'next/router'
+import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
 
 export default function PartnerRegistrationForm({ userId }: { userId: string }) {
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
-  const router = useRouter();
 
-  const handleJoin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    console.log("Submit Clicked - User ID:", userId);
+  const handleJoin = async () => {
+    // 1. Immediate visual feedback
+    console.log("Action Triggered: Attempting to save...");
     setLoading(true);
 
+    // 2. Safety check for User ID
     if (!userId || userId === "") {
-      console.error("No User ID found! Cannot insert.");
-      alert("Session error: Please log out and log back in.");
+      alert("Error: User session not detected. Please refresh.");
       setLoading(false);
       return;
     }
 
-    // Generate Referral Code (e.g., AZA-12345)
-    const cleanName = name.trim().substring(0, 3).toUpperCase();
+    // 3. Generate Referral Code
+    const cleanName = name.trim().substring(0, 3).toUpperCase() || "USR";
     const randomStr = Math.random().toString(36).substring(2, 7).toUpperCase();
     const code = `${cleanName}-${randomStr}`;
 
     try {
-      // Insert into the partners table you configured in Supabase
-      const { data, error } = await supabase
+      // 4. Supabase Insert
+      const { error } = await supabase
         .from('partners')
         .insert([
           {
@@ -42,22 +39,22 @@ export default function PartnerRegistrationForm({ userId }: { userId: string }) 
         ]);
 
       if (error) {
-        console.error("Supabase Database Error:", error);
+        console.error("Database Error:", error.message);
         alert("Database Error: " + error.message);
         setLoading(false);
       } else {
-        console.log("Success! Data saved:", data);
-        // Force a hard reload to update the dashboard view
+        console.log("Success! Redirecting...");
+        // 5. Force the page to reload so the dashboard shows up
         window.location.href = "/partner-dashboard";
       }
     } catch (err) {
-      console.error("Unexpected Error:", err);
+      console.error("Critical System Error:", err);
       setLoading(false);
     }
   };
 
   return (
-    <form onSubmit={handleJoin} className="flex flex-col gap-4 w-full max-w-xs mx-auto">
+    <div className="flex flex-col gap-4 w-full max-w-xs mx-auto">
       <input 
         required
         className="bg-[#111] border border-gray-800 p-3 rounded-lg text-white outline-none focus:border-blue-500"
@@ -65,13 +62,18 @@ export default function PartnerRegistrationForm({ userId }: { userId: string }) 
         value={name}
         onChange={(e) => setName(e.target.value)}
       />
+      
       <button 
-        type="submit"
-        disabled={loading || !userId}
+        type="button" 
+        onClick={handleJoin}
+        disabled={loading || !name}
         className="bg-blue-600 p-3 rounded-lg font-bold hover:bg-blue-700 transition disabled:opacity-50"
       >
         {loading ? 'Creating Account...' : 'Create My Partner Account'}
       </button>
-    </form>
+
+      {/* Debugger text - you can remove this after it works */}
+      {!userId && <p className="text-red-500 text-xs">Waiting for User Session...</p>}
+    </div>
   );
 }
