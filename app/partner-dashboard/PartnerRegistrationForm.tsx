@@ -8,45 +8,52 @@ export default function PartnerRegistrationForm({ userId }: { userId: string }) 
   const [loading, setLoading] = useState(false);
 
   const handleJoin = async () => {
-    // This check is what was triggering your error
-    if (!userId) {
-      alert("Error: User session not detected. Please refresh.");
-      return;
-    }
-
+    if (!name.trim() || !userId) return;
+    
     setLoading(true);
-    const code = `${name.substring(0, 3).toUpperCase()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
 
-    const { error } = await supabase.from('partners').insert([{
-      user_id: userId,
-      business_name: name,
-      referral_code: code,
-      commission_rate: 20
-    }]);
+    const prefix = name.trim().substring(0, 3).toUpperCase();
+    const random = Math.random().toString(36).substring(2, 7).toUpperCase();
+    const referralCode = `${prefix}-${random}`;
 
-    if (error) {
-      alert("Database Error: " + error.message);
+    try {
+      const { error } = await supabase
+        .from('partners')
+        .insert([{
+            user_id: userId,
+            business_name: name.trim(),
+            referral_code: referralCode,
+            commission_rate: 20
+        }]);
+
+      if (error) {
+        alert("Error: " + error.message);
+        setLoading(false);
+      } else {
+        // Hard refresh to update server state
+        window.location.href = "/partner-dashboard";
+      }
+    } catch (err) {
+      console.error(err);
       setLoading(false);
-    } else {
-      window.location.reload(); // Refresh to show dashboard
     }
   };
 
   return (
-    <div className="flex flex-col gap-4 w-full max-w-xs">
+    <div className="flex flex-col gap-4 w-full">
       <input 
-        required
         className="bg-[#111] border border-gray-800 p-3 rounded-lg text-white"
-        placeholder="Business Name"
+        placeholder="Agency or Business Name"
         value={name}
         onChange={(e) => setName(e.target.value)}
       />
       <button 
+        type="button"
         onClick={handleJoin}
-        disabled={loading || !name}
-        className="bg-blue-600 p-3 rounded-lg font-bold disabled:opacity-50"
+        disabled={loading || !name.trim()}
+        className="bg-blue-600 p-3 rounded-lg font-bold hover:bg-blue-700 disabled:opacity-50"
       >
-        {loading ? 'Processing...' : 'Create My Partner Account'}
+        {loading ? 'Registering...' : 'Create My Partner Account'}
       </button>
     </div>
   );
