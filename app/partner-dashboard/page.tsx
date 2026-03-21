@@ -1,46 +1,43 @@
-import { createClient } from '@supabase/supabase-js'; // Or your local supabase path
+import { createClient } from '@supabase/supabase-js'; 
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
-import PartnerRegistrationForm from "./PartnerRegistrationForm";
+import PartnerRegistrationForm from "./PartnerRegistrationForm"; // Import the form
 
 export default async function PartnerDashboard() {
-  const cookieStore = await cookies();
-  
-  // 1. Initialize Supabase
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
 
-  // 2. Get the current logged-in user (Make sure you have auth set up)
+  // 1. Get the session
   const { data: { user } } = await supabase.auth.getUser();
 
+  // 2. IF NOT LOGGED IN -> Send to Login
   if (!user) {
-    redirect('/login'); // Send them to login if not authenticated
+    redirect('/login'); 
   }
 
-  // 3. Fetch Partner Data
-  const { data: partner, error } = await supabase
+  // 3. IF LOGGED IN -> Check if they are a partner
+  const { data: partner } = await supabase
     .from('partners')
     .select('*')
     .eq('user_id', user.id)
     .single();
 
-  // 4. If they aren't a partner yet, show a "Join" button or redirect
-  // Inside your PartnerDashboard() function, where you check if (!partner)
-if (!partner) {
-  return (
-    <div className="min-h-screen bg-black text-white flex flex-col items-center justify-center p-6 text-center">
-      <h2 className="text-2xl font-bold mb-2">Complete Your Partner Profile</h2>
-      <p className="text-gray-400 mb-8">You are logged in! Just give us your business name to get your referral link.</p>
-      
-      {/* Create a Client Component for this form so you can 
-         handle the "Submit" and generate the code.
-      */}
-      <PartnerRegistrationForm userId={user.id} />
-    </div>
-  );
-}
+  // 4. IF LOGGED IN BUT NOT A PARTNER -> Show Signup Form
+  if (!partner) {
+    return (
+      <div className="min-h-screen bg-black text-white flex flex-col items-center justify-center p-6 text-center">
+        <h2 className="text-3xl font-bold mb-4 text-blue-500">Become a Partner</h2>
+        <p className="text-gray-400 mb-8 max-w-sm">
+          You're almost there! Enter your business name below to generate your unique referral link.
+        </p>
+        
+        {/* Pass the logged-in user's ID to the form */}
+        <PartnerRegistrationForm userId={user.id} />
+      </div>
+    );
+  }
 
   // 5. Fetch their Referrals for the list
   const { data: referrals } = await supabase
