@@ -147,7 +147,7 @@ export default function WidgetClient() {
         {bot?.name || "AI Assistant"}
       </div>
 
-      <div style={{ flex: 1, padding: 12, overflowY: "auto", background: "#f3f4f6" }}>
+      <div style={{ flex: 1, padding: 12, overflowY: "auto", background: "#000000" }}>
         {messages.map((msg, index) => (
           <div key={index} style={{ marginBottom: 10, textAlign: msg.role === "user" ? "right" : "left" }}>
             <div style={{ display: "inline-block", padding: "8px 12px", borderRadius: 8, background: msg.role === "user" ? "#2563eb" : "#111827", color: "#fff", maxWidth: "75%" }}>
