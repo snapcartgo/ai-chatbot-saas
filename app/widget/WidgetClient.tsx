@@ -120,8 +120,8 @@ export default function WidgetClient() {
             <div
               style={{
                 display: "inline-block",
-                background: msg.role === "user" ? "#2563eb" : "#111827",
-                color: "#fff",
+                background: msg.role === "user" ? "#2563eb" : "#ffffff",
+                color: msg.role === "user" ? "#ffffff" : "#000000",
                 padding: 8,
                 borderRadius: 6,
                 marginBottom: 8
