@@ -1,20 +1,23 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
 import ChatWidget from "./components/ChatWidget";
 
 export default function HomeClient() {
-  const searchParams = useSearchParams();
-  const ref = searchParams.get("ref");
+  const [ref, setRef] = useState<string | null>(null);
 
+  // ✅ SAFE: runs only in browser
   useEffect(() => {
-    if (ref) {
-      console.log("Referral detected and saved:", ref);
-      localStorage.setItem("referral", ref);
+    const params = new URLSearchParams(window.location.search);
+    const refValue = params.get("ref");
+
+    if (refValue) {
+      console.log("Referral detected and saved:", refValue);
+      localStorage.setItem("referral", refValue);
+      setRef(refValue);
     }
-  }, [ref]);
+  }, []);
 
   return (
     <main className="min-h-screen bg-gray-950 text-white">
