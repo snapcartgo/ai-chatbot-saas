@@ -14,7 +14,7 @@ export default function ChatWidget({ chatbotId, isEmbed = false }: ChatWidgetPro
   const [userInput, setUserInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   // If it's an embed, we want it open by default
-  const [open, setOpen] = useState(isEmbed); 
+  const [open, setOpen] = useState(true); // Always open by default for the embed page
 
   // Use the prop chatbotId, or fall back to your test ID if none provided
   const activeBotId = chatbotId || "f7b1a0c1-f55f-4bbc-8a27-d08b6076c3ea";

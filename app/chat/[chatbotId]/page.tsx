@@ -1,11 +1,11 @@
-import ChatWidget from "@/app/components/ChatWidget"; // Adjust this path to your actual chat component
+import ChatWidget from "@/app/components/ChatWidget";
 
 export default async function ChatEmbed({ params }: { params: { chatbotId: string } }) {
   const { chatbotId } = await params;
 
   return (
-    // This div forces the chat to fill the entire browser window/iframe
-    <main className="w-screen h-screen bg-white">
+    // 'fixed inset-0' ensures it fills the iframe perfectly without gaps
+    <main className="fixed inset-0 bg-white overflow-hidden">
       <ChatWidget chatbotId={chatbotId} isEmbed={true} />
     </main>
   );
