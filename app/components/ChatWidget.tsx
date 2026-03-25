@@ -22,21 +22,27 @@ export default function ChatWidget({ chatbotId, isEmbed = false }: ChatWidgetPro
 
   // LOAD WELCOME MESSAGE
   useEffect(() => {
-    const loadBot = async () => {
-      const { data } = await supabase
+  const loadBot = async () => {
+    try {
+      const { data, error } = await supabase
         .from("chatbots")
         .select("welcome_message")
-        .eq("id", activeBotId) // USE DYNAMIC ID
+        .eq("id", activeBotId)
         .single();
+
+      if (error) throw error;
 
       if (data?.welcome_message) {
         setMessages([{ role: "assistant", content: data.welcome_message }]);
-      } else {
-        setMessages([{ role: "assistant", content: "Hello 👋 How can I help you today?" }]);
       }
-    };
-    loadBot();
-  }, [activeBotId]);
+    } catch (err) {
+      console.error("Supabase error:", err);
+      // Fallback so the user sees SOMETHING
+      setMessages([{ role: "assistant", content: "Hello 👋 How can I help you today?" }]);
+    }
+  };
+  loadBot();
+}, [activeBotId]);
 
   // ... rest of your handleSendMessage logic (ensure you use activeBotId there too!)
 
