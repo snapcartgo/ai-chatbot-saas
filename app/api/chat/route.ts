@@ -10,105 +10,60 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
 
-    // Destructure all possible fields from the frontend request
-    const {
-      message,
-      conversation_id,
-      bot_id,       // Field from your current API logic
-      chatbotId,    // Field being sent by ChatWidget.tsx
-      user_id,
-      category,
-      product_name,
-      price,
-      email
-    } = body;
+    // Mapping: We pull every possible name for these IDs
+    const message = body.message;
+    const bot_id = body.bot_id || body.chatbotId || body.activeBotId;
+    const conversation_id = body.conversation_id || body.sessionId;
+    const category = body.category || "general"; // Default to general if missing
+    
+    // Optional e-commerce/booking fields
+    const { user_id, product_name, price, email } = body;
 
-    // Use whichever bot ID is available
-    const activeBotId = bot_id || chatbotId;
-
-    // 1. Check for required fields - this fixes your 400 error
-    if (!message || !activeBotId) {
-      console.error("Validation failed. Received:", { message, activeBotId });
+    // CRITICAL: If these are missing, n8n won't trigger correctly
+    if (!message || !bot_id) {
       return NextResponse.json(
-        { reply: "Missing required fields (message or bot_id)." },
+        { reply: "Error: Message or Bot ID is missing in the request." },
         { status: 400, headers: { "Access-Control-Allow-Origin": "*" } }
       );
     }
 
     const webhookUrl = process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL;
 
-    if (!webhookUrl) {
-      return NextResponse.json(
-        { reply: "Webhook URL not configured in environment variables." },
-        { status: 500, headers: { "Access-Control-Allow-Origin": "*" } }
-      );
-    }
-
-    // 2. Send data to n8n
-    const webhookResponse = await fetch(webhookUrl, {
+    // Trigger n8n with the exact keys your workflow expects
+    const webhookResponse = await fetch(webhookUrl!, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         message,
+        bot_id,
         conversation_id,
-        bot_id: activeBotId,
-        user_id,
         category
       }),
     });
 
-    if (!webhookResponse.ok) {
-        throw new Error(`n8n responded with status: ${webhookResponse.status}`);
-    }
-
     const data = await webhookResponse.json();
 
+    // Logic for E-commerce / Booking
     let paymentLink = data.payment_link || null;
-
-    // 3. Create pending order if n8n returns payment info
     if (paymentLink && product_name && price) {
-      const cleanLink = paymentLink.replace(/[.]+$/, "");
-      
-      const { error } = await supabase
-        .from("orders")
-        .insert({
-          user_id: user_id || null,
-          bot_id: activeBotId,
-          product_name: product_name,
-          price: price,
-          payment_status: "pending",
-          customer_email: email || null
-        });
-
-      if (error) console.error("Supabase Order Insert Error:", error);
-      paymentLink = cleanLink;
+      await supabase.from("orders").insert({
+        user_id,
+        bot_id,
+        product_name,
+        price,
+        payment_status: "pending",
+        customer_email: email
+      });
     }
 
-    // 4. Final Success Response with CORS headers
     return NextResponse.json(
-      {
-        reply: data.reply || data.output || "I'm not sure how to respond to that.",
-        payment_link: paymentLink
-      },
-      {
-        status: 200,
-        headers: {
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Headers": "Content-Type",
-          "Access-Control-Allow-Methods": "POST, OPTIONS",
-        },
-      }
+      { reply: data.reply || data.output, payment_link: paymentLink },
+      { headers: { "Access-Control-Allow-Origin": "*" } }
     );
 
-  } catch (error: any) {
-    console.error("API Route Error:", error.message);
-    return NextResponse.json(
-      { reply: "The chat service is temporarily unavailable." },
-      {
-        status: 500,
-        headers: { "Access-Control-Allow-Origin": "*" },
-      }
-    );
+  } catch (error) {
+    console.error("Webhook Error:", error);
+    return NextResponse.json({ reply: "Connection error." }, { status: 500 });
   }
 }
 
