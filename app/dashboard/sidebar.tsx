@@ -44,10 +44,7 @@ export default function Sidebar() {
           Billing
         </a>
 
-        <a href="/partner-dashboard" className="block px-4 py-3">
-          Partner Dashboard
-        </a>
-
+        
       </div>
 
       {/* Bottom Logout */}

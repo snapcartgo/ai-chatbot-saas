@@ -1,6 +1,7 @@
 import "./globals.css";
 import type { Metadata, Viewport } from "next";
 import Footer from "./components/Footer";
+import Header from "./components/Header"; // 1. Import Header
 
 export const metadata: Metadata = {
   title: "AI Chatbot SaaS",
@@ -25,14 +26,20 @@ export default function RootLayout({
           margin: 0,
           padding: 0,
           fontFamily: "Arial, sans-serif",
-          backgroundColor: "#000000", // Changed to Black for your Dark UI
+          backgroundColor: "#000000",
           color: "#ffffff",
+          display: "flex",
+          flexDirection: "column",
+          minHeight: "100vh", // Ensures footer stays at bottom if content is short
         }}
       >
-        {/* The main content of your site */}
-        <main>{children}</main>
+        {/* 2. Header stays at the top */}
+        <Header />
 
-        {/* 2. The Footer will now show on every page */}
+        {/* 3. Main content fills the space */}
+        <main style={{ flex: 1 }}>{children}</main>
+
+        {/* 4. Footer stays at the bottom */}
         <Footer />
       </body>
     </html>
