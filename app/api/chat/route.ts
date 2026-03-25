@@ -8,22 +8,30 @@ const supabase = createClient(
 
 export async function POST(req: Request) {
   try {
+    const body = await req.json();
 
+    // Destructure all possible fields from the frontend request
     const {
       message,
       conversation_id,
-      bot_id,
+      bot_id,       // Field from your current API logic
+      chatbotId,    // Field being sent by ChatWidget.tsx
       user_id,
       category,
       product_name,
       price,
       email
-    } = await req.json();
+    } = body;
 
-    if (!message || !bot_id) {
+    // Use whichever bot ID is available
+    const activeBotId = bot_id || chatbotId;
+
+    // 1. Check for required fields - this fixes your 400 error
+    if (!message || !activeBotId) {
+      console.error("Validation failed. Received:", { message, activeBotId });
       return NextResponse.json(
-        { reply: "Missing required fields." },
-        { status: 400 }
+        { reply: "Missing required fields (message or bot_id)." },
+        { status: 400, headers: { "Access-Control-Allow-Origin": "*" } }
       );
     }
 
@@ -31,59 +39,59 @@ export async function POST(req: Request) {
 
     if (!webhookUrl) {
       return NextResponse.json(
-        { reply: "Webhook URL not configured." },
-        { status: 500 }
+        { reply: "Webhook URL not configured in environment variables." },
+        { status: 500, headers: { "Access-Control-Allow-Origin": "*" } }
       );
     }
 
-    // Send message to n8n
+    // 2. Send data to n8n
     const webhookResponse = await fetch(webhookUrl, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         message,
         conversation_id,
-        bot_id,
+        bot_id: activeBotId,
         user_id,
         category
       }),
     });
 
+    if (!webhookResponse.ok) {
+        throw new Error(`n8n responded with status: ${webhookResponse.status}`);
+    }
+
     const data = await webhookResponse.json();
 
     let paymentLink = data.payment_link || null;
 
-    // If n8n sends payment link → create pending order
+    // 3. Create pending order if n8n returns payment info
     if (paymentLink && product_name && price) {
-
       const cleanLink = paymentLink.replace(/[.]+$/, "");
-
+      
       const { error } = await supabase
         .from("orders")
         .insert({
-          user_id: user_id,
-          bot_id: bot_id,
+          user_id: user_id || null,
+          bot_id: activeBotId,
           product_name: product_name,
           price: price,
           payment_status: "pending",
-          customer_email: email
+          customer_email: email || null
         });
 
-      if (error) {
-        console.error("Order insert error:", error);
-      }
-
+      if (error) console.error("Supabase Order Insert Error:", error);
       paymentLink = cleanLink;
     }
 
+    // 4. Final Success Response with CORS headers
     return NextResponse.json(
       {
-        reply: data.reply,
+        reply: data.reply || data.output || "I'm not sure how to respond to that.",
         payment_link: paymentLink
       },
       {
+        status: 200,
         headers: {
           "Access-Control-Allow-Origin": "*",
           "Access-Control-Allow-Headers": "Content-Type",
@@ -92,17 +100,13 @@ export async function POST(req: Request) {
       }
     );
 
-  } catch (error) {
-
-    console.error("Webhook error:", error);
-
+  } catch (error: any) {
+    console.error("API Route Error:", error.message);
     return NextResponse.json(
-      { reply: "Webhook failed." },
+      { reply: "The chat service is temporarily unavailable." },
       {
         status: 500,
-        headers: {
-          "Access-Control-Allow-Origin": "*",
-        },
+        headers: { "Access-Control-Allow-Origin": "*" },
       }
     );
   }

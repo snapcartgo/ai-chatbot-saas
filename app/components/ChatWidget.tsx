@@ -58,11 +58,15 @@ export default function ChatWidget({ chatbotId, isEmbed = false }: ChatWidgetPro
 
     try {
       // Replace this URL with your actual AI API endpoint
-      const response = await fetch("https://ai-chatbot-saas-five.vercel.app/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: userInput, botId: activeBotId }),
-      });
+     const response = await fetch("https://ai-chatbot-saas-five.vercel.app/api/chat", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ 
+    message: userInput, 
+    chatbotId: activeBotId, // Ensure this matches what your API expects
+    type: "text" 
+  }),
+});
       const data = await response.json();
       setMessages([...newMessages, { role: "assistant", content: data.reply }]);
     } catch (error) {
