@@ -22,159 +22,126 @@ export default function WidgetClient() {
 
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // 1. Initialize Bot & Conversation
   useEffect(() => {
     const init = async () => {
       if (!botId) { setLoading(false); return; }
 
       try {
-        const { data: botData } = await supabase.from("chatbots").select("*").eq("id", botId).single();
+        const { data: botData } = await supabase
+          .from("chatbots")
+          .select("*")
+          .eq("id", botId)
+          .single();
+
         if (botData) setBot(botData);
 
         let storedId = localStorage.getItem(`chat_conv_${botId}`);
+
         if (!storedId) {
-          const { data } = await supabase.from("conversations")
-            .insert([{ chatbot_id: botId, visitor_id: crypto.randomUUID() }])
-            .select().single();
+          const { data } = await supabase
+            .from("conversations")
+            .insert([
+              { chatbot_id: botId, visitor_id: crypto.randomUUID() }
+            ])
+            .select()
+            .single();
+
           if (data) {
             storedId = data.id;
             localStorage.setItem(`chat_conv_${botId}`, data.id);
           }
         }
+
         setConversationId(storedId);
-        setMessages([{ role: "assistant", content: botData?.welcome_message || "Hello!" }]);
+
+        setMessages([
+          {
+            role: "assistant",
+            content: botData?.welcome_message || "Hello!"
+          }
+        ]);
+
       } catch (err) {
         console.error("Init Error:", err);
       } finally {
         setLoading(false);
       }
     };
+
     init();
   }, [botId]);
 
-  // 2. Lead Capture (Requires "Unique" constraint on conversation_id in Supabase)
-  const captureLead = async (text: string) => {
-    const phoneRegex = /(\+?\d{1,4}[\s-]?)?(\(?\d{3}\)?[\s-]?)?[\d\s-]{7,10}/g;
-    const foundPhone = text.match(phoneRegex);
-
-    if (foundPhone && conversationId) {
-      const { error } = await supabase
-        .from("leads")
-        .upsert({ 
-          phone: foundPhone[0],
-          chatbot_id: botId,
-          conversation_id: conversationId,
-          name: "Chat Lead"
-        }, { onConflict: 'conversation_id' });
-
-      if (error) console.error("Lead Save Error:", error.message);
-    }
-  };
-
-  // 3. Order Handler (Ensure your API uses table "order" singular)
-  const handleBuyClick = async (e: React.MouseEvent, url: string) => {
-    e.preventDefault();
-    try {
-      await fetch("/api/create-order", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          bot_id: botId,
-          conversation_id: conversationId,
-          product_name: "Google Maps Scraper",
-          price: 29,
-          lead_id: conversationId // Renamed from 'laed_id'
-        }),
-      });
-    } catch (err) { console.error("Order failed:", err); }
-    window.open(url, "_blank");
-  };
-
-  // 4. Send Message
   const sendMessage = async () => {
     if (!input.trim() || sending) return;
+
     const userMsg = input.trim();
     setSending(true);
     setInput("");
+
     setMessages(prev => [...prev, { role: "user", content: userMsg }]);
 
-    await captureLead(userMsg);
-
     try {
-      const res = await fetch("https://ai-chatbot-saas-five.vercel.app/api/chat", {
+      const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: userMsg,
           conversation_id: conversationId,
-          bot_id: botId,
-          category: bot?.category || "booking"
+          bot_id: botId
         })
       });
+
       const data = await res.json();
-      setMessages(prev => [...prev, { role: "assistant", content: data.reply || "..." }]);
-    } catch (err) { console.error("Chat Error:", err); }
+
+      setMessages(prev => [
+        ...prev,
+        { role: "assistant", content: data.reply || "..." }
+      ]);
+
+    } catch (err) {
+      console.error("Chat Error:", err);
+    }
+
     setSending(false);
-  };
-
-  /* ... Render Helpers (renderMessage, etc) and JSX Return ... */
-    const renderMessage = (text: string) => {
-    const urlRegex = /(https?:\/\/[^\s]+)/g;
-    const parts = text.split(urlRegex);
-
-    return parts.map((part, index) => {
-      if (part.match(urlRegex)) {
-        const cleanUrl = part.replace(/[()\[\]]/g, "");
-        return (
-          <span
-            key={index}
-            onClick={(e) => handleBuyClick(e, cleanUrl)}
-            style={{ color: "#60a5fa", textDecoration: "underline", cursor: "pointer" }}
-          >
-            {cleanUrl}
-          </span>
-        );
-      }
-      return part;
-    });
   };
 
   if (loading) return <div style={{ padding: 20 }}>Loading chatbot...</div>;
 
   return (
-    <div style={{ width: "100%", height: "520px", display: "flex", flexDirection: "column", background: "#fff", fontFamily: "Arial" }}>
-      <div style={{ background: "#2563eb", color: "#fff", padding: "12px", fontWeight: 600 }}>
+    <div style={{ height: "500px", display: "flex", flexDirection: "column" }}>
+      
+      <div style={{ padding: 10, background: "#2563eb", color: "#fff" }}>
         {bot?.name || "AI Assistant"}
       </div>
 
-      <div style={{ flex: 1, padding: 12, overflowY: "auto", background: "#f3f4f6" }}>
-        {messages.map((msg, index) => (
-          <div key={index} style={{ marginBottom: 10, textAlign: msg.role === "user" ? "right" : "left" }}>
-            <div style={{ display: "inline-block", padding: "8px 12px", borderRadius: 8, background: msg.role === "user" ? "#2563eb" : "#111827", color: "#fff", maxWidth: "75%" }}>
-              {renderMessage(msg.content)}
+      <div style={{ flex: 1, overflowY: "auto", padding: 10 }}>
+        {messages.map((msg, i) => (
+          <div key={i} style={{ textAlign: msg.role === "user" ? "right" : "left" }}>
+            <div
+              style={{
+                display: "inline-block",
+                background: msg.role === "user" ? "#2563eb" : "#111827",
+                color: "#fff",
+                padding: 8,
+                borderRadius: 6,
+                marginBottom: 8
+              }}
+            >
+              {msg.content}
             </div>
           </div>
         ))}
-        <div ref={bottomRef} />
       </div>
 
-      <div style={{ borderTop: "1px solid #e5e7eb", padding: 10 }}>
-        <div style={{ display: "flex" }}>
-          <input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Type your message..."
-            style={{ flex: 1, padding: 10, borderRadius: 6, border: "1px solid #ccc" }}
-            onKeyDown={(e) => e.key === "Enter" && sendMessage()}
-          />
-          <button
-            onClick={sendMessage}
-            disabled={sending}
-            style={{ marginLeft: 8, padding: "8px 14px", background: "#2563eb", color: "#fff", border: "none", borderRadius: 6 }}
-          >
-            {sending ? "..." : "Send"}
-          </button>
-        </div>
+      <div style={{ display: "flex", padding: 10 }}>
+        <input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          style={{ flex: 1 }}
+        />
+        <button onClick={sendMessage}>
+          Send
+        </button>
       </div>
     </div>
   );
