@@ -14,35 +14,7 @@ export default function ChatWidget({ chatbotId, isEmbed = false }: ChatWidgetPro
   const [userInput, setUserInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   // If it's an embed, we want it open by default
-  const [open, setOpen] = useState(true); // Always open by default for the embed page
-
-  // Use the prop chatbotId, or fall back to your test ID if none provided
-  const activeBotId = chatbotId || "f7b1a0c1-f55f-4bbc-8a27-d08b6076c3ea";
-  const sessionId = "session_test_new";
-
-  // LOAD WELCOME MESSAGE
-  useEffect(() => {
-  const loadBot = async () => {
-    try {
-      const { data, error } = await supabase
-        .from("chatbots")
-        .select("welcome_message")
-        .eq("id", activeBotId)
-        .single();
-
-      if (error) throw error;
-
-      if (data?.welcome_message) {
-        setMessages([{ role: "assistant", content: data.welcome_message }]);
-      }
-    } catch (err) {
-      console.error("Supabase error:", err);
-      // Fallback so the user sees SOMETHING
-      setMessages([{ role: "assistant", content: "Hello 👋 How can I help you today?" }]);
-    }
-  };
-  loadBot();
-}, [activeBotId]);
+  const [open, setOpen] = useState(true);
 
   // ... rest of your handleSendMessage logic (ensure you use activeBotId there too!)
 
