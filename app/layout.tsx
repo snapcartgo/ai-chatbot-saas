@@ -1,7 +1,6 @@
+// app/layout.tsx
 import "./globals.css";
 import type { Metadata, Viewport } from "next";
-import Footer from "./components/Footer";
-import Header from "./components/Header"; // 1. Import Header
 
 export const metadata: Metadata = {
   title: "AI Chatbot SaaS",
@@ -30,17 +29,11 @@ export default function RootLayout({
           color: "#ffffff",
           display: "flex",
           flexDirection: "column",
-          minHeight: "100vh", // Ensures footer stays at bottom if content is short
+          minHeight: "100vh",
         }}
       >
-        {/* 2. Header stays at the top */}
-        <Header />
-
-        {/* 3. Main content fills the space */}
+        {/* Header and Footer REMOVED from here */}
         <main style={{ flex: 1 }}>{children}</main>
-
-        {/* 4. Footer stays at the bottom */}
-        <Footer />
       </body>
     </html>
   );

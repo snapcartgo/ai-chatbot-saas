@@ -54,7 +54,8 @@ fetch(`https://ai-chatbot-saas-five.vercel.app/api/verify-domain?botId=${botId}&
     // CHAT WINDOW
     const iframe = document.createElement("iframe");
 
-    iframe.src = `https://ai-chatbot-saas-five.vercel.app/widget?botId=${botId}`;
+    // New way - points to the "clean" chat route we created
+    iframe.src = `https://ai-chatbot-saas-five.vercel.app/chat/${botId}`;
 
     iframe.style.position = "fixed";
     iframe.style.bottom = "90px";
