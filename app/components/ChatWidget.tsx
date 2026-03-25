@@ -49,32 +49,52 @@ export default function ChatWidget({ chatbotId, isEmbed = false }: ChatWidgetPro
   }, [messages]);
 
   const handleSendMessage = async () => {
-    if (!userInput.trim()) return;
+  if (!userInput.trim()) return;
 
-    const newMessages = [...messages, { role: "user", content: userInput }];
-    setMessages(newMessages);
-    setUserInput("");
-    setIsLoading(true);
-
-    try {
-      // Replace this URL with your actual AI API endpoint
-     const response = await fetch("https://ai-chatbot-saas-five.vercel.app/api/chat", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ 
-    message: userInput, 
-    chatbotId: activeBotId, // Ensure this matches what your API expects
-    type: "text" 
-  }),
-});
-      const data = await response.json();
-      setMessages([...newMessages, { role: "assistant", content: data.reply }]);
-    } catch (error) {
-      setMessages([...newMessages, { role: "assistant", content: "Sorry, I'm having trouble connecting." }]);
-    } finally {
-      setIsLoading(false);
-    }
+  const currentInput = userInput;
+  // 1. Create the data payload with the exact names your API wants
+  const payload = {
+    message: currentInput,
+    bot_id: activeBotId,
+    conversation_id: "session_" + activeBotId, // Unique ID for n8n to track the chat
+    category: "ecommerce", // Or "booking" depending on your bot's purpose
   };
+
+  const newMessages = [...messages, { role: "user", content: currentInput }];
+  setMessages(newMessages);
+  setUserInput("");
+  setIsLoading(true); // This starts the "circle" (spinner)
+
+  try {
+    const response = await fetch("https://ai-chatbot-saas-five.vercel.app/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await response.json();
+
+    // 2. Check if the API returned an error
+    if (!response.ok) {
+      throw new Error(data.reply || "Server Error");
+    }
+
+    // 3. Add the AI reply to the screen
+    setMessages([
+      ...newMessages, 
+      { role: "assistant", content: data.reply || "I received your message but have no response." }
+    ]);
+
+  } catch (error) {
+    console.error("Chat Error:", error);
+    setMessages([
+      ...newMessages, 
+      { role: "assistant", content: "Connection lost. Please try again." }
+    ]);
+  } finally {
+    setIsLoading(false); // This STOPS the "circle" (spinner)
+  }
+};
 
   return (
     <div className={isEmbed ? "w-full h-full font-sans" : "fixed bottom-6 right-6 z-50 font-sans"}>
