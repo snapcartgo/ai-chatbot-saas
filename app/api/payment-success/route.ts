@@ -8,63 +8,97 @@ const supabase = createClient(
 
 export async function POST(req: Request) {
   try {
-    // ✅ Get data from frontend (NOT formData anymore)
-    const body = await req.json();
+    // ✅ PayU sends formData (IMPORTANT)
+    const formData = await req.formData();
 
-    const uid = body.uid;              // 🔥 USER ID (MAIN FIX)
-    const planPrice = Number(body.amount || 0);
+    const status = formData.get('status');
+    const email = (formData.get('email') || formData.get('udf1') || "")
+      .toString()
+      .toLowerCase()
+      .trim();
 
-    console.log("UID received:", uid);
-    console.log("Plan Price:", planPrice);
+    const amount = Number(formData.get('amount') || 0);
+    const plan = (formData.get('udf2') || "growth").toString(); // plan name
 
-    if (!uid) {
-      throw new Error("UID missing");
+    console.log("Status:", status);
+    console.log("Email:", email);
+    console.log("Amount:", amount);
+    console.log("Plan:", plan);
+
+    if (status !== "success") {
+      return NextResponse.json({ success: false });
     }
 
-    // 1. Calculate commission
-    let commission = 0;
-    let statusText = "free";
+    // ----------------------------------
+    // ✅ STEP 1: GET USER FROM PROFILES
+    // ----------------------------------
+    const { data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select("id")
+      .eq("email", email)
+      .single();
 
-    if (planPrice > 0) {
-      const commissionPercent = 20;
-      commission = (planPrice * commissionPercent) / 100;
-      statusText = "completed";
+    if (profileError || !profile) {
+      console.error("Profile not found ❌");
+      return NextResponse.json({ success: false });
     }
 
-    // 2. Check referral
-    const { data: refCheck, error: checkError } = await supabase
-      .from('referrals')
-      .select('*')
-      .eq('referred_user_id', uid)
+    const uid = profile.id;
+
+    console.log("UID:", uid);
+
+    // ----------------------------------
+    // ✅ STEP 2: UPDATE SUBSCRIPTIONS
+    // ----------------------------------
+    const { error: subError } = await supabase
+      .from("subscriptions")
+      .update({
+        amount: amount,
+        status: "active",
+      })
+      .match({
+        user_id: uid,
+        plan: plan, // 🔥 IMPORTANT
+      });
+
+    if (subError) {
+      console.error("Subscription Error:", subError.message);
+    } else {
+      console.log("Subscription updated ✅");
+    }
+
+    // ----------------------------------
+    // ✅ STEP 3: UPDATE REFERRALS
+    // ----------------------------------
+    const commission = amount * 0.2;
+
+    const { data: refCheck } = await supabase
+      .from("referrals")
+      .select("*")
+      .eq("referred_user_id", uid)
       .maybeSingle();
 
-    console.log("Referral Found:", refCheck);
-
-    if (checkError) {
-      console.error("Check Error:", checkError.message);
-    }
-
     if (refCheck) {
-      // 3. Update referral
       const { error: refError } = await supabase
-        .from('referrals')
+        .from("referrals")
         .update({
-          amount: planPrice,
+          amount: amount,
           commission_amount: commission,
-          payment_status: planPrice > 0 ? 'paid' : 'free',
-          status: statusText,
+          payment_status: "paid",
+          status: "completed",
         })
-        .eq('referred_user_id', uid);
+        .eq("referred_user_id", uid);
 
       if (refError) {
-        console.error("Referral Update Error:", refError.message);
+        console.error("Referral Error:", refError.message);
       } else {
-        console.log("Referral updated successfully ✅");
+        console.log("Referral updated ✅");
       }
-    } else {
-      console.log("No referral found for this user ❌");
     }
 
+    // ----------------------------------
+    // ✅ RESPONSE
+    // ----------------------------------
     return NextResponse.json({ success: true });
 
   } catch (err) {
