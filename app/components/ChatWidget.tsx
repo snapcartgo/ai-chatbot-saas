@@ -3,21 +3,30 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 
-export default function ChatWidget() {
+// ADD THIS TYPE DEFINITION
+interface ChatWidgetProps {
+  chatbotId?: string;
+  isEmbed?: boolean; // New prop to handle the "fullscreen" embed mode
+}
+
+export default function ChatWidget({ chatbotId, isEmbed = false }: ChatWidgetProps) {
   const [messages, setMessages] = useState<{ role: string; content: string }[]>([]);
   const [userInput, setUserInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [open, setOpen] = useState(false);
+  // If it's an embed, we want it open by default
+  const [open, setOpen] = useState(isEmbed); 
 
+  // Use the prop chatbotId, or fall back to your test ID if none provided
+  const activeBotId = chatbotId || "f7b1a0c1-f55f-4bbc-8a27-d08b6076c3ea";
   const sessionId = "session_test_new";
 
-  // LOAD WELCOME MESSAGE FROM SUPABASE
+  // LOAD WELCOME MESSAGE
   useEffect(() => {
     const loadBot = async () => {
       const { data } = await supabase
         .from("chatbots")
         .select("welcome_message")
-        .eq("id", "f7b1a0c1-f55f-4bbc-8a27-d08b6076c3ea")
+        .eq("id", activeBotId) // USE DYNAMIC ID
         .single();
 
       if (data?.welcome_message) {
@@ -27,177 +36,40 @@ export default function ChatWidget() {
       }
     };
     loadBot();
-  }, []);
+  }, [activeBotId]);
 
-  // REALTIME LISTENER
-  useEffect(() => {
-    const channel = supabase
-      .channel("schema-db-changes")
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "messages",
-          filter: `conversation_id=eq.${sessionId}`,
-        },
-        (payload) => {
-          if (payload.new.role === "assistant") {
-            setMessages((prev) => [...prev, { role: "assistant", content: payload.new.content }]);
-            setIsLoading(false);
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, []);
-
-  const handleSendMessage = async () => {
-    if (!userInput.trim()) return;
-
-    const userMsg = { role: "user", content: userInput };
-    setMessages((prev) => [...prev, userMsg]);
-    const currentInput = userInput;
-    setUserInput("");
-    setIsLoading(true);
-
-    try {
-      // 1. Send to n8n Webhook
-      const response = await fetch(process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL!, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: currentInput,
-          conversation_id: sessionId,
-          bot_id: "f7b1a0c1-f55f-4bbc-8a27-d08b6076c3ea",
-          user_id: "36f39a53-c183-43b3-9923-e7019d176f43",
-        }),
-      });
-
-      const data = await response.json();
-
-      if (data.content) {
-        setMessages((prev) => [...prev, { role: "assistant", content: data.content }]);
-
-        // 2. DETECT PAYMENT LINK AND TRIGGER ORDER CREATION
-        // Inside handleSendMessage in components/ChatWidget.tsx
-if (data.content.includes("u.payu.in")) {
-    console.log("Payment link detected. Updating orders table...");
-    
-    const orderPayload = {
-        user_id: "36f39a53-c183-43b3-9923-e7019d176f43", // Must match a real UUID in your profiles table
-        bot_id: "f7b1a0c1-f55f-4bbc-8a27-d08b6076c3ea",  // Must match a real UUID in your chatbots table
-        product_name: "Google Maps Business Intelligence Scraper",
-        price: 29, // Sent as a number for the 'numeric' column
-        customer_email: "shubhm@gmail.com",
-        payment_status: "pending"
-        // lead_id is OMITTED so it doesn't cause a 400 error by being an empty string
-    };
-
-    const orderResponse = await fetch("/api/create-order", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(orderPayload)
-    });
-
-    const orderResult = await orderResponse.json();
-    if (orderResult.success) {
-        console.log("Order Table Updated Successfully!");
-    } else {
-        // This will print the exact database error in your browser console
-        console.error("Supabase Error Details:", orderResult.error);
-    }
-}
-      }
-    } catch (error) {
-      console.error("Chat Error:", error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  // ... rest of your handleSendMessage logic (ensure you use activeBotId there too!)
 
   return (
-    <div className="fixed bottom-6 right-6 z-50 font-sans">
+    // If isEmbed is true, we remove fixed positioning and the floating button
+    <div className={isEmbed ? "w-full h-full font-sans" : "fixed bottom-6 right-6 z-50 font-sans"}>
+      
       {/* CHAT WINDOW */}
       {open && (
-        <div className="w-[360px] h-[520px] bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden mb-3 border">
-          {/* HEADER */}
+        <div className={isEmbed 
+          ? "w-full h-full bg-white flex flex-col overflow-hidden" 
+          : "w-[360px] h-[520px] bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden mb-3 border"
+        }>
+          {/* HEADER (Keep your existing header code here) */}
           <div className="bg-blue-600 text-white p-4 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 bg-white rounded-full flex items-center justify-center text-blue-600 font-bold">
-                AI
-              </div>
-              <div>
-                <div className="font-semibold text-sm">Booking Assistant</div>
-                <div className="text-xs text-blue-200">Online</div>
-              </div>
-            </div>
-            <button onClick={() => setOpen(false)} className="text-white text-lg">
-              ✖
-            </button>
+             {/* ... header content ... */}
+             {!isEmbed && <button onClick={() => setOpen(false)}>✖</button>}
           </div>
 
-          {/* MESSAGES */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50">
-            {messages.map((msg, i) => (
-              <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                <div
-                  className={`max-w-[80%] px-4 py-3 rounded-2xl text-sm shadow ${
-                    msg.role === "user"
-                      ? "bg-blue-600 text-white rounded-tr-none"
-                      : "bg-gray-100 text-black border rounded-tl-none"
-                  }`}
-                >
-                  {msg.content}
-                </div>
-              </div>
-            ))}
-            {isLoading && (
-              <div className="flex justify-start">
-                <div className="bg-gray-200 text-gray-600 px-4 py-2 rounded-xl animate-pulse">
-                  AI is typing...
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* INPUT AREA */}
-          <div className="border-t bg-white">
-            <div className="p-3 flex gap-2">
-              <input
-                className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-black text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="Ask something..."
-                value={userInput}
-                onChange={(e) => setUserInput(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
-              />
-              <button
-                onClick={handleSendMessage}
-                className="bg-blue-600 text-white px-4 rounded-lg hover:bg-blue-700 transition"
-              >
-                Send
-              </button>
-            </div>
-            <div className="text-center text-xs text-gray-400 pb-2">
-              Powered by{" "}
-              <a href="https://woodpetra.com" target="_blank" className="text-blue-600 font-semibold">
-                Woodpetra
-              </a>
-            </div>
-          </div>
+          {/* MESSAGES & INPUT (Keep your existing code here) */}
+          {/* ... */}
         </div>
       )}
 
-      {/* FLOATING BUTTON */}
-      <button
-        onClick={() => setOpen(!open)}
-        className="w-14 h-14 bg-blue-600 text-white rounded-full shadow-xl flex items-center justify-center text-xl hover:bg-blue-700 transition"
-      >
-        💬
-      </button>
+      {/* Only show floating button if NOT in embed mode */}
+      {!isEmbed && (
+        <button
+          onClick={() => setOpen(!open)}
+          className="w-14 h-14 bg-blue-600 text-white rounded-full shadow-xl flex items-center justify-center text-xl"
+        >
+          💬
+        </button>
+      )}
     </div>
   );
 }
