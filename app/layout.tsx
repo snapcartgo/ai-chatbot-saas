@@ -1,24 +1,20 @@
+"use client"; // This is required to use usePathname
+
 import "./globals.css";
-import type { Metadata, Viewport } from "next";
+import { usePathname } from "next/navigation";
 import Footer from "./components/Footer";
-import Header from "./components/Header"; // 1. Import Header
-
-export const metadata: Metadata = {
-  title: "AI Chatbot SaaS",
-  description: "AI chatbot platform for websites",
-};
-
-export const viewport: Viewport = {
-  width: "device-width",
-  initialScale: 1,
-  maximumScale: 1,
-};
+import Header from "./components/Header";
 
 export default function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const pathname = usePathname();
+  
+  // This detects if the URL is /chat/something
+  const isChatWidget = pathname.startsWith("/chat");
+
   return (
     <html lang="en">
       <body
@@ -30,17 +26,16 @@ export default function RootLayout({
           color: "#ffffff",
           display: "flex",
           flexDirection: "column",
-          minHeight: "100vh", // Ensures footer stays at bottom if content is short
+          minHeight: "100vh",
         }}
       >
-        {/* 2. Header stays at the top */}
-        <Header />
+        {/* Hide Header if it's the chatbot widget */}
+        {!isChatWidget && <Header />}
 
-        {/* 3. Main content fills the space */}
         <main style={{ flex: 1 }}>{children}</main>
 
-        {/* 4. Footer stays at the bottom */}
-        <Footer />
+        {/* Hide Footer if it's the chatbot widget */}
+        {!isChatWidget && <Footer />}
       </body>
     </html>
   );
