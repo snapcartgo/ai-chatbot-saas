@@ -1,71 +1,149 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 
-// ADD THIS TYPE DEFINITION
 interface ChatWidgetProps {
   chatbotId?: string;
-  isEmbed?: boolean; // New prop to handle the "fullscreen" embed mode
+  isEmbed?: boolean;
 }
 
 export default function ChatWidget({ chatbotId, isEmbed = false }: ChatWidgetProps) {
   const [messages, setMessages] = useState<{ role: string; content: string }[]>([]);
   const [userInput, setUserInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  // If it's an embed, we want it open by default
-  const [open, setOpen] = useState(true); // Always open by default for the embed page
+  const [botCategory, setBotCategory] = useState("Booking"); // Added category state
+  const [open, setOpen] = useState(true); 
+  const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Use the prop chatbotId, or fall back to your test ID if none provided
   const activeBotId = chatbotId || "f7b1a0c1-f55f-4bbc-8a27-d08b6076c3ea";
-  const sessionId = "session_test_new";
 
-  // LOAD WELCOME MESSAGE
   useEffect(() => {
     const loadBot = async () => {
-      const { data } = await supabase
-        .from("chatbots")
-        .select("welcome_message")
-        .eq("id", activeBotId) // USE DYNAMIC ID
-        .single();
+      try {
+        // Updated to select 'category' along with welcome message
+        const { data, error } = await supabase
+          .from("chatbots")
+          .select("welcome_message, category") 
+          .eq("id", activeBotId)
+          .single();
 
-      if (data?.welcome_message) {
-        setMessages([{ role: "assistant", content: data.welcome_message }]);
-      } else {
+        if (error) throw error;
+
+        if (data?.category) setBotCategory(data.category); // Set dynamic category
+
+        setMessages([{ 
+          role: "assistant", 
+          content: data?.welcome_message || "Hello! How can I help you today?" 
+        }]);
+      } catch (err) {
+        console.error("Load error:", err);
         setMessages([{ role: "assistant", content: "Hello 👋 How can I help you today?" }]);
       }
     };
     loadBot();
   }, [activeBotId]);
 
-  // ... rest of your handleSendMessage logic (ensure you use activeBotId there too!)
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [messages]);
+
+  const handleSendMessage = async () => {
+    if (!userInput.trim()) return;
+
+    const currentInput = userInput;
+    
+    // Payload now uses the correct dynamic variables
+    const payload = {
+      message: currentInput,
+      bot_id: activeBotId,
+      conversation_id: "session_" + activeBotId,
+      category: botCategory, 
+    };
+
+    const newMessages = [...messages, { role: "user", content: currentInput }];
+    setMessages(newMessages);
+    setUserInput("");
+    setIsLoading(true);
+
+    try {
+      const response = await fetch("https://ai-chatbot-saas-five.vercel.app/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        // This handles the "Missing required fields" 400 error
+        throw new Error(data.reply || "Server Error");
+      }
+
+      setMessages([
+        ...newMessages, 
+        { role: "assistant", content: data.reply || "I received your message but have no response." }
+      ]);
+
+    } catch (error) {
+      console.error("Chat Error:", error);
+      setMessages([
+        ...newMessages, 
+        { role: "assistant", content: "Connection lost. Please try again." }
+      ]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   return (
-    // If isEmbed is true, we remove fixed positioning and the floating button
     <div className={isEmbed ? "w-full h-full font-sans" : "fixed bottom-6 right-6 z-50 font-sans"}>
-      
-      {/* CHAT WINDOW */}
       {open && (
         <div className={isEmbed 
           ? "w-full h-full bg-white flex flex-col overflow-hidden" 
           : "w-[360px] h-[520px] bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden mb-3 border"
         }>
-          {/* HEADER (Keep your existing header code here) */}
-          <div className="bg-blue-600 text-white p-4 flex items-center justify-between">
-             {/* ... header content ... */}
-             {!isEmbed && <button onClick={() => setOpen(false)}>✖</button>}
+          <div className="bg-blue-600 text-white p-4 flex items-center justify-between shadow-md">
+            <span className="font-bold text-lg">AI Assistant</span>
+            {!isEmbed && <button onClick={() => setOpen(false)} className="text-xl">✖</button>}
           </div>
 
-          {/* MESSAGES & INPUT (Keep your existing code here) */}
-          {/* ... */}
+          <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50">
+            {messages.map((m, i) => (
+              <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+                <div className={`max-w-[80%] p-3 rounded-2xl text-sm ${
+                  m.role === "user" ? "bg-blue-600 text-white" : "bg-white text-gray-800 border shadow-sm"
+                }`}>
+                  {m.content}
+                </div>
+              </div>
+            ))}
+            {isLoading && <div className="text-xs text-gray-400 animate-pulse">Assistant is typing...</div>}
+          </div>
+
+          <div className="p-4 border-t bg-white flex gap-2">
+            <input
+              type="text"
+              value={userInput}
+              onChange={(e) => setUserInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
+              placeholder="Type your message..."
+              className="flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-black"
+            />
+            <button 
+              onClick={handleSendMessage}
+              className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition"
+            >
+              Send
+            </button>
+          </div>
         </div>
       )}
 
-      {/* Only show floating button if NOT in embed mode */}
       {!isEmbed && (
         <button
           onClick={() => setOpen(!open)}
-          className="w-14 h-14 bg-blue-600 text-white rounded-full shadow-xl flex items-center justify-center text-xl"
+          className="w-14 h-14 bg-blue-600 text-white rounded-full shadow-xl flex items-center justify-center text-2xl hover:scale-105 transition-transform"
         >
           💬
         </button>
@@ -73,4 +151,3 @@ export default function ChatWidget({ chatbotId, isEmbed = false }: ChatWidgetPro
     </div>
   );
 }
-
