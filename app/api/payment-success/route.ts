@@ -7,13 +7,11 @@ const supabase = createClient(
 );
 
 export async function POST(req: Request) {
-  // Define your frontend success/error URLs
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://ai-chatbot-saas-five.vercel.app';
   const successUrl = `${baseUrl}/dashboard?payment=success`;
   const errorUrl = `${baseUrl}/pricing?payment=failed`;
 
   try {
-    // ✅ PayU sends formData
     const formData = await req.formData();
 
     const status = formData.get('status');
@@ -24,16 +22,34 @@ export async function POST(req: Request) {
 
     const amount = Number(formData.get('amount') || 0);
     const plan = (formData.get('udf2') || "growth").toString(); 
+    const txnid = formData.get('txnid')?.toString() || ""; // Get PayU Transaction ID
 
-    console.log("Processing payment for:", email, "Status:", status);
+    console.log("Processing payment for:", email, "Status:", status, "TXNID:", txnid);
 
-    // If payment failed at PayU, send user to error page
     if (status !== "success") {
       return NextResponse.redirect(errorUrl, { status: 303 });
     }
 
     // ----------------------------------
-    // ✅ STEP 1: GET USER FROM PROFILES
+    // ✅ STEP 1: UPDATE ORDERS TABLE (The one in your screenshot)
+    // ----------------------------------
+    const { error: orderError } = await supabase
+      .from("orders")
+      .update({
+        payment_status: "paid",
+        payment_id: txnid,
+      })
+      .eq("customer_email", email)
+      .eq("payment_status", "pending"); // Only update the pending one
+
+    if (orderError) {
+      console.error("Orders Table Update Error:", orderError.message);
+    } else {
+      console.log("Orders table updated to paid ✅");
+    }
+
+    // ----------------------------------
+    // ✅ STEP 2: GET USER ID FROM PROFILES
     // ----------------------------------
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
@@ -43,14 +59,13 @@ export async function POST(req: Request) {
 
     if (profileError || !profile) {
       console.error("Profile not found ❌");
-      // Still redirect so the user isn't stuck on a white screen
-      return NextResponse.redirect(errorUrl, { status: 303 });
+      return NextResponse.redirect(successUrl, { status: 303 });
     }
 
     const uid = profile.id;
 
     // ----------------------------------
-    // ✅ STEP 2: UPDATE SUBSCRIPTIONS
+    // ✅ STEP 3: UPDATE SUBSCRIPTIONS
     // ----------------------------------
     const { error: subError } = await supabase
       .from("subscriptions")
@@ -66,7 +81,7 @@ export async function POST(req: Request) {
     if (subError) console.error("Subscription Error:", subError.message);
 
     // ----------------------------------
-    // ✅ STEP 3: UPDATE REFERRALS
+    // ✅ STEP 4: UPDATE REFERRALS
     // ----------------------------------
     const commission = amount * 0.2;
     const { data: refCheck } = await supabase
@@ -88,9 +103,8 @@ export async function POST(req: Request) {
     }
 
     // ----------------------------------
-    // ✅ FINAL STEP: REDIRECT TO UI
+    // ✅ FINAL REDIRECT
     // ----------------------------------
-    // This moves the user from the "API screen" to your actual Website UI
     return NextResponse.redirect(successUrl, { status: 303 });
 
   } catch (err) {
