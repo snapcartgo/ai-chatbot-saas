@@ -8,107 +8,78 @@ const supabase = createClient(
 
 export async function POST(req: Request) {
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://ai-chatbot-saas-five.vercel.app';
-  const successUrl = `${baseUrl}/dashboard?payment=success`;
-  const errorUrl = `${baseUrl}/pricing?payment=failed`;
-
+  
   try {
     const formData = await req.formData();
-
     const status = formData.get('status');
-    const email = (formData.get('email') || formData.get('udf1') || "")
-      .toString()
-      .toLowerCase()
-      .trim();
-
+    const txnid = formData.get('txnid')?.toString() || "";
     const amount = Number(formData.get('amount') || 0);
-    const plan = (formData.get('udf2') || "growth").toString(); 
-    const txnid = formData.get('txnid')?.toString() || ""; // Get PayU Transaction ID
+    const email = (formData.get('email') || formData.get('udf1') || "").toString().toLowerCase().trim();
+    
+    // 🔥 This is the key: udf2 tells us if it's a Plan or a Product
+    const purchaseItem = (formData.get('udf2') || "").toString().toLowerCase();
 
-    console.log("Processing payment for:", email, "Status:", status, "TXNID:", txnid);
+    console.log(`Payment for: ${email} | Item: ${purchaseItem} | Status: ${status}`);
 
     if (status !== "success") {
-      return NextResponse.redirect(errorUrl, { status: 303 });
+      return NextResponse.redirect(`${baseUrl}/dashboard?payment=failed`, { status: 303 });
     }
 
-    // ----------------------------------
-    // ✅ STEP 1: UPDATE ORDERS TABLE (The one in your screenshot)
-    // ----------------------------------
-    const { error: orderError } = await supabase
+    // ---------------------------------------------------------
+    // ✅ STEP 1: ALWAYS UPDATE THE ORDERS TABLE (For Record Keeping)
+    // ---------------------------------------------------------
+    await supabase
       .from("orders")
-      .update({
-        payment_status: "paid",
-        payment_id: txnid,
-      })
+      .update({ payment_status: "paid", payment_id: txnid })
       .eq("customer_email", email)
-      .eq("payment_status", "pending"); // Only update the pending one
+      .eq("payment_status", "pending");
 
-    if (orderError) {
-      console.error("Orders Table Update Error:", orderError.message);
+    // ---------------------------------------------------------
+    // ✅ STEP 2: LOGIC SWITCH (Plan vs Product)
+    // ---------------------------------------------------------
+    
+    // List of your SaaS plan names
+    const saasPlans = ["growth", "pro", "enterprise", "basic"];
+
+    if (saasPlans.includes(purchaseItem)) {
+      // --- THIS IS SAAS PLAN LOGIC ---
+      console.log("Processing SaaS Plan Upgrade...");
+      
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("id")
+        .eq("email", email)
+        .single();
+
+      if (profile) {
+        // Update Subscription table
+        await supabase
+          .from("subscriptions")
+          .update({ amount: amount, status: "active" })
+          .match({ user_id: profile.id, plan: purchaseItem });
+
+        // Update Referrals
+        const commission = amount * 0.2;
+        await supabase
+          .from("referrals")
+          .update({ amount, commission_amount: commission, payment_status: "paid", status: "completed" })
+          .eq("referred_user_id", profile.id);
+      }
+      
+      return NextResponse.redirect(`${baseUrl}/dashboard?payment=success&type=plan`, { status: 303 });
+
     } else {
-      console.log("Orders table updated to paid ✅");
+      // --- THIS IS ECOMMERCE PRODUCT LOGIC ---
+      console.log("Processing eCommerce Product Purchase...");
+      
+      // We already updated the 'orders' table in Step 1. 
+      // You don't need to update subscriptions here.
+      
+      return NextResponse.redirect(`${baseUrl}/dashboard?payment=success&type=order`, { status: 303 });
     }
-
-    // ----------------------------------
-    // ✅ STEP 2: GET USER ID FROM PROFILES
-    // ----------------------------------
-    const { data: profile, error: profileError } = await supabase
-      .from("profiles")
-      .select("id")
-      .eq("email", email)
-      .single();
-
-    if (profileError || !profile) {
-      console.error("Profile not found ❌");
-      return NextResponse.redirect(successUrl, { status: 303 });
-    }
-
-    const uid = profile.id;
-
-    // ----------------------------------
-    // ✅ STEP 3: UPDATE SUBSCRIPTIONS
-    // ----------------------------------
-    const { error: subError } = await supabase
-      .from("subscriptions")
-      .update({
-        amount: amount,
-        status: "active",
-      })
-      .match({
-        user_id: uid,
-        plan: plan,
-      });
-
-    if (subError) console.error("Subscription Error:", subError.message);
-
-    // ----------------------------------
-    // ✅ STEP 4: UPDATE REFERRALS
-    // ----------------------------------
-    const commission = amount * 0.2;
-    const { data: refCheck } = await supabase
-      .from("referrals")
-      .select("*")
-      .eq("referred_user_id", uid)
-      .maybeSingle();
-
-    if (refCheck) {
-      await supabase
-        .from("referrals")
-        .update({
-          amount: amount,
-          commission_amount: commission,
-          payment_status: "paid",
-          status: "completed",
-        })
-        .eq("referred_user_id", uid);
-    }
-
-    // ----------------------------------
-    // ✅ FINAL REDIRECT
-    // ----------------------------------
-    return NextResponse.redirect(successUrl, { status: 303 });
 
   } catch (err) {
-    console.error("Payment API Error:", err);
-    return NextResponse.redirect(errorUrl, { status: 303 });
+    console.error("API Error:", err);
+    return NextResponse.redirect(`${baseUrl}/dashboard?status=error`, { status: 303 });
   }
 }
