@@ -7,8 +7,13 @@ const supabase = createClient(
 );
 
 export async function POST(req: Request) {
+  // Define your frontend success/error URLs
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://ai-chatbot-saas-five.vercel.app';
+  const successUrl = `${baseUrl}/dashboard?payment=success`;
+  const errorUrl = `${baseUrl}/pricing?payment=failed`;
+
   try {
-    // ✅ PayU sends formData (IMPORTANT)
+    // ✅ PayU sends formData
     const formData = await req.formData();
 
     const status = formData.get('status');
@@ -18,37 +23,14 @@ export async function POST(req: Request) {
       .trim();
 
     const amount = Number(formData.get('amount') || 0);
-    const plan = (formData.get('udf2') || "growth").toString(); // plan name
+    const plan = (formData.get('udf2') || "growth").toString(); 
 
-    console.log("Status:", status);
-    console.log("Email:", email);
-    console.log("Amount:", amount);
-    console.log("Plan:", plan);
+    console.log("Processing payment for:", email, "Status:", status);
 
+    // If payment failed at PayU, send user to error page
     if (status !== "success") {
-      return NextResponse.json({ success: false });
+      return NextResponse.redirect(errorUrl, { status: 303 });
     }
-
-
-const orderId = formData.get("txnid"); // PayU order id
-
-console.log("Order ID:", orderId);
-
-if (orderId) {
-  const { error: orderError } = await supabase
-    .from("orders")
-    .update({
-      status: "paid",
-      payment_status: "paid",
-    })
-    .eq("order_id", orderId);
-
-  if (orderError) {
-    console.error("Order Update Error:", orderError.message);
-  } else {
-    console.log("Order marked as PAID ✅");
-  }
-}
 
     // ----------------------------------
     // ✅ STEP 1: GET USER FROM PROFILES
@@ -61,12 +43,11 @@ if (orderId) {
 
     if (profileError || !profile) {
       console.error("Profile not found ❌");
-      return NextResponse.json({ success: false });
+      // Still redirect so the user isn't stuck on a white screen
+      return NextResponse.redirect(errorUrl, { status: 303 });
     }
 
     const uid = profile.id;
-
-    console.log("UID:", uid);
 
     // ----------------------------------
     // ✅ STEP 2: UPDATE SUBSCRIPTIONS
@@ -79,20 +60,15 @@ if (orderId) {
       })
       .match({
         user_id: uid,
-        plan: plan, // 🔥 IMPORTANT
+        plan: plan,
       });
 
-    if (subError) {
-      console.error("Subscription Error:", subError.message);
-    } else {
-      console.log("Subscription updated ✅");
-    }
+    if (subError) console.error("Subscription Error:", subError.message);
 
     // ----------------------------------
     // ✅ STEP 3: UPDATE REFERRALS
     // ----------------------------------
     const commission = amount * 0.2;
-
     const { data: refCheck } = await supabase
       .from("referrals")
       .select("*")
@@ -100,7 +76,7 @@ if (orderId) {
       .maybeSingle();
 
     if (refCheck) {
-      const { error: refError } = await supabase
+      await supabase
         .from("referrals")
         .update({
           amount: amount,
@@ -109,21 +85,16 @@ if (orderId) {
           status: "completed",
         })
         .eq("referred_user_id", uid);
-
-      if (refError) {
-        console.error("Referral Error:", refError.message);
-      } else {
-        console.log("Referral updated ✅");
-      }
     }
 
     // ----------------------------------
-    // ✅ RESPONSE
+    // ✅ FINAL STEP: REDIRECT TO UI
     // ----------------------------------
-    return NextResponse.json({ success: true });
+    // This moves the user from the "API screen" to your actual Website UI
+    return NextResponse.redirect(successUrl, { status: 303 });
 
   } catch (err) {
     console.error("Payment API Error:", err);
-    return NextResponse.json({ success: false }, { status: 500 });
+    return NextResponse.redirect(errorUrl, { status: 303 });
   }
 }
