@@ -114,7 +114,7 @@ export default function ChatWidget({ chatbotId, isEmbed = false }: ChatWidgetPro
                 <div className={`max-w-[80%] p-3 rounded-2xl text-sm ${
                   m.role === "user" ? "bg-blue-600 text-white" : "bg-white text-gray-800 border shadow-sm"
                 }`}>
-                  {m.content}
+                  <span dangerouslySetInnerHTML={{ __html: m.content }} />
                 </div>
               </div>
             ))}
