@@ -111,7 +111,9 @@ export default function ChatWidget({ chatbotId, isEmbed = false }: ChatWidgetPro
           <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50">
             {messages.map((m, i) => (
               <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-                <div className="max-w-[80%] p-3 rounded-2xl text-sm [&_a]:text-blue-600 [&_a]:underline [&_a]:cursor-pointer">
+                <div className={`max-w-[80%] p-3 rounded-2xl text-sm ${
+                  m.role === "user" ? "bg-blue-600 text-white" : "bg-white text-gray-800 border shadow-sm"
+                }`}>
                   <span dangerouslySetInnerHTML={{ __html: m.content }} />
                 </div>
               </div>
