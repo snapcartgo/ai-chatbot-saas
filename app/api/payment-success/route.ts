@@ -29,6 +29,27 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: false });
     }
 
+
+const orderId = formData.get("txnid"); // PayU order id
+
+console.log("Order ID:", orderId);
+
+if (orderId) {
+  const { error: orderError } = await supabase
+    .from("orders")
+    .update({
+      status: "paid",
+      payment_status: "paid",
+    })
+    .eq("order_id", orderId);
+
+  if (orderError) {
+    console.error("Order Update Error:", orderError.message);
+  } else {
+    console.log("Order marked as PAID ✅");
+  }
+}
+
     // ----------------------------------
     // ✅ STEP 1: GET USER FROM PROFILES
     // ----------------------------------
