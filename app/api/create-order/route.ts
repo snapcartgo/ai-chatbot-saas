@@ -11,7 +11,18 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
 
-    const { id, bot_id, user_id, product_name, price, customer_email, phone } = body;
+    console.log("Incoming Body:", body); // ✅ DEBUG
+
+    const {
+      id,
+      bot_id,
+      user_id,
+      product_name,
+      price,
+      customer_email,
+      phone,
+      name, // ✅ ADD THIS
+    } = body;
 
     const cleanOrderId = id?.trim();
     const cleanUserId = user_id?.trim();
@@ -24,19 +35,24 @@ export async function POST(req: Request) {
       .single();
 
     if (!profile?.payu_merchant_key) {
-      return NextResponse.json({ error: "Merchant keys not found" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Merchant keys not found" },
+        { status: 400 }
+      );
     }
 
     const key = profile.payu_merchant_key;
     const salt = profile.payu_merchant_salt;
 
-    // ✅ REQUIRED FORMATTING
+    // ✅ CORRECT DATA
     const amount = Number(price).toFixed(2);
-    const firstname = customer_email?.split("@")[0] || "Customer";
+    const firstname =
+      name || customer_email?.split("@")[0] || "Customer"; // ✅ FIXED
     const email = customer_email || "";
     const productinfo = product_name || "Product";
+    const phoneNumber = String(phone || "9999999999"); // ✅ FIXED
 
-    // ✅ CORRECT HASH FORMAT
+    // ✅ HASH
     const hashString =
       key +
       "|" +
@@ -57,7 +73,7 @@ export async function POST(req: Request) {
       .update(hashString)
       .digest("hex");
 
-    // ✅ FINAL PAYU DATA
+    // ✅ PAYU DATA
     const payu_data = {
       key,
       txnid: cleanOrderId,
@@ -65,40 +81,42 @@ export async function POST(req: Request) {
       productinfo,
       firstname,
       email,
-      phone: phone || "9999999999",
-
-      // ✅ IMPORTANT (FIXED)
+      phone: phoneNumber,
       surl: `https://ai-chatbot-saas-five.vercel.app/api/order-success`,
       furl: `https://ai-chatbot-saas-five.vercel.app/order-failed?order_id=${cleanOrderId}`,
-
-     
-
       service_provider: "payu_paisa",
       hash: generatedHash,
     };
 
-    // ✅ SAVE ORDER
-    const { error } = await supabase.from("orders").insert([
-      {
-        id: cleanOrderId,
-        bot_id,
-        user_id: cleanUserId,
-        product_name,
-        price: Number(price),
-        customer_email,
-        payment_status: "pending",
-        payu_data,
-      },
-    ]);
+    // ✅ SAVE ORDER (UPDATED)
+    const { error } = await supabase.from("orders").upsert(
+      [
+        {
+          id: cleanOrderId,
+          bot_id,
+          user_id: cleanUserId,
+          product_name,
+          price: Number(price),
+          customer_email,
+          phone: phoneNumber,   // ✅ SAVE PHONE
+          Name: firstname,      // ✅ SAVE NAME
+          payment_status: "pending",
+          payu_data,
+        },
+      ],
+      { onConflict: "id" }
+    );
 
     if (error) throw error;
 
     return NextResponse.json({
       success: true,
-      payUrl: `https://${req.headers.get("host")}/payu?order_id=${cleanOrderId}`,
+      payUrl: `https://${req.headers.get(
+        "host"
+      )}/payu?order_id=${cleanOrderId}`,
     });
   } catch (err: any) {
-    console.error(err);
+    console.error("API ERROR:", err);
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
