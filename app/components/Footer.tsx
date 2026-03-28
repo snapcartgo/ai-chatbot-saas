@@ -34,7 +34,7 @@ export default function Footer() {
           <ul className="space-y-4 text-gray-500 text-sm">
             {/* THIS IS YOUR PARTNER LINK */}
             <li>
-              <Link href="/partners" className="...">
+              <Link href="/partners" className="hover:text-blue-500 transition">
                 Partner Program
                 </Link>
             </li>
