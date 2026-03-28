@@ -18,7 +18,7 @@ export default function ContactPage() {
 
         {/* ✅ Contact Info */}
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 mb-8">
-          <p className="mb-2"><strong>Email:</strong> aiautomation2424@gmail.com/p>
+          <p className="mb-2"><strong>Email:</strong> aiautomation2424@gmail.com </p>
           <p><strong>Phone:</strong> +91 9878498214</p>
         </div>
 
