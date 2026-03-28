@@ -54,6 +54,10 @@ export default function OrdersPage() {
       >
         <thead>
           <tr style={{ background: "#f3f4f6" }}>
+            <th style={{ padding: 10 }}>Order ID</th>
+            <th style={{ padding: 10 }}>Name</th>
+            <th style={{ padding: 10 }}>Email</th>
+            <th style={{ padding: 10 }}>Phone</th>
             <th style={{ padding: 10 }}>Product</th>
             <th style={{ padding: 10 }}>Price</th>
             <th style={{ padding: 10 }}>Status</th>
@@ -65,6 +69,10 @@ export default function OrdersPage() {
         <tbody>
           {orders.map((order) => (
             <tr key={order.id} style={{ borderTop: "1px solid #eee" }}>
+              <td style={{ padding: 10 }}>{order.id}</td>
+              <td style={{ padding: 10 }}>{order.name}</td>
+              <td style={{ padding: 10 }}>{order.customer_email}</td>
+              <td style={{ padding: 10 }}>{order.phone}</td>
               <td style={{ padding: 10 }}>{order.product_name}</td>
               <td style={{ padding: 10 }}>${order.price}</td>
               <td style={{ padding: 10 }}>{order.payment_status}</td>
