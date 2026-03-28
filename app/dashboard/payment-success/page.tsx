@@ -1,7 +1,7 @@
 "use client";
 
 import Link from 'next/link';
-import { CheckCircle } from 'lucide-react'; // If you use lucide-react, otherwise use an SVG
+import { CheckCircle } from 'lucide-react'; 
 
 export default function PaymentSuccess() {
   return (
@@ -15,18 +15,12 @@ export default function PaymentSuccess() {
         Thank you for your purchase. Your account has been upgraded, and you can now access your new features.
       </p>
 
-      <div className="flex gap-4">
+      <div className="flex justify-center">
         <Link 
           href="/dashboard" 
-          className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-medium transition"
+          className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-2 rounded-lg font-medium transition"
         >
           Go to Dashboard
-        </Link>
-        <Link 
-          href="/dashboard/Chatbots" 
-          className="bg-gray-800 hover:bg-gray-700 text-white px-6 py-2 rounded-lg font-medium transition"
-        >
-          Create Chatbot
         </Link>
       </div>
     </div>
