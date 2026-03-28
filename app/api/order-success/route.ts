@@ -5,7 +5,6 @@ export async function POST(req: Request) {
 
   const order_id = formData.get("txnid");
 
-  // 🔁 Redirect to UI page
   return NextResponse.redirect(
     `https://ai-chatbot-saas-five.vercel.app/order-success?order_id=${order_id}`
   );
