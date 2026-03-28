@@ -43,10 +43,11 @@ export async function GET(req: Request) {
     email: order.customer_email,
     phone: "9999999999",
 
-    // ✅ FIXED HERE
-    surl: `https://ai-chatbot-saas-five.vercel.app/public/payment-success?order_id=${order.id}&amount=${order.price}`,
+    // ✅ SUCCESS
+    surl: `https://ai-chatbot-saas-five.vercel.app/order-success?order_id=${order.id}`,
 
-    furl: "https://ai-chatbot-saas-five.vercel.app/public/payment-failure",
+    // ❌ FAILURE → FIX HERE
+    furl: `https://ai-chatbot-saas-five.vercel.app/order-failed?order_id=${order.id}`,
 
     hash
   }
