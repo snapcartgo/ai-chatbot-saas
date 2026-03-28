@@ -121,22 +121,39 @@ export default function ChatWidget({ chatbotId, isEmbed = false }: ChatWidgetPro
             {isLoading && <div className="text-xs text-gray-400 animate-pulse">Assistant is typing...</div>}
           </div>
 
-          <div className="p-4 border-t bg-white flex gap-2">
-            <input
-              type="text"
-              value={userInput}
-              onChange={(e) => setUserInput(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
-              placeholder="Type your message..."
-              className="flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-black"
-            />
-            <button 
-              onClick={handleSendMessage}
-              className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition"
-            >
-              Send
-            </button>
+          {/* Footer with Input and Branding */}
+          <div className="p-4 border-t bg-white flex flex-col items-center">
+            <div className="flex gap-2 w-full mb-2">
+              <input
+                type="text"
+                value={userInput}
+                onChange={(e) => setUserInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
+                placeholder="Type your message..."
+                className="flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-black"
+              />
+              <button 
+                onClick={handleSendMessage}
+                className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition"
+              >
+                Send
+              </button>
+            </div>
+            
+            {/* Branding Label */}
+            <div className="text-[10px] text-gray-400">
+              Powered by{" "}
+              <a 
+                href="https://ai-chatbot-saas-five.vercel.app/" 
+                target="_blank" 
+                rel="noopener noreferrer" 
+                className="font-semibold text-gray-500 hover:text-blue-600 transition-colors"
+              >
+                aiautomation by woodpetra
+              </a>
+            </div>
           </div>
+          
         </div>
       )}
 
