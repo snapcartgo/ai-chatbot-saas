@@ -21,7 +21,7 @@ export async function GET(req: Request) {
   // Reuse logic to update Supabase
   await updateSubscriptionLogic(email, plan, 1, "MANUAL_TEST");
 
-  return NextResponse.redirect(`${saasUrl}/dashboard/Billing?payment=success`, { status: 303 });
+  return NextResponse.redirect(`${saasUrl}/dashboard/payment-success`, { status: 303 });
 }
 
 // --- HANDLE POST (PayU and Webhooks) ---
