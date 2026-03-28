@@ -34,17 +34,21 @@ export async function GET(req: Request) {
   const hash = crypto.createHash("sha512").update(hashString).digest("hex");
 
   return NextResponse.json({
-    payu_data: {
-      key,
-      txnid: order.id,
-      amount: order.price,
-      productinfo: order.product_name,
-      firstname: "test",
-      email: order.customer_email,
-      phone: "9999999999",
-      surl: "https://ai-chatbot-saas-five.vercel.app/api/payment-success",
-      furl: "https://ai-chatbot-saas-five.vercel.app/payment-failed",
-      hash
-    }
-  });
+  payu_data: {
+    key,
+    txnid: order.id,
+    amount: order.price,
+    productinfo: order.product_name,
+    firstname: "test",
+    email: order.customer_email,
+    phone: "9999999999",
+
+    // ✅ FIXED HERE
+    surl: `https://ai-chatbot-saas-five.vercel.app/public/payment-success?order_id=${order.id}&amount=${order.price}`,
+
+    furl: "https://ai-chatbot-saas-five.vercel.app/public/payment-failure",
+
+    hash
+  }
+});
 }
