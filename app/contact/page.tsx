@@ -1,73 +1,89 @@
 "use client";
 
+import { useState } from "react";
+import { createClient } from "@supabase/supabase-js";
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
+
 export default function ContactPage() {
+  const [form, setForm] = useState({
+    name: "",
+    email: "",
+    website: "",
+    message: "",
+  });
+
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e: any) => {
+    e.preventDefault();
+    setLoading(true);
+
+    const { error } = await supabase.from("contact_leads").insert([form]);
+
+    if (error) {
+      alert("Error saving data ❌");
+      console.error(error);
+    } else {
+      alert("Message sent successfully ✅");
+      setForm({ name: "", email: "", website: "", message: "" });
+    }
+
+    setLoading(false);
+  };
+
   return (
-    <div className="min-h-screen bg-black text-white px-4 py-16 flex justify-center">
-      <div className="max-w-2xl w-full">
+    <div className="min-h-screen bg-black text-white flex justify-center items-center">
+      <form
+        onSubmit={handleSubmit}
+        className="space-y-4 bg-gray-900 p-6 rounded-xl w-full max-w-md"
+      >
+        <input
+          type="text"
+          placeholder="Your Name"
+          required
+          value={form.name}
+          onChange={(e) => setForm({ ...form, name: e.target.value })}
+          className="w-full p-3 bg-black border border-gray-700 rounded"
+        />
 
-        {/* ✅ Heading */}
-        <h1 className="text-4xl font-bold mb-4 text-center">
-          Contact Us
-        </h1>
+        <input
+          type="email"
+          placeholder="Your Email"
+          required
+          value={form.email}
+          onChange={(e) => setForm({ ...form, email: e.target.value })}
+          className="w-full p-3 bg-black border border-gray-700 rounded"
+        />
 
-        {/* ✅ Description */}
-        <p className="text-gray-400 text-center mb-10">
-          Have questions, feedback, or need help?  
-          Our team is here to support you. Reach out anytime.
-        </p>
+        <input
+          type="url"
+          placeholder="Your Website (Required)"
+          required
+          value={form.website}
+          onChange={(e) => setForm({ ...form, website: e.target.value })}
+          className="w-full p-3 bg-black border border-gray-700 rounded"
+        />
 
-        {/* ✅ Contact Info */}
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 mb-8">
-          <p className="mb-2"><strong>Email:</strong> aiautomation2424@gmail.com </p>
-          <p><strong>Phone:</strong> +91 9878498214</p>
-        </div>
+        <textarea
+          placeholder="Your Message"
+          required
+          value={form.message}
+          onChange={(e) => setForm({ ...form, message: e.target.value })}
+          className="w-full p-3 bg-black border border-gray-700 rounded"
+        />
 
-        {/* ✅ Simple Form */}
-        <p className="text-red-400 text-sm mb-4 text-center">
-  ⚠️ Only business inquiries with a valid website will be considered.
-</p>
-        <form className="space-y-4 bg-gray-900 border border-gray-800 p-6 rounded-xl">
-
-  {/* Name */}
-  <input
-    type="text"
-    placeholder="Your Name"
-    required
-    className="w-full p-3 rounded-lg bg-black border border-gray-700"
-  />
-
-  {/* Email */}
-  <input
-    type="email"
-    placeholder="Your Email"
-    required
-    className="w-full p-3 rounded-lg bg-black border border-gray-700"
-  />
-
-  {/* Website URL ✅ NEW */}
-  <input
-    type="url"
-    placeholder="Your Website (Required)"
-    required
-    className="w-full p-3 rounded-lg bg-black border border-gray-700"
-  />
-
-  {/* Message */}
-  <textarea
-    placeholder="Tell us what you need..."
-    rows={4}
-    required
-    className="w-full p-3 rounded-lg bg-black border border-gray-700"
-  />
-
-  {/* Button */}
-  <button className="w-full bg-blue-600 hover:bg-blue-700 p-3 rounded-lg font-bold">
-    Send Message
-  </button>
-
-</form>
-
-      </div>
+        <button
+          type="submit"
+          disabled={loading}
+          className="w-full bg-blue-600 p-3 rounded font-bold"
+        >
+          {loading ? "Sending..." : "Send Message"}
+        </button>
+      </form>
     </div>
   );
 }
