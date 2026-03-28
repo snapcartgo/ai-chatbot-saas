@@ -1,19 +1,21 @@
 import { NextResponse } from "next/server";
 
+// ✅ Handle POST (main PayU response)
 export async function POST(req: Request) {
-  try {
-    const formData = await req.formData();
+  const formData = await req.formData();
+  const order_id = formData.get("txnid");
 
-    const order_id = formData.get("txnid");
+  return NextResponse.redirect(
+    `https://ai-chatbot-saas-five.vercel.app/order-success?order_id=${order_id}`
+  );
+}
 
-    console.log("PayU success for order:", order_id);
+// ✅ Handle GET (fallback case)
+export async function GET(req: Request) {
+  const { searchParams } = new URL(req.url);
+  const order_id = searchParams.get("txnid");
 
-    return NextResponse.redirect(
-      `https://ai-chatbot-saas-five.vercel.app/order-success?order_id=${order_id}`
-    );
-
-  } catch (err) {
-    console.error("Error in order-success API:", err);
-    return NextResponse.json({ error: "Failed" }, { status: 500 });
-  }
+  return NextResponse.redirect(
+    `https://ai-chatbot-saas-five.vercel.app/order-success?order_id=${order_id}`
+  );
 }
