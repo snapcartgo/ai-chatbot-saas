@@ -1,20 +1,16 @@
 import { NextResponse } from "next/server";
 
 export async function POST(req: Request) {
-  try {
-    const formData = await req.formData();
+  const formData = await req.formData();
+  const txnid = formData.get("txnid");
 
-    const txnid = formData.get("txnid"); // 🔥 THIS IS ORDER ID
+  const url = new URL(
+    `/order-success?order_id=${txnid}`,
+    "https://ai-chatbot-saas-five.vercel.app"
+  );
 
-    console.log("PAYU RESPONSE:", Object.fromEntries(formData));
-
-    // ✅ redirect to UI page
-    return NextResponse.redirect(
-      `https://ai-chatbot-saas-five.vercel.app/order-success?order_id=${txnid}`
-    );
-
-  } catch (error) {
-    console.error("Error in PayU success:", error);
-    return NextResponse.json({ error: "Something went wrong" }, { status: 500 });
-  }
+  // 🔥 IMPORTANT: force GET redirect
+  return NextResponse.redirect(url, {
+    status: 303, // 👈 THIS FIXES YOUR ISSUE
+  });
 }
