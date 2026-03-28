@@ -99,7 +99,7 @@ export async function POST(req: Request) {
           price: Number(price),
           customer_email,
           phone: phoneNumber,   // ✅ SAVE PHONE
-          Name: firstname,      // ✅ SAVE NAME
+          name: firstname,     // ✅ SAVE NAME
           payment_status: "pending",
           payu_data,
         },
