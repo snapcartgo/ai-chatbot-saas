@@ -71,7 +71,7 @@ export async function POST(req: Request) {
       surl: `https://ai-chatbot-saas-five.vercel.app/api/order-success`,
       furl: `https://ai-chatbot-saas-five.vercel.app/order-failed?order_id=${cleanOrderId}`,
 
-      udf1: cleanOrderId,
+     
 
       service_provider: "payu_paisa",
       hash: generatedHash,
