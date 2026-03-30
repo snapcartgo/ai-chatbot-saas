@@ -11,17 +11,14 @@ export default function ConversationsPage() {
     const loadMessages = async () => {
       setLoading(true);
 
-      // 1️⃣ get logged user
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
+      // 1️⃣ Get logged-in user
+      const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
         setLoading(false);
         return;
       }
 
-      // 2️⃣ get user chatbots
+      // 2️⃣ Get the IDs of all chatbots owned by this user
       const { data: bots } = await supabase
         .from("chatbots")
         .select("id")
@@ -34,29 +31,18 @@ export default function ConversationsPage() {
         return;
       }
 
-      // 3️⃣ get conversations for those chatbots
-      const { data: conversations } = await supabase
-        .from("conversations")
-        .select("id")
-        .in("chatbot_id", botIds);
-
-      const conversationIds = conversations?.map((c) => c.id) || [];
-
-      if (conversationIds.length === 0) {
-        setLoading(false);
-        return;
-      }
-
-      // 4️⃣ get messages for those conversations
+      // 3️⃣ Get messages directly using bot_id (Skips the conversation_id prefix issue)
       const { data, error } = await supabase
         .from("messages")
         .select("*")
-        .in("conversation_id", conversationIds)
+        .in("bot_id", botIds) // Using the UUID column directly
         .order("created_at", { ascending: false })
         .limit(50);
 
       if (!error && data) {
         setMessages(data);
+      } else if (error) {
+        console.error("Supabase Error:", error.message);
       }
 
       setLoading(false);
