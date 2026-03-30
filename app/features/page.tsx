@@ -1,21 +1,22 @@
 export default function FeaturesPage() {
   const features = [
-    {
-      title: "AI Chatbot Automation",
-      desc: "Automate customer conversations and reduce manual support work.",
-    },
+   {
+  title: "AI Chatbot Automation",
+  desc: "Automatically handle customer queries 24/7 without human effort."
+},
     {
       title: "Lead Generation",
       desc: "Capture leads directly from your website visitors automatically.",
     },
     {
-      title: "Multi-Platform Support",
-      desc: "Integrate chatbot with websites, WhatsApp, and more.",
-    },
-    {
-      title: "Real-time Responses",
-      desc: "Instant replies to customers using AI-powered responses.",
-    },
+  title: "No-Code Setup",
+  desc: "Set up your chatbot without any coding or technical skills."
+},
+    
+{
+  title: "Never Lose a Lead Again",
+  desc: "Automatically follow up with every lead who didn’t buy and convert them into paying customers."
+},
     {
       title: "Custom Knowledge Base",
       desc: "Train chatbot with your own data for accurate answers.",
