@@ -18,9 +18,9 @@ export default function FeaturesPage() {
   desc: "Automatically follow up with every lead who didn’t buy and convert them into paying customers."
 },
     {
-      title: "Custom Knowledge Base",
-      desc: "Train chatbot with your own data for accurate answers.",
-    },
+  title: "Business-Trained AI",
+  desc: "Your chatbot learns your business data (knowledge base) to respond like your best sales or support agent."
+},
     {
       title: "Analytics Dashboard",
       desc: "Track conversations, leads, and performance easily.",
