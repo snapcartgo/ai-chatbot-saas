@@ -7,7 +7,7 @@ import ChatWidget from "./components/ChatWidget";
 export default function HomeClient() {
   const [ref, setRef] = useState<string | null>(null);
 
-  // ✅ SAFE: runs only in browser
+  // ✅ Referral tracking (browser only)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const refValue = params.get("ref");
@@ -40,66 +40,88 @@ export default function HomeClient() {
         </div>
       </nav>
 
-      {/* Hero */}
+      {/* Hero Section */}
       <section className="text-center py-24 px-6">
+        
+        {/* 🔥 Headline */}
         <h2 className="text-5xl font-bold mb-6 leading-tight">
-          Automate Customer Conversations with AI
+          Automate Your Business with AI
         </h2>
 
-        <p className="text-gray-400 max-w-xl mx-auto mb-10 text-lg">
-          Build AI chatbots that capture leads, answer questions, and
-          automatically book appointments.
+        {/* 🔥 Sub-headline */}
+        <p className="text-xl text-gray-300 mb-3">
+          AI Chatbot That Actually Brings You Customers
         </p>
 
+        {/* 🔥 Description */}
+        <p className="text-gray-400 max-w-xl mx-auto mb-10 text-lg">
+          Capture every visitor, follow up automatically, and convert them into 
+          paying customers — all on autopilot.
+        </p>
+
+        {/* Buttons */}
         <div className="flex justify-center space-x-4">
           <Link
             href={ref ? `/signup?ref=${ref}` : "/signup"}
             className="bg-blue-600 hover:bg-blue-700 px-6 py-3 rounded-lg font-semibold"
           >
-            Start Free Trial
+            Start Free
           </Link>
 
           <Link
             href="/dashboard"
             className="border border-gray-600 hover:bg-gray-800 px-6 py-3 rounded-lg"
           >
-            View Dashboard
+            Go to Dashboard
           </Link>
         </div>
+
+        {/* 🔥 Trust / USP Line */}
+        <p className="mt-8 text-gray-500 text-sm">
+          No coding required • Setup in 2 minutes • Start free
+        </p>
       </section>
 
       {/* Features */}
-      <section className="grid md:grid-cols-3 gap-8 px-10 pb-24 max-w-6xl mx-auto">
+      <section className="grid md:grid-cols-3 gap-8 px-10 pb-16 max-w-6xl mx-auto">
         
-        <div className="bg-gray-900 p-8 rounded-xl border border-gray-800">
+        <div className="bg-gray-900 p-8 rounded-xl border border-gray-800 hover:border-blue-500 transition">
           <h3 className="text-xl font-semibold mb-3 text-blue-400">
             AI Chatbot
           </h3>
           <p className="text-gray-400">
-            Automatically respond to customer queries using AI.
+            Instantly respond to visitors and answer their questions automatically using AI.
           </p>
         </div>
 
-        <div className="bg-gray-900 p-8 rounded-xl border border-gray-800">
+        <div className="bg-gray-900 p-8 rounded-xl border border-gray-800 hover:border-blue-500 transition">
           <h3 className="text-xl font-semibold mb-3 text-blue-400">
             Lead Capture
           </h3>
           <p className="text-gray-400">
-            Capture leads automatically.
+            Capture every visitor as a potential customer and store their details automatically.
           </p>
         </div>
 
-        <div className="bg-gray-900 p-8 rounded-xl border border-gray-800">
+        <div className="bg-gray-900 p-8 rounded-xl border border-gray-800 hover:border-blue-500 transition">
           <h3 className="text-xl font-semibold mb-3 text-blue-400">
             Booking Automation
           </h3>
           <p className="text-gray-400">
-            Let users schedule appointments.
+            Let users book appointments or services without any manual effort.
           </p>
         </div>
 
       </section>
 
+      {/* 🔥 BIG DIFFERENTIATOR LINE */}
+      <div className="text-center pb-20 px-6">
+        <p className="text-xl font-semibold text-white">
+          Most chatbots just reply. Ours converts visitors into customers.
+        </p>
+      </div>
+
+      {/* Chat Widget */}
       <ChatWidget />
 
     </main>
