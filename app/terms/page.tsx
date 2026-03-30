@@ -58,7 +58,7 @@ export default function TermsPage() {
       {/* Section */}
       <h2 className="text-xl font-semibold mt-8 mb-3">9. Contact</h2>
       <p className="text-gray-400">
-        For any questions, contact us at support@yourdomain.com
+        For any questions, contact us at aiautomation2424@gmail.com
       </p>
     </div>
   );
