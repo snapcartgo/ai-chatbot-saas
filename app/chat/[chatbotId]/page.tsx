@@ -1,7 +1,7 @@
 import ChatWidget from "@/app/components/ChatWidget";
 import { createClient } from "@supabase/supabase-js";
 
-// Ensure the page is never cached so different Bot IDs always load correctly
+// This tells Vercel NOT to cache this page so every Client ID works
 export const dynamic = "force-dynamic";
 
 const supabase = createClient(
@@ -12,51 +12,40 @@ const supabase = createClient(
 export default async function ChatEmbed({
   params,
 }: {
-  params: { chatbotId: string }; // ✅ Matches your capital 'I' folder name
+  params: Promise<{ chatbotId: string }>; // Updated to Promise for Next.js 15
 }) {
-  // Extract the ID from params
-  const { chatbotId } = params;
+  // ✅ IMPORTANT: We must await params to get the ID from the URL
+  const resolvedParams = await params;
+  const chatbotId = resolvedParams.chatbotId;
 
   let plan = "free";
 
   try {
-    console.log("LOG: Loading Chatbot ID:", chatbotId);
-
-    // Fetch chatbot details
-    const { data: chatbot, error: chatbotError } = await supabase
+    // Fetch chatbot details to determine the plan
+    const { data: chatbot } = await supabase
       .from("chatbots")
       .select("user_id, is_system")
       .eq("id", chatbotId)
       .single();
 
-    if (chatbotError || !chatbot) {
-      console.log("LOG: Chatbot fetch error or not found:", chatbotError);
-    } else {
-      // Handle System vs User Bot Plan Logic
-      if (chatbot.is_system) {
-        plan = "pro";
-        console.log("LOG: SYSTEM BOT → FORCED PRO");
-      } else if (chatbot.user_id) {
-        const { data: subscription } = await supabase
-          .from("subscriptions")
-          .select("plan")
-          .eq("user_id", chatbot.user_id)
-          .single();
-
-        plan = subscription?.plan || "free";
-      }
+    if (chatbot?.is_system) {
+      plan = "pro";
+    } else if (chatbot?.user_id) {
+      const { data: subscription } = await supabase
+        .from("subscriptions")
+        .select("plan")
+        .eq("user_id", chatbot.user_id)
+        .single();
+      plan = subscription?.plan || "free";
     }
-
-    console.log("LOG: FINAL PLAN:", plan);
   } catch (err) {
-    console.log("LOG: UNEXPECTED ERROR:", err);
+    console.error("Error fetching bot data:", err);
   }
 
   return (
     <main className="fixed inset-0 bg-white overflow-hidden">
-      {/* Passing the dynamic chatbotId to the widget.
-         This ensures the widget uses the Client's ID from the URL 
-         instead of falling back to your Admin ID.
+      {/* CRITICAL: We pass the chatbotId we got from the URL here. 
+         If this is empty, the widget will use your fallback Admin ID.
       */}
       <ChatWidget chatbotId={chatbotId} isEmbed={true} plan={plan} />
     </main>
