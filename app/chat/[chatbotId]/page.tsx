@@ -11,31 +11,51 @@ export default async function ChatEmbed({
 }: {
   params: { chatbotId: string };
 }) {
-  // ✅ FIX HERE
-  const { chatbotId } = await params;
+  // ✅ FIXED (no await)
+  const { chatbotId } = params;
 
   let plan = "free";
 
   try {
-    const { data: chatbot } = await supabase
+    console.log("CHATBOT ID:", chatbotId);
+
+    // ✅ Fetch chatbot with is_system
+    const { data: chatbot, error: chatbotError } = await supabase
       .from("chatbots")
-      .select("user_id")
+      .select("user_id, is_system")
       .eq("id", chatbotId)
       .single();
 
-    if (chatbot?.user_id) {
-      const { data: subscription } = await supabase
+    if (chatbotError) {
+      console.log("Chatbot fetch error:", chatbotError);
+    }
+
+    console.log("CHATBOT DATA:", chatbot);
+
+    // ✅ SaaS/System bot logic
+    if (chatbot?.is_system) {
+      plan = "pro";
+      console.log("SYSTEM BOT → FORCED PRO");
+    }
+
+    // ✅ Normal user chatbot
+    else if (chatbot?.user_id) {
+      const { data: subscription, error: subError } = await supabase
         .from("subscriptions")
         .select("plan")
         .eq("user_id", chatbot.user_id)
         .single();
 
+      if (subError) {
+        console.log("Subscription fetch error:", subError);
+      }
+
       plan = subscription?.plan || "free";
     }
 
-    console.log("PLAN FROM SERVER:", plan); // ✅ debug
+    console.log("FINAL PLAN:", plan);
   } catch (err) {
-    console.log("Error:", err);
+    console.log("UNEXPECTED ERROR:", err);
   }
 
   return (
