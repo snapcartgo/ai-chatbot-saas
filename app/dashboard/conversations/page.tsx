@@ -66,7 +66,7 @@ export default function ConversationsPage() {
         <p>No conversations yet.</p>
       )}
 
-      {Object.entries(groupedMessages).map(([sessionId, msgs]) => (
+      {Object.entries(groupedMessages).reverse().map(([sessionId, msgs]) => (
         <div
           key={sessionId}
           style={{
@@ -132,6 +132,8 @@ export default function ConversationsPage() {
                     {msg.role === "user" ? "User" : "Bot"} • {
                       new Date(msg.created_at).toLocaleString('en-IN', {
                         timeZone: 'Asia/Kolkata',
+                        day: '2-digit',
+                        month: 'short',
                         hour: '2-digit',
                         minute: '2-digit',
                         hour12: true
