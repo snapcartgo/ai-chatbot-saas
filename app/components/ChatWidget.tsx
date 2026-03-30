@@ -6,9 +6,14 @@ import { supabase } from "@/lib/supabase";
 interface ChatWidgetProps {
   chatbotId?: string;
   isEmbed?: boolean;
+  plan?: string; // ✅ ADD THIS LINE
 }
 
-export default function ChatWidget({ chatbotId, isEmbed = false }: ChatWidgetProps) {
+export default function ChatWidget({ 
+  chatbotId, 
+  isEmbed = false,
+  plan = "free" // ✅ ADD THIS
+}: ChatWidgetProps) {
   const [messages, setMessages] = useState<{ role: string; content: string }[]>([]);
   const [userInput, setUserInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -141,17 +146,19 @@ export default function ChatWidget({ chatbotId, isEmbed = false }: ChatWidgetPro
             </div>
             
             {/* Branding Label */}
-            <div className="text-[10px] text-gray-400">
-              Powered by{" "}
-              <a 
-                href="https://ai-chatbot-saas-five.vercel.app/" 
-                target="_blank" 
-                rel="noopener noreferrer" 
-                className="font-semibold text-gray-500 hover:text-blue-600 transition-colors"
-              >
-                aiautomation by woodpetra
-              </a>
-            </div>
+            {plan === "free" && (
+              <div className="text-[10px] text-gray-400">
+                Powered by{" "}
+                <a 
+                  href="https://ai-chatbot-saas-five.vercel.app" 
+                  target="_blank" 
+                  rel="noopener noreferrer" 
+                  className="font-semibold text-gray-500 hover:text-blue-600 transition-colors"
+                >
+                  aiautomation by woodpetra
+                </a>
+              </div>
+            )}
           </div>
           
         </div>
