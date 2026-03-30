@@ -8,48 +8,47 @@ export default function ConversationsPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const loadMessages = async () => {
-      setLoading(true);
+  const loadMessages = async () => {
+    setLoading(true);
 
-      // 1️⃣ Get logged-in user
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        setLoading(false);
-        return;
-      }
-
-      // 2️⃣ Get the IDs of all chatbots owned by this user
-      const { data: bots } = await supabase
-        .from("chatbots")
-        .select("id")
-        .eq("user_id", user.id);
-
-      const botIds = bots?.map((b) => b.id) || [];
-
-      if (botIds.length === 0) {
-        setLoading(false);
-        return;
-      }
-
-      // 3️⃣ Get messages directly using bot_id (Skips the conversation_id prefix issue)
-      const { data, error } = await supabase
-        .from("messages")
-        .select("*")
-        .in("bot_id", botIds) // Using the UUID column directly
-        .order("created_at", { ascending: false })
-        .limit(50);
-
-      if (!error && data) {
-        setMessages(data);
-      } else if (error) {
-        console.error("Supabase Error:", error.message);
-      }
-
+    // 1. Get the current logged-in user
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
       setLoading(false);
-    };
+      return;
+    }
 
-    loadMessages();
-  }, []);
+    // 2. Fetch the chatbots owned by this user
+    const { data: bots } = await supabase
+      .from("chatbots")
+      .select("id")
+      .eq("user_id", user.id);
+
+    const botIds = bots?.map((b) => b.id) || [];
+
+    if (botIds.length === 0) {
+      setLoading(false);
+      return;
+    }
+
+    // 3. Fetch messages using the bot_id (UUID) to avoid the "session_" text prefix issue
+    const { data, error } = await supabase
+      .from("messages")
+      .select("*")
+      .in("bot_id", botIds)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Error fetching messages:", error.message);
+    } else {
+      setMessages(data || []);
+    }
+
+    setLoading(false);
+  };
+
+  loadMessages();
+}, []);
 
   return (
     <div style={{ padding: "30px" }}>
