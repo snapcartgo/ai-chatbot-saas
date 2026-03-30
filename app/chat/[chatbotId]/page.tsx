@@ -11,41 +11,33 @@ export default async function ChatEmbed({
 }: {
   params: { chatbotId: string };
 }) {
-  const { chatbotId } = params;
+  // ✅ FIX HERE
+  const { chatbotId } = await params;
 
-  let plan = "free"; // default fallback
+  let plan = "free";
 
   try {
-    // ✅ Step 1: Get chatbot
-    const { data: chatbot, error: chatbotError } = await supabase
+    const { data: chatbot } = await supabase
       .from("chatbots")
       .select("user_id")
       .eq("id", chatbotId)
       .single();
 
-    if (chatbotError) {
-      console.log("Chatbot error:", chatbotError);
-    }
-
-    // ✅ Step 2: Get subscription (ONLY if chatbot exists)
     if (chatbot?.user_id) {
-      const { data: subscription, error: subError } = await supabase
+      const { data: subscription } = await supabase
         .from("subscriptions")
         .select("plan")
         .eq("user_id", chatbot.user_id)
         .single();
 
-      if (subError) {
-        console.log("Subscription error:", subError);
-      }
-
       plan = subscription?.plan || "free";
     }
+
+    console.log("PLAN FROM SERVER:", plan); // ✅ debug
   } catch (err) {
-    console.log("Unexpected error:", err);
+    console.log("Error:", err);
   }
 
-  // ✅ Step 3: Pass plan
   return (
     <main className="fixed inset-0 bg-white overflow-hidden">
       <ChatWidget chatbotId={chatbotId} isEmbed={true} plan={plan} />
