@@ -129,7 +129,14 @@ export default function ConversationsPage() {
                     <div dangerouslySetInnerHTML={{ __html: msg.content }} />
                   </div>
                   <span style={{ fontSize: "10px", color: "#aaa", marginTop: "4px" }}>
-                    {msg.role === "user" ? "User" : "Bot"} • {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    {msg.role === "user" ? "User" : "Bot"} • {
+                      new Date(msg.created_at).toLocaleString('en-IN', {
+                        timeZone: 'Asia/Kolkata',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: true
+                      })
+                    }
                   </span>
                 </div>
               ))}
