@@ -6,20 +6,50 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+// ✅ Reusable function for saving messages
+async function saveMessage({
+  bot_id,
+  conversation_id,
+  role,
+  content,
+}: {
+  bot_id: string;
+  conversation_id: string;
+  role: "user" | "assistant";
+  content: string;
+}) {
+  try {
+    await supabase.from("messages").insert({
+      bot_id,
+      conversation_id,
+      role,
+      content,
+    });
+  } catch (err) {
+    console.error("Message save error:", err);
+  }
+}
+
 export async function POST(req: Request) {
   try {
     const body = await req.json();
 
-    // Mapping: We pull every possible name for these IDs
+    // 🔑 Extract values safely
     const message = body.message;
     const bot_id = body.bot_id || body.chatbotId || body.activeBotId;
-    const conversation_id = body.conversation_id || body.sessionId;
-    const category = body.category || "general"; // Default to general if missing
-    
-    // Optional e-commerce/booking fields
+
+    // ✅ Safe conversation ID (VERY IMPORTANT)
+    const conversation_id =
+      body.conversation_id ||
+      body.sessionId ||
+      crypto.randomUUID();
+
+    const category = body.category || "general";
+
+    // Optional e-commerce / booking fields
     const { user_id, product_name, price, email } = body;
 
-    // CRITICAL: If these are missing, n8n won't trigger correctly
+    // ❌ Validation
     if (!message || !bot_id) {
       return NextResponse.json(
         { reply: "Error: Message or Bot ID is missing in the request." },
@@ -29,7 +59,7 @@ export async function POST(req: Request) {
 
     const webhookUrl = process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL;
 
-    // Trigger n8n with the exact keys your workflow expects
+    // 🔁 Send to n8n
     const webhookResponse = await fetch(webhookUrl!, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -37,14 +67,33 @@ export async function POST(req: Request) {
         message,
         bot_id,
         conversation_id,
-        category
+        category,
       }),
     });
 
     const data = await webhookResponse.json();
 
-    // Logic for E-commerce / Booking
+    const botReply = data.reply || data.output || "No response";
+
+    // ✅ SAVE USER MESSAGE
+    await saveMessage({
+      bot_id,
+      conversation_id,
+      role: "user",
+      content: message,
+    });
+
+    // ✅ SAVE BOT RESPONSE
+    await saveMessage({
+      bot_id,
+      conversation_id,
+      role: "assistant",
+      content: botReply,
+    });
+
+    // 💰 E-commerce / Booking Logic
     let paymentLink = data.payment_link || null;
+
     if (paymentLink && product_name && price) {
       await supabase.from("orders").insert({
         user_id,
@@ -52,21 +101,28 @@ export async function POST(req: Request) {
         product_name,
         price,
         payment_status: "pending",
-        customer_email: email
+        customer_email: email,
       });
     }
 
     return NextResponse.json(
-      { reply: data.reply || data.output, payment_link: paymentLink },
+      {
+        reply: botReply,
+        payment_link: paymentLink,
+      },
       { headers: { "Access-Control-Allow-Origin": "*" } }
     );
-
   } catch (error) {
     console.error("Webhook Error:", error);
-    return NextResponse.json({ reply: "Connection error." }, { status: 500 });
+
+    return NextResponse.json(
+      { reply: "Connection error." },
+      { status: 500 }
+    );
   }
 }
 
+// ✅ CORS support
 export async function OPTIONS() {
   return new NextResponse(null, {
     status: 200,
