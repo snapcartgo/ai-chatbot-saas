@@ -21,7 +21,7 @@ export default function ChatWidget({
   const [open, setOpen] = useState(true); 
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const activeBotId = chatbotId || "f7b1a0c1-f55f-4bbc-8a27-d08b6076c3ea";
+  const activeBotId = chatbotId || "42e0b1a2-25f3-47ac-907d-ca3911d041c0";
 
   useEffect(() => {
     const loadBot = async () => {
