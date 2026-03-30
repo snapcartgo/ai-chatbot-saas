@@ -1,38 +1,38 @@
 (function () {
-
   const script = document.currentScript;
+  
+  // Grab the ID from the script tag
   const botId = script.getAttribute("data-bot-id");
+
+  // If no ID is found, don't load anything to prevent defaulting to Admin ID
+  if (!botId) {
+    console.error("AI Chatbot Error: 'data-bot-id' is missing from the script tag.");
+    return;
+  }
 
   const domain = window.location.hostname;
 
-fetch(`https://ai-chatbot-saas-five.vercel.app/api/verify-domain?botId=${botId}&domain=${domain}`)
-  .then(res => {
-    if (!res.ok) {
-      throw new Error("API not found");
-    }
-    return res.json();
-  })
-  .then(data => {
-
-    if (!data.allowed) {
-      console.log("Domain not allowed");
-      return;
-    }
-
-    startWidget();
-
-  })
-  .catch(err => {
-    console.log("Verification failed:", err);
-  });
-
+  // Domain Verification
+  fetch(`https://ai-chatbot-saas-five.vercel.app/api/verify-domain?botId=${botId}&domain=${domain}`)
+    .then(res => {
+      if (!res.ok) throw new Error("Verification API Error");
+      return res.json();
+    })
+    .then(data => {
+      if (!data.allowed) {
+        console.warn("AI Chatbot: Domain not allowed for this bot ID.");
+        return;
+      }
+      startWidget();
+    })
+    .catch(err => {
+      console.error("AI Chatbot: Verification failed:", err);
+    });
 
   function startWidget() {
-
-    // CHAT BUTTON
+    // --- CHAT BUTTON ---
     const button = document.createElement("div");
     button.innerHTML = "💬";
-
     button.style.position = "fixed";
     button.style.bottom = "20px";
     button.style.right = "20px";
@@ -48,13 +48,13 @@ fetch(`https://ai-chatbot-saas-five.vercel.app/api/verify-domain?botId=${botId}&
     button.style.cursor = "pointer";
     button.style.zIndex = "999999";
     button.style.boxShadow = "0 8px 20px rgba(0,0,0,0.2)";
-
     document.body.appendChild(button);
 
-    // CHAT WINDOW
+    // --- CHAT IFRAME ---
     const iframe = document.createElement("iframe");
 
-    // New way - points to the "clean" chat route we created
+    // IMPORTANT: Ensure the URL matches your folder [chatbotId] exactly.
+    // Since your folder is capital 'I', we use that here.
     iframe.src = `https://ai-chatbot-saas-five.vercel.app/chat/${botId}`;
 
     iframe.style.position = "fixed";
@@ -67,23 +67,12 @@ fetch(`https://ai-chatbot-saas-five.vercel.app/api/verify-domain?botId=${botId}&
     iframe.style.boxShadow = "0 10px 40px rgba(0,0,0,0.3)";
     iframe.style.zIndex = "999999";
     iframe.style.display = "none";
-
     document.body.appendChild(iframe);
 
     let open = false;
-
     button.onclick = function () {
-
       open = !open;
-
-      if (open) {
-        iframe.style.display = "block";
-      } else {
-        iframe.style.display = "none";
-      }
-
+      iframe.style.display = open ? "block" : "none";
     };
-
   }
-
 })();
