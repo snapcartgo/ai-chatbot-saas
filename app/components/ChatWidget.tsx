@@ -18,13 +18,16 @@ export default function ChatWidget({
   const [userInput, setUserInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [botCategory, setBotCategory] = useState("Booking");
-  const [open, setOpen] = useState(false);
+
+  // 🔥 IMPORTANT FIX: embed should always be open
+  const [open, setOpen] = useState(isEmbed ? true : false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const activeBotId =
     chatbotId || "9ff1f58c-d09d-4449-97cc-a5860b640e2c";
 
+  // 🔥 LOAD BOT DATA
   useEffect(() => {
     const loadBot = async () => {
       try {
@@ -60,6 +63,7 @@ export default function ChatWidget({
     loadBot();
   }, [activeBotId]);
 
+  // 🔥 AUTO SCROLL
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop =
@@ -67,6 +71,7 @@ export default function ChatWidget({
     }
   }, [messages]);
 
+  // 🔥 SEND MESSAGE
   const handleSendMessage = async () => {
     if (!userInput.trim()) return;
 
@@ -131,8 +136,8 @@ export default function ChatWidget({
     <div
       className={
         isEmbed
-          ? "w-full h-screen"
-          : "fixed bottom-4 right-4 z-50"
+          ? "w-full h-screen font-sans"
+          : "fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-50 font-sans"
       }
     >
       {open && (
@@ -140,7 +145,7 @@ export default function ChatWidget({
           className={
             isEmbed
               ? "flex flex-col h-screen w-full bg-white"
-              : "flex flex-col w-[95vw] max-w-[360px] h-[80vh] max-h-[520px] bg-white rounded-2xl shadow-2xl border"
+              : "flex flex-col w-[90vw] max-w-[360px] h-[75vh] max-h-[520px] bg-white rounded-2xl shadow-2xl border overflow-hidden"
           }
         >
           {/* HEADER */}
@@ -177,7 +182,7 @@ export default function ChatWidget({
                   className={`max-w-[85%] p-2 rounded-xl text-xs md:text-sm ${
                     m.role === "user"
                       ? "bg-blue-600 text-white"
-                      : "bg-white text-gray-800 border"
+                      : "bg-white text-gray-800 border shadow-sm"
                   }`}
                 >
                   <span
@@ -226,7 +231,8 @@ export default function ChatWidget({
                 <a
                   href="https://ai-chatbot-saas-five.vercel.app"
                   target="_blank"
-                  className="font-medium"
+                  rel="noopener noreferrer"
+                  className="font-medium hover:text-blue-600"
                 >
                   aiautomation
                 </a>
@@ -240,7 +246,7 @@ export default function ChatWidget({
       {!isEmbed && (
         <button
           onClick={() => setOpen(!open)}
-          className="w-12 h-12 bg-blue-600 text-white rounded-full shadow-lg flex items-center justify-center text-xl"
+          className="w-12 h-12 bg-blue-600 text-white rounded-full shadow-lg flex items-center justify-center text-xl hover:scale-105 transition"
         >
           💬
         </button>
