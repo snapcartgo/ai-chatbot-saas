@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
-import Sidebar from "./sidebar"; // Ensure sidebar.tsx exists in app/dashboard/
+import Sidebar from "./sidebar";
 
 export default function DashboardLayout({
   children,
@@ -13,6 +13,7 @@ export default function DashboardLayout({
   const router = useRouter();
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [open, setOpen] = useState(false); // mobile sidebar toggle
 
   useEffect(() => {
     const checkUser = async () => {
@@ -40,36 +41,44 @@ export default function DashboardLayout({
   }
 
   return (
-    <div style={{ display: "flex", minHeight: "100vh", backgroundColor: "#000000" }}>
-      {/* Sidebar - Fixed width */}
+    <div className="flex min-h-screen bg-black">
+      
+      {/* 🔥 MOBILE MENU BUTTON */}
+      <button
+        className="md:hidden fixed top-4 left-4 z-50 bg-blue-600 text-white px-3 py-2 rounded"
+        onClick={() => setOpen(!open)}
+      >
+        ☰
+      </button>
+
+      {open && (
+        <div
+          className="fixed inset-0 bg-black/50 z-30 md:hidden"
+          onClick={() => setOpen(false)}
+        />
+      )}
+
+      {/* 🔥 SIDEBAR */}
       <aside
-        style={{
-          width: "240px",
-          background: "#111",
-          color: "#fff",
-          borderRight: "1px solid #222",
-        }}
+        className={`
+          fixed md:static top-0 left-0 h-full w-64 bg-[#111] text-white border-r border-[#222] z-40
+          transform ${open ? "translate-x-0" : "-translate-x-full"}
+          md:translate-x-0 transition-transform duration-300
+        `}
       >
         <Sidebar />
       </aside>
 
-      {/* Main Content Area */}
-      <main style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-        {/* User Status Bar */}
-        <div 
-          style={{ 
-            padding: "15px 30px", 
-            borderBottom: "1px solid #222", 
-            color: "#888",
-            fontSize: "14px",
-            backgroundColor: "#000"
-          }}
-        >
-          Logged in as: <span style={{ color: "#fff" }}>{userEmail}</span>
+      {/* 🔥 MAIN CONTENT */}
+      <main className="flex-1 flex flex-col w-full">
+        
+        {/* USER BAR */}
+        <div className="p-4 md:p-6 border-b border-[#222] text-gray-400 text-sm bg-black">
+          Logged in as: <span className="text-white">{userEmail}</span>
         </div>
 
-        {/* Dynamic Page Content */}
-        <div style={{ flex: 1, padding: "30px", backgroundColor: "#f9f9f9", color: "#000" }}>
+        {/* PAGE CONTENT */}
+        <div className="flex-1 p-4 md:p-6 bg-gray-100 text-black">
           {children}
         </div>
       </main>
