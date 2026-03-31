@@ -141,10 +141,10 @@ export default function PartnerPage() {
             <p className="text-gray-500 text-xs font-bold mb-4 uppercase">Referral Link</p>
             <div className="bg-black border border-gray-700 p-3 rounded-lg flex justify-between items-center">
               <code className="text-blue-400 text-xs truncate mr-2">
-                {`http://localhost:3000/signup?ref=${partner.referral_code}`}
+                {`https://ai-chatbot-saas-five.vercel.app/signup?ref=${partner.referral_code}`}
               </code>
               <button onClick={() => {
-                navigator.clipboard.writeText(`http://localhost:3000/signup?ref=${partner.referral_code}`);
+                navigator.clipboard.writeText(`https://ai-chatbot-saas-five.vercel.app/signup?ref=${partner.referral_code}`);
                 alert("Link Copied!");
               }} className="text-[10px] bg-blue-600 px-3 py-1 rounded font-bold">COPY</button>
             </div>
