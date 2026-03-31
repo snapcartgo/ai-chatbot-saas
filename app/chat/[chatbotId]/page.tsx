@@ -1,6 +1,9 @@
 import ChatWidget from "@/app/components/ChatWidget";
 import { createClient } from "@supabase/supabase-js";
 
+export const metadata = {
+  viewport: "width=device-width, initial-scale=1",
+};
 // This tells Vercel NOT to cache this page so every Client ID works
 export const dynamic = "force-dynamic";
 
@@ -43,11 +46,8 @@ export default async function ChatEmbed({
   }
 
   return (
-    <main className="fixed inset-0 bg-white overflow-hidden">
-      {/* CRITICAL: We pass the chatbotId we got from the URL here. 
-         If this is empty, the widget will use your fallback Admin ID.
-      */}
-      <ChatWidget chatbotId={chatbotId} isEmbed={true} plan={plan} />
-    </main>
-  );
+  <main className="w-full h-screen bg-white">
+    <ChatWidget chatbotId={chatbotId} isEmbed={true} plan={plan} />
+  </main>
+);
 }

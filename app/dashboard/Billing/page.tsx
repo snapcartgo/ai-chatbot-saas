@@ -14,7 +14,6 @@ export default function BillingPage() {
     getUser();
   }, []);
 
-  // 🔥 COMMON HANDLER
   const handlePayment = (
     planId: string,
     price: number,
@@ -25,7 +24,6 @@ export default function BillingPage() {
       return;
     }
 
-    // ✅ Redirect to backend API
     window.location.href = `/api/${gateway}?plan=${planId}&email=${userEmail}&amount=${price}`;
   };
 
@@ -57,54 +55,70 @@ export default function BillingPage() {
   ];
 
   return (
-    <div className="p-10 bg-black min-h-screen text-white">
-      <h1 className="text-3xl font-bold mb-2">Billing Plans</h1>
-      <p className="text-gray-400 mb-8">
+    <div className="p-4 md:p-8 bg-black min-h-screen text-white w-full">
+
+      {/* HEADER */}
+      <h1 className="text-xl md:text-3xl font-bold mb-2">
+        Billing Plans
+      </h1>
+
+      <p className="text-gray-400 mb-6 md:mb-8 text-sm md:text-base">
         Choose the plan that fits your business needs.
       </p>
 
-      <div className="grid md:grid-cols-3 gap-8">
+      {/* GRID */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
+
         {plans.map((plan) => (
           <div
             key={plan.name}
-            className="border border-gray-800 rounded-2xl p-8 bg-gray-900 flex flex-col"
+            className="border border-gray-800 rounded-2xl p-5 md:p-6 bg-gray-900 flex flex-col"
           >
-            <h2 className="text-2xl font-bold mb-1">{plan.name}</h2>
 
-            <p className="text-blue-500 font-bold text-xl mb-4">
+            {/* TITLE */}
+            <h2 className="text-lg md:text-2xl font-bold mb-1">
+              {plan.name}
+            </h2>
+
+            {/* PRICE */}
+            <p className="text-blue-500 font-bold text-lg md:text-xl mb-3">
               ₹{plan.price}
             </p>
 
-            <p className="text-gray-400 mb-6 text-sm">
+            {/* DESC */}
+            <p className="text-gray-400 mb-5 text-xs md:text-sm">
               {plan.description}
             </p>
 
-            <div className="space-y-3 mb-8 text-sm text-gray-300 flex-grow">
+            {/* FEATURES */}
+            <div className="space-y-2 mb-6 text-xs md:text-sm text-gray-300 flex-grow">
               <p>✅ {plan.messages}</p>
               <p>✅ {plan.bots}</p>
             </div>
 
-            {/* 🔥 PAYU BUTTON */}
+            {/* PAYU */}
             <button
               onClick={() =>
                 handlePayment(plan.planId, plan.price, "payu")
               }
-              className="w-full bg-blue-600 py-3 rounded-xl font-bold mb-3 hover:bg-blue-700 transition"
+              className="w-full bg-blue-600 py-2 md:py-3 rounded-xl font-bold mb-2 hover:bg-blue-700 transition text-sm md:text-base"
             >
               Pay with PayU
             </button>
 
-            {/* 🔥 PAYPAL BUTTON */}
+            {/* PAYPAL */}
             <button
               onClick={() =>
                 handlePayment(plan.planId, plan.price, "paypal")
               }
-              className="w-full border border-gray-700 py-3 rounded-xl font-bold hover:bg-gray-800 transition"
+              className="w-full border border-gray-700 py-2 md:py-3 rounded-xl font-bold hover:bg-gray-800 transition text-sm md:text-base"
             >
               Pay with PayPal
             </button>
+
           </div>
         ))}
+
       </div>
     </div>
   );
