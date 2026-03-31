@@ -16,7 +16,7 @@ export default function Sidebar() {
     { name: "Orders", href: "/dashboard/orders" },
     { name: "Knowledge Base", href: "/dashboard/knowledge-base" },
     { name: "Payment Settings", href: "/dashboard/settings/payments" },
-    { name: "Billing", href: "/dashboard/billing" },
+    { name: "Billing", href: "/dashboard/Billing" },
   ];
 
   return (
