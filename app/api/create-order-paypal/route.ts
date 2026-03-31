@@ -10,25 +10,12 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
 
-    const {
-      id,
-      bot_id,
-      user_id,
-      product_name,
-      price,
-      customer_email,
-      phone,
-      name,
-    } = body;
+    const { id, user_id, price } = body;
 
     if (!id || !user_id) {
-      return NextResponse.json(
-        { error: "Missing order data" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Missing data" }, { status: 400 });
     }
 
-    // ✅ Get PayPal credentials
     const { data: profile } = await supabase
       .from("profiles")
       .select("paypal_client_id, paypal_secret")
@@ -42,11 +29,9 @@ export async function POST(req: Request) {
       );
     }
 
-    const clientId = profile.paypal_client_id;
-    const secret = profile.paypal_secret;
-
-    // ✅ Get access token
-    const auth = Buffer.from(`${clientId}:${secret}`).toString("base64");
+    const auth = Buffer.from(
+      `${profile.paypal_client_id}:${profile.paypal_secret}`
+    ).toString("base64");
 
     const tokenRes = await fetch(
       "https://api-m.sandbox.paypal.com/v1/oauth2/token",
@@ -61,22 +46,23 @@ export async function POST(req: Request) {
     );
 
     const tokenData = await tokenRes.json();
-    const accessToken = tokenData.access_token;
 
-    // ✅ Create PayPal order
+    if (!tokenData.access_token) {
+      throw new Error("PayPal token failed");
+    }
+
     const orderRes = await fetch(
       "https://api-m.sandbox.paypal.com/v2/checkout/orders",
       {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${accessToken}`,
+          Authorization: `Bearer ${tokenData.access_token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
           intent: "CAPTURE",
           purchase_units: [
             {
-              reference_id: id,
               amount: {
                 currency_code: "USD",
                 value: Number(price || 1).toFixed(2),
@@ -98,37 +84,14 @@ export async function POST(req: Request) {
     )?.href;
 
     if (!approvalUrl) {
-      throw new Error("No PayPal approval URL found");
+      throw new Error("No approval URL");
     }
-
-    // ✅ Save order
-    const { error } = await supabase.from("orders").upsert(
-      [
-        {
-          id,
-          bot_id,
-          user_id,
-          product_name,
-          price,
-          customer_email,
-          phone,
-          name,
-          payment_status: "pending",
-          payment_provider: "paypal",
-          paypal_order_id: orderData.id,
-        },
-      ],
-      { onConflict: "id" }
-    );
-
-    if (error) throw error;
 
     return NextResponse.json({
       success: true,
       payUrl: approvalUrl,
     });
   } catch (err: any) {
-    console.error("PayPal API Error:", err);
     return NextResponse.json(
       { error: err.message },
       { status: 500 }
