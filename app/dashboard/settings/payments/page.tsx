@@ -5,9 +5,17 @@ import { supabase } from "@/lib/supabase";
 
 export default function PaymentSettingsPage() {
   const [user, setUser] = useState<any>(null);
+
+  // PayU
   const [merchantKey, setMerchantKey] = useState("");
   const [merchantSalt, setMerchantSalt] = useState("");
   const [payuActive, setPayuActive] = useState(false);
+
+  // PayPal ✅ NEW
+  const [paypalClientId, setPaypalClientId] = useState("");
+  const [paypalSecret, setPaypalSecret] = useState("");
+  const [paypalActive, setPaypalActive] = useState(false);
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -32,9 +40,15 @@ export default function PaymentSettingsPage() {
         .single();
 
       if (data) {
+        // PayU
         setMerchantKey(data.payu_merchant_key || "");
         setMerchantSalt(data.payu_merchant_salt || "");
         setPayuActive(data.payu_is_active || false);
+
+        // PayPal ✅
+        setPaypalClientId(data.paypal_client_id || "");
+        setPaypalSecret(data.paypal_secret || "");
+        setPaypalActive(data.paypal_is_active || false);
       }
 
       setLoading(false);
@@ -49,19 +63,29 @@ export default function PaymentSettingsPage() {
 
     setSaving(true);
 
-   const { error } = await supabase
-  .from("profiles")
-  .upsert({
-    id: user.id,
-    payu_merchant_key: merchantKey,
-    payu_merchant_salt: merchantSalt,
-    payu_is_active: payuActive,
-  });
+    const { error } = await supabase
+      .from("profiles")
+      .upsert({
+        id: user.id,
 
-if (error) {
-  console.error("ERROR:", error);
-  alert(error.message);
-}
+        // PayU
+        payu_merchant_key: merchantKey,
+        payu_merchant_salt: merchantSalt,
+        payu_is_active: payuActive,
+
+        // PayPal ✅
+        paypal_client_id: paypalClientId,
+        paypal_secret: paypalSecret,
+        paypal_is_active: paypalActive,
+      });
+
+    setSaving(false);
+
+    if (error) {
+      console.error("ERROR:", error);
+      alert(error.message);
+      return;
+    }
 
     alert("Saved successfully!");
   };
@@ -72,11 +96,12 @@ if (error) {
 
   return (
     <div style={{ padding: 30, maxWidth: 600 }}>
+      
+      {/* ---------------- PayU ---------------- */}
       <h1 style={{ fontSize: 22, marginBottom: 20 }}>
         PayU Settings
       </h1>
 
-      {/* Merchant Key */}
       <div style={{ marginBottom: 20 }}>
         <label>Merchant Key</label>
         <input
@@ -88,7 +113,6 @@ if (error) {
         />
       </div>
 
-      {/* Merchant Salt */}
       <div style={{ marginBottom: 20 }}>
         <label>Merchant Salt</label>
         <input
@@ -100,8 +124,7 @@ if (error) {
         />
       </div>
 
-      {/* Active Toggle */}
-      <div style={{ marginBottom: 20 }}>
+      <div style={{ marginBottom: 30 }}>
         <label>
           <input
             type="checkbox"
@@ -112,6 +135,45 @@ if (error) {
         </label>
       </div>
 
+      {/* ---------------- PayPal ---------------- */}
+      <h1 style={{ fontSize: 22, marginBottom: 20 }}>
+        PayPal Settings
+      </h1>
+
+      <div style={{ marginBottom: 20 }}>
+        <label>PayPal Client ID</label>
+        <input
+          type="text"
+          value={paypalClientId}
+          onChange={(e) => setPaypalClientId(e.target.value)}
+          placeholder="Enter PayPal Client ID"
+          style={inputStyle}
+        />
+      </div>
+
+      <div style={{ marginBottom: 20 }}>
+        <label>PayPal Secret</label>
+        <input
+          type="text"
+          value={paypalSecret}
+          onChange={(e) => setPaypalSecret(e.target.value)}
+          placeholder="Enter PayPal Secret"
+          style={inputStyle}
+        />
+      </div>
+
+      <div style={{ marginBottom: 20 }}>
+        <label>
+          <input
+            type="checkbox"
+            checked={paypalActive}
+            onChange={(e) => setPaypalActive(e.target.checked)}
+          />{" "}
+          Enable PayPal
+        </label>
+      </div>
+
+      {/* Save Button */}
       <button onClick={handleSave} disabled={saving} style={btnStyle}>
         {saving ? "Saving..." : "Save"}
       </button>
@@ -119,6 +181,7 @@ if (error) {
   );
 }
 
+// Styles
 const inputStyle = {
   width: "100%",
   padding: 10,
