@@ -12,6 +12,7 @@ export async function GET(req: Request) {
 
     const paypalOrderId = searchParams.get("token");
     const orderId = searchParams.get("order_id");
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
 
     if (!paypalOrderId || !orderId) {
       return NextResponse.json(
@@ -20,9 +21,16 @@ export async function GET(req: Request) {
       );
     }
 
+    if (!baseUrl) {
+      return NextResponse.json(
+        { error: "NEXT_PUBLIC_BASE_URL is not configured" },
+        { status: 500 }
+      );
+    }
+
     const { data: order, error: orderError } = await supabase
       .from("orders")
-      .select("id, user_id, payu_data")
+      .select("id, user_id, paypal_data, payu_data")
       .eq("id", orderId)
       .single();
 
@@ -45,7 +53,10 @@ export async function GET(req: Request) {
 
     if (profileError || !profile?.paypal_client_id || !profile?.paypal_secret) {
       return NextResponse.json(
-        { error: "PayPal credentials missing" },
+        {
+          error: "PayPal credentials missing",
+          profile_error: profileError,
+        },
         { status: 400 }
       );
     }
@@ -101,10 +112,14 @@ export async function GET(req: Request) {
       );
     }
 
-    const captureStatus = captureData.status;
+    const captureId =
+      captureData.purchase_units?.[0]?.payments?.captures?.[0]?.id ??
+      paypalOrderId;
+
     const completed =
-      captureStatus === "COMPLETED" ||
-      captureData.purchase_units?.[0]?.payments?.captures?.[0]?.status === "COMPLETED";
+      captureData.status === "COMPLETED" ||
+      captureData.purchase_units?.[0]?.payments?.captures?.[0]?.status ===
+        "COMPLETED";
 
     if (!completed) {
       return NextResponse.json(
@@ -116,11 +131,19 @@ export async function GET(req: Request) {
       );
     }
 
-    const captureId =
-      captureData.purchase_units?.[0]?.payments?.captures?.[0]?.id ?? paypalOrderId;
+    let existingPaypalData: any = {};
+    try {
+      existingPaypalData = order.paypal_data
+        ? typeof order.paypal_data === "string"
+          ? JSON.parse(order.paypal_data)
+          : order.paypal_data
+        : {};
+    } catch {
+      existingPaypalData = {};
+    }
 
-    const mergedPayuData = {
-      ...(order.payu_data ?? {}),
+    const mergedPaypalData = {
+      ...existingPaypalData,
       provider: "paypal",
       paypal_order_id: paypalOrderId,
       paypal_capture_id: captureId,
@@ -132,7 +155,7 @@ export async function GET(req: Request) {
       .update({
         payment_status: "paid",
         payment_id: captureId,
-        payu_data: mergedPayuData,
+        paypal_data: JSON.stringify(mergedPaypalData),
       })
       .eq("id", orderId);
 
@@ -147,7 +170,7 @@ export async function GET(req: Request) {
     }
 
     return NextResponse.redirect(
-      `${process.env.NEXT_PUBLIC_BASE_URL}/success?order_id=${orderId}`
+      `${baseUrl}/order-success?order_id=${orderId}`
     );
   } catch (err: any) {
     return NextResponse.json(
