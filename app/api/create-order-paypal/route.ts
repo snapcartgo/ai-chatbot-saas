@@ -21,39 +21,29 @@ export async function POST(req: Request) {
       bot_id,
     } = body;
 
-    // ✅ Validate required fields
+    // 1. Validate required fields
     if (!id || !user_id || !price) {
       return NextResponse.json(
-        { error: "Missing required fields" },
+        { error: "Missing required fields (id, user_id, or price)" },
         { status: 400 }
       );
     }
 
-    console.log("BODY RECEIVED:", body);
-
-    // ✅ Fetch PayPal credentials
+    // 2. Fetch PayPal credentials from Supabase
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
       .select("paypal_client_id, paypal_secret")
       .eq("id", user_id)
       .single();
 
-    if (profileError || !profile) {
-      console.error("Supabase error:", profileError);
+    if (profileError || !profile || !profile.paypal_client_id || !profile.paypal_secret) {
       return NextResponse.json(
-        { error: "User not found in profiles" },
+        { error: "PayPal credentials not found or incomplete for this profile" },
         { status: 400 }
       );
     }
 
-    if (!profile.paypal_client_id || !profile.paypal_secret) {
-      return NextResponse.json(
-        { error: "PayPal credentials missing" },
-        { status: 400 }
-      );
-    }
-
-    // ✅ PayPal Auth
+    // 3. PayPal Authentication
     const auth = Buffer.from(
       `${profile.paypal_client_id}:${profile.paypal_secret}`
     ).toString("base64");
@@ -71,16 +61,12 @@ export async function POST(req: Request) {
     );
 
     const tokenData = await tokenRes.json();
-
     if (!tokenData.access_token) {
-      console.error("PayPal Auth Failed:", tokenData);
-      return NextResponse.json(
-        { error: "PayPal authentication failed" },
-        { status: 500 }
-      );
+      throw new Error("Failed to retrieve PayPal access token");
     }
 
-    // ✅ CLEAN PAYPAL REQUEST (VERY IMPORTANT)
+    // 4. Create PayPal Order with exact schema matching
+    // Note: Use 'payment_source' for modern PayPal API compliance
     const orderRes = await fetch(
       "https://api-m.sandbox.paypal.com/v2/checkout/orders",
       {
@@ -93,18 +79,25 @@ export async function POST(req: Request) {
           intent: "CAPTURE",
           purchase_units: [
             {
-              description: product_name || "Product",
+              reference_id: id,
+              description: product_name?.substring(0, 127) || "Order",
               amount: {
                 currency_code: "USD",
-                value: Number(price).toFixed(2),
+                value: parseFloat(price.toString()).toFixed(2),
               },
             },
           ],
-          application_context: {
-            brand_name: "AI Automation Agency",
-            user_action: "PAY_NOW",
-            return_url: `${process.env.NEXT_PUBLIC_BASE_URL}/api/order-success-paypal?order_id=${id}`,
-            cancel_url: `${process.env.NEXT_PUBLIC_BASE_URL}/order-failed?order_id=${id}`,
+          payment_source: {
+            paypal: {
+              experience_context: {
+                brand_name: "AI Automation Agency",
+                locale: "en-US",
+                user_action: "PAY_NOW",
+                payment_method_preference: "IMMEDIATE_PAYMENT_REQUIRED",
+                return_url: `${process.env.NEXT_PUBLIC_BASE_URL}/api/order-success-paypal?order_id=${id}`,
+                cancel_url: `${process.env.NEXT_PUBLIC_BASE_URL}/order-failed?order_id=${id}`,
+              },
+            },
           },
         }),
       }
@@ -112,33 +105,23 @@ export async function POST(req: Request) {
 
     const orderData = await orderRes.json();
 
-    // 🔥 FULL DEBUG
-    console.log("PAYPAL RESPONSE:", JSON.stringify(orderData, null, 2));
-
     if (!orderRes.ok) {
-      return NextResponse.json(
-        { error: orderData },
-        { status: 500 }
-      );
+      console.error("PAYPAL ERROR DETAILS:", JSON.stringify(orderData, null, 2));
+      return NextResponse.json({ error: orderData }, { status: 500 });
     }
 
-    const approvalUrl = orderData.links?.find(
-      (l: any) => l.rel === "approve"
-    )?.href;
+    const approvalUrl = orderData.links?.find((l: any) => l.rel === "payer-action" || l.rel === "approve")?.href;
 
     if (!approvalUrl) {
-      return NextResponse.json(
-        { error: "No approval URL from PayPal" },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: "No approval URL returned from PayPal" }, { status: 500 });
     }
 
-    // ✅ Save order
+    // 5. Save to Supabase (only if PayPal order creation succeeded)
     await supabase.from("orders").insert({
       order_id: id,
       user_id,
       product_name,
-      price,
+      price: parseFloat(price.toString()),
       customer_email,
       phone,
       name,
@@ -151,17 +134,12 @@ export async function POST(req: Request) {
       success: true,
       payment_link: approvalUrl,
       order_id: id,
-      product_name,
-      price,
-      customer_email,
-      phone,
-      name,
     });
 
   } catch (err: any) {
-    console.error("FINAL ERROR:", err);
+    console.error("SERVER ERROR:", err.message);
     return NextResponse.json(
-      { error: err.message || "Server error" },
+      { error: err.message || "Internal Server Error" },
       { status: 500 }
     );
   }
