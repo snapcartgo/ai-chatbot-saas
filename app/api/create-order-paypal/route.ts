@@ -51,7 +51,8 @@ export async function POST(req: Request) {
       throw new Error("PayPal token failed");
     }
 
-   const orderRes = await fetch(
+   // Replace your current orderRes fetch with this:
+const orderRes = await fetch(
   "https://api-m.sandbox.paypal.com/v2/checkout/orders",
   {
     method: "POST",
@@ -73,7 +74,7 @@ export async function POST(req: Request) {
         paypal: {
           experience_context: {
             payment_method_preference: "IMMEDIATE_PAYMENT_REQUIRED",
-            brand_name: "Your SaaS Name",
+            brand_name: "AI Automation Agency",
             locale: "en-US",
             user_action: "PAY_NOW",
             return_url: `${process.env.NEXT_PUBLIC_BASE_URL}/api/order-success-paypal?order_id=${id}`,
