@@ -51,31 +51,39 @@ export async function POST(req: Request) {
       throw new Error("PayPal token failed");
     }
 
-    const orderRes = await fetch(
-      "https://api-m.sandbox.paypal.com/v2/checkout/orders",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${tokenData.access_token}`,
-          "Content-Type": "application/json",
+   const orderRes = await fetch(
+  "https://api-m.sandbox.paypal.com/v2/checkout/orders",
+  {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${tokenData.access_token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      intent: "CAPTURE",
+      purchase_units: [
+        {
+          amount: {
+            currency_code: "USD",
+            value: Number(price || 1).toFixed(2),
+          },
         },
-        body: JSON.stringify({
-          intent: "CAPTURE",
-          purchase_units: [
-            {
-              amount: {
-                currency_code: "USD",
-                value: Number(price || 1).toFixed(2),
-              },
-            },
-          ],
-          application_context: {
+      ],
+      payment_source: {
+        paypal: {
+          experience_context: {
+            payment_method_preference: "IMMEDIATE_PAYMENT_REQUIRED",
+            brand_name: "Your SaaS Name",
+            locale: "en-US",
+            user_action: "PAY_NOW",
             return_url: `${process.env.NEXT_PUBLIC_BASE_URL}/api/order-success-paypal?order_id=${id}`,
             cancel_url: `${process.env.NEXT_PUBLIC_BASE_URL}/order-failed?order_id=${id}`,
-          },
-        }),
+          }
+        }
       }
-    );
+    }),
+  }
+);
 
     const orderData = await orderRes.json();
 
@@ -89,7 +97,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       success: true,
-      payUrl: approvalUrl,
+      payment_link: approvalUrl, // Use 'payment_link' to match PayU
     });
   } catch (err: any) {
     return NextResponse.json(
