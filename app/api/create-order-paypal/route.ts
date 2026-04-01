@@ -10,14 +10,14 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
 
-    // Ensure these keys match exactly what you send from the n8n HTTP Request body
+    // Ensure n8n passes 'id' (order_id), 'user_id', and 'price'
     const { id, user_id, price } = body;
 
     if (!id || !user_id) {
       return NextResponse.json({ error: "Missing id or user_id in request body" }, { status: 400 });
     }
 
-    // 1. Fetch the specific user's PayPal credentials from Supabase
+    // 1. Fetch user's unique PayPal credentials from Supabase
     const { data: profile } = await supabase
       .from("profiles")
       .select("paypal_client_id, paypal_secret")
@@ -26,12 +26,12 @@ export async function POST(req: Request) {
 
     if (!profile?.paypal_client_id || !profile?.paypal_secret) {
       return NextResponse.json(
-        { error: "PayPal credentials not found for this user in Supabase" },
+        { error: "PayPal credentials not configured in Supabase for this user" },
         { status: 400 }
       );
     }
 
-    // 2. Generate Basic Auth Token for PayPal
+    // 2. Authenticate with PayPal Sandbox
     const auth = Buffer.from(
       `${profile.paypal_client_id}:${profile.paypal_secret}`
     ).toString("base64");
@@ -51,11 +51,11 @@ export async function POST(req: Request) {
     const tokenData = await tokenRes.json();
 
     if (!tokenData.access_token) {
-      console.error("PayPal Auth Error:", tokenData);
-      throw new Error(`PayPal Token Failed: ${tokenData.error_description || "Check Client ID/Secret"}`);
+      console.error("PayPal Auth Failed:", tokenData);
+      throw new Error(`Auth Error: ${tokenData.error_description || "Invalid Credentials"}`);
     }
 
-    // 3. Create the PayPal Order with the updated experience_context
+    // 3. Create PayPal Order
     const orderRes = await fetch(
       "https://api-m.sandbox.paypal.com/v2/checkout/orders",
       {
@@ -70,7 +70,8 @@ export async function POST(req: Request) {
             {
               amount: {
                 currency_code: "USD",
-                value: Number(price || 1).toFixed(2), // Ensures correct decimal format (e.g., "1.00")
+                // FIX: Ensures price is a string with 2 decimals (e.g., "1.00")
+                value: parseFloat(price?.toString() || "1").toFixed(2), 
               },
             },
           ],
@@ -92,9 +93,10 @@ export async function POST(req: Request) {
 
     const orderData = await orderRes.json();
 
-    // DEBUG LOG: Check this in your Vercel logs if you still see "No approval URL"
+    // LOGGING: If this fails, check Vercel Logs for the specific schema error
     if (!orderRes.ok) {
-        console.error("PAYPAL API ERROR RESPONSE:", JSON.stringify(orderData, null, 2));
+        console.error("PAYPAL SCHEMA ERROR:", JSON.stringify(orderData, null, 2));
+        throw new Error(orderData.message || "PayPal Order Creation Failed");
     }
 
     const approvalUrl = orderData.links?.find(
@@ -102,17 +104,17 @@ export async function POST(req: Request) {
     )?.href;
 
     if (!approvalUrl) {
-      throw new Error(`No approval URL: ${orderData.message || "Unknown PayPal Error"}`);
+      throw new Error("No approval URL returned by PayPal");
     }
 
-    // 4. Return the link using 'payment_link' to match your n8n logic
+    // 4. Return 'payment_link' to match your n8n chatbot logic
     return NextResponse.json({
       success: true,
       payment_link: approvalUrl,
     });
 
   } catch (err: any) {
-    console.error("CRITICAL ERROR:", err.message);
+    console.error("Endpoint Error:", err.message);
     return NextResponse.json(
       { error: err.message },
       { status: 500 }
