@@ -22,7 +22,7 @@ export async function GET(req: Request) {
 
     const { data: order, error: orderError } = await supabase
       .from("orders")
-      .select("id, user_id, payu_data")
+      .select("id, user_id, paypal_data")
       .eq("id", orderId)
       .single();
 
@@ -119,8 +119,8 @@ export async function GET(req: Request) {
     const captureId =
       captureData.purchase_units?.[0]?.payments?.captures?.[0]?.id ?? paypalOrderId;
 
-    const mergedPayuData = {
-      ...(order.payu_data ?? {}),
+    const paypalData = {
+      ...(order.paypal_data ? JSON.parse(order.paypal_data) : {}),
       provider: "paypal",
       paypal_order_id: paypalOrderId,
       paypal_capture_id: captureId,
@@ -132,7 +132,7 @@ export async function GET(req: Request) {
       .update({
         payment_status: "paid",
         payment_id: captureId,
-        payu_data: mergedPayuData,
+        paypal_data: JSON.stringify(paypalData),
       })
       .eq("id", orderId);
 
@@ -147,7 +147,7 @@ export async function GET(req: Request) {
     }
 
     return NextResponse.redirect(
-      `${process.env.NEXT_PUBLIC_BASE_URL}/success?order_id=${orderId}`
+      `${process.env.NEXT_PUBLIC_BASE_URL}/payment-success?order_id=${orderId}`
     );
   } catch (err: any) {
     return NextResponse.json(
