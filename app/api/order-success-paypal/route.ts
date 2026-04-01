@@ -10,7 +10,7 @@ export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
 
-    const paypalOrderId = searchParams.get("token"); // PayPal sends this
+    const paypalOrderId = searchParams.get("token");
     const orderId = searchParams.get("order_id");
 
     if (!paypalOrderId || !orderId) {
@@ -20,38 +20,39 @@ export async function GET(req: Request) {
       );
     }
 
-    // ✅ Get user credentials from DB
-    const { data: order } = await supabase
+    const { data: order, error: orderError } = await supabase
       .from("orders")
-      .select("user_id")
+      .select("id, user_id, payu_data")
       .eq("id", orderId)
       .single();
 
-    if (!order) {
+    if (orderError || !order) {
       return NextResponse.json(
-        { error: "Order not found" },
+        {
+          error: "Order not found",
+          details: orderError,
+          order_id: orderId,
+        },
         { status: 404 }
       );
     }
 
-    const { data: profile } = await supabase
+    const { data: profile, error: profileError } = await supabase
       .from("profiles")
       .select("paypal_client_id, paypal_secret")
       .eq("id", order.user_id)
       .single();
 
-    if (!profile) {
+    if (profileError || !profile?.paypal_client_id || !profile?.paypal_secret) {
       return NextResponse.json(
         { error: "PayPal credentials missing" },
         { status: 400 }
       );
     }
 
-    const clientId = profile.paypal_client_id;
-    const secret = profile.paypal_secret;
-
-    // ✅ STEP 1: Get Access Token
-    const auth = Buffer.from(`${clientId}:${secret}`).toString("base64");
+    const auth = Buffer.from(
+      `${profile.paypal_client_id}:${profile.paypal_secret}`
+    ).toString("base64");
 
     const tokenRes = await fetch(
       "https://api-m.sandbox.paypal.com/v1/oauth2/token",
@@ -66,15 +67,23 @@ export async function GET(req: Request) {
     );
 
     const tokenData = await tokenRes.json();
-    const accessToken = tokenData.access_token;
 
-    // ✅ STEP 2: CAPTURE PAYMENT (🔥 VERY IMPORTANT)
+    if (!tokenRes.ok || !tokenData.access_token) {
+      return NextResponse.json(
+        {
+          error: "Failed to get PayPal access token",
+          paypal: tokenData,
+        },
+        { status: 500 }
+      );
+    }
+
     const captureRes = await fetch(
       `https://api-m.sandbox.paypal.com/v2/checkout/orders/${paypalOrderId}/capture`,
       {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${accessToken}`,
+          Authorization: `Bearer ${tokenData.access_token}`,
           "Content-Type": "application/json",
         },
       }
@@ -82,30 +91,67 @@ export async function GET(req: Request) {
 
     const captureData = await captureRes.json();
 
-    if (captureData.status !== "COMPLETED") {
+    if (!captureRes.ok) {
       return NextResponse.json(
-        { error: "Payment not completed" },
+        {
+          error: "PayPal capture failed",
+          paypal: captureData,
+        },
+        { status: 500 }
+      );
+    }
+
+    const captureStatus = captureData.status;
+    const completed =
+      captureStatus === "COMPLETED" ||
+      captureData.purchase_units?.[0]?.payments?.captures?.[0]?.status === "COMPLETED";
+
+    if (!completed) {
+      return NextResponse.json(
+        {
+          error: "Payment not completed",
+          paypal: captureData,
+        },
         { status: 400 }
       );
     }
 
-    // ✅ STEP 3: Update DB
-    await supabase
+    const captureId =
+      captureData.purchase_units?.[0]?.payments?.captures?.[0]?.id ?? paypalOrderId;
+
+    const mergedPayuData = {
+      ...(order.payu_data ?? {}),
+      provider: "paypal",
+      paypal_order_id: paypalOrderId,
+      paypal_capture_id: captureId,
+      paypal_capture_response: captureData,
+    };
+
+    const { error: updateError } = await supabase
       .from("orders")
       .update({
         payment_status: "paid",
-        paypal_capture_data: captureData,
+        payment_id: captureId,
+        payu_data: mergedPayuData,
       })
       .eq("id", orderId);
 
-    // ✅ STEP 4: Redirect to success page
+    if (updateError) {
+      return NextResponse.json(
+        {
+          error: "Failed to update order in Supabase",
+          supabase: updateError,
+        },
+        { status: 500 }
+      );
+    }
+
     return NextResponse.redirect(
       `${process.env.NEXT_PUBLIC_BASE_URL}/success?order_id=${orderId}`
     );
   } catch (err: any) {
-    console.error("PayPal Success Error:", err);
     return NextResponse.json(
-      { error: err.message },
+      { error: err.message || "Internal server error" },
       { status: 500 }
     );
   }
