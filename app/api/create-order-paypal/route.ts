@@ -76,29 +76,39 @@ export async function POST(req: Request) {
           Authorization: `Bearer ${tokenData.access_token}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          intent: "CAPTURE",
-          purchase_units: [
-            {
-              reference_id: id, // ✅ important
-              description: product_name || "Product",
-              amount: {
-                currency_code: "USD",
-                value: parseFloat(price.toString()).toFixed(2),
-              },
-            },
-          ],
-          payment_source: {
-            paypal: {
-              experience_context: {
-                brand_name: "AI Automation Agency",
-                user_action: "PAY_NOW",
-                return_url: `${process.env.NEXT_PUBLIC_BASE_URL}/api/order-success-paypal?order_id=${id}`,
-                cancel_url: `${process.env.NEXT_PUBLIC_BASE_URL}/order-failed?order_id=${id}`,
-              },
-            },
-          },
-        }),
+       body: JSON.stringify({
+  intent: "CAPTURE",
+  purchase_units: [
+    {
+      // ✅ keep it simple
+      reference_id: id.substring(0, 20),
+
+      // ✅ fallback if missing
+      description: product_name || "Product",
+
+      amount: {
+        currency_code: "USD",
+        value: Number(price).toFixed(2),
+      },
+    },
+  ],
+
+  // ✅ ADD THIS (IMPORTANT)
+  payer: {
+    email_address: customer_email || "test@example.com",
+  },
+
+  payment_source: {
+    paypal: {
+      experience_context: {
+        brand_name: "AI Automation Agency",
+        user_action: "PAY_NOW",
+        return_url: `${process.env.NEXT_PUBLIC_BASE_URL}/api/order-success-paypal?order_id=${id}`,
+        cancel_url: `${process.env.NEXT_PUBLIC_BASE_URL}/order-failed?order_id=${id}`,
+      },
+    },
+  },
+})
       }
     );
 
@@ -106,7 +116,8 @@ export async function POST(req: Request) {
 
     if (!orderRes.ok) {
       console.error("PAYPAL ERROR:", orderData);
-      throw new Error(orderData.message || "PayPal Order Failed");
+      console.error("FULL PAYPAL ERROR:", JSON.stringify(orderData, null, 2));
+throw new Error(JSON.stringify(orderData));
     }
 
     const approvalUrl = orderData.links?.find(
