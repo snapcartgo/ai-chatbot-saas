@@ -10,20 +10,40 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
 
+    const normalizedId = body.id ?? body.order_id;
+    const normalizedUserId = body.user_id ?? body.userId;
+    const normalizedPrice = body.price;
+    const normalizedProductName = body.product_name ?? body.productName;
+    const normalizedCustomerEmail = body.customer_email ?? body.email;
+    const normalizedPhone = body.phone;
+    const normalizedName = body.name;
+    const normalizedBotId = body.bot_id ?? body.botId;
+    const normalizedCurrency = (body.currency ?? "USD").toString().toUpperCase();
+
     const {
-      id,
-      user_id,
-      price,
-      product_name,
-      customer_email,
-      phone,
-      name,
-      bot_id,
+      id = normalizedId,
+      user_id = normalizedUserId,
+      price = normalizedPrice,
+      product_name = normalizedProductName,
+      customer_email = normalizedCustomerEmail,
+      phone = normalizedPhone,
+      name = normalizedName,
+      bot_id = normalizedBotId,
     } = body;
 
+    const parsedPrice = Number(price);
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
+
     // 1. Check for basic fields
-    if (!id || !user_id || !price) {
+    if (!id || !user_id || Number.isNaN(parsedPrice) || parsedPrice <= 0) {
       return NextResponse.json({ error: "Missing id, user_id, or price" }, { status: 400 });
+    }
+
+    if (!baseUrl) {
+      return NextResponse.json(
+        { error: "NEXT_PUBLIC_BASE_URL is not configured" },
+        { status: 500 }
+      );
     }
 
     // 2. Fetch Credentials
@@ -63,15 +83,15 @@ export async function POST(req: Request) {
         purchase_units: [{
           reference_id: id.toString(),
           amount: {
-            currency_code: "USD",
-            value: parseFloat(price.toString()).toFixed(2), // Force string "X.XX"
+            currency_code: normalizedCurrency,
+            value: parsedPrice.toFixed(2), // Force string "X.XX"
           }
         }],
         application_context: {
           brand_name: "AI SaaS",
           user_action: "PAY_NOW",
-          return_url: `${process.env.NEXT_PUBLIC_BASE_URL}/api/order-success-paypal?order_id=${id}`,
-          cancel_url: `${process.env.NEXT_PUBLIC_BASE_URL}/order-failed`,
+          return_url: `${baseUrl}/api/order-success-paypal?order_id=${id}`,
+          cancel_url: `${baseUrl}/order-failed`,
         }
       }),
     });
@@ -80,7 +100,21 @@ export async function POST(req: Request) {
 
     if (!orderRes.ok) {
       console.error("PayPal Schema Error Details:", JSON.stringify(orderData, null, 2));
-      return NextResponse.json({ error: orderData }, { status: 500 });
+      return NextResponse.json(
+        {
+          error: "PayPal order creation failed",
+          paypal: orderData,
+          request_payload: {
+            id,
+            user_id,
+            price: parsedPrice,
+            currency: normalizedCurrency,
+            return_url: `${baseUrl}/api/order-success-paypal?order_id=${id}`,
+            cancel_url: `${baseUrl}/order-failed`,
+          },
+        },
+        { status: 500 }
+      );
     }
 
     const approvalUrl = orderData.links?.find((l: any) => l.rel === "approve")?.href;
@@ -90,7 +124,7 @@ export async function POST(req: Request) {
       order_id: id,
       user_id,
       product_name,
-      price: parseFloat(price.toString()),
+      price: parsedPrice,
       customer_email,
       payment_link: approvalUrl,
       status: "pending",
