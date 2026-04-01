@@ -61,15 +61,19 @@ export async function POST(req: Request) {
 
     // 🔁 Send to n8n
     const webhookResponse = await fetch(webhookUrl!, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        message,
-        bot_id,
-        conversation_id,
-        category,
-      }),
-    });
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    "x-bot-secret": process.env.N8N_BOT_SECRET!,
+  },
+  body: JSON.stringify({
+    message,
+    bot_id,
+    conversation_id,
+    category,
+  }),
+});
+
 
     const data = await webhookResponse.json();
 
