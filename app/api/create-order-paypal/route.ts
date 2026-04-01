@@ -10,14 +10,26 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
 
-    // Ensure n8n passes 'id' (order_id), 'user_id', and 'price'
-    const { id, user_id, price } = body;
+    // ✅ Accept ALL fields (like PayU)
+    const {
+      id,
+      user_id,
+      price,
+      product_name,
+      customer_email,
+      phone,
+      name,
+      bot_id
+    } = body;
 
-    if (!id || !user_id) {
-      return NextResponse.json({ error: "Missing id or user_id in request body" }, { status: 400 });
+    if (!id || !user_id || !price) {
+      return NextResponse.json(
+        { error: "Missing required fields" },
+        { status: 400 }
+      );
     }
 
-    // 1. Fetch user's unique PayPal credentials from Supabase
+    // ✅ Fetch PayPal credentials
     const { data: profile } = await supabase
       .from("profiles")
       .select("paypal_client_id, paypal_secret")
@@ -26,12 +38,12 @@ export async function POST(req: Request) {
 
     if (!profile?.paypal_client_id || !profile?.paypal_secret) {
       return NextResponse.json(
-        { error: "PayPal credentials not configured in Supabase for this user" },
+        { error: "PayPal credentials not configured" },
         { status: 400 }
       );
     }
 
-    // 2. Authenticate with PayPal Sandbox
+    // ✅ PayPal Auth
     const auth = Buffer.from(
       `${profile.paypal_client_id}:${profile.paypal_secret}`
     ).toString("base64");
@@ -52,10 +64,10 @@ export async function POST(req: Request) {
 
     if (!tokenData.access_token) {
       console.error("PayPal Auth Failed:", tokenData);
-      throw new Error(`Auth Error: ${tokenData.error_description || "Invalid Credentials"}`);
+      throw new Error("PayPal authentication failed");
     }
 
-    // 3. Create PayPal Order
+    // ✅ Create PayPal Order
     const orderRes = await fetch(
       "https://api-m.sandbox.paypal.com/v2/checkout/orders",
       {
@@ -68,35 +80,33 @@ export async function POST(req: Request) {
           intent: "CAPTURE",
           purchase_units: [
             {
+              reference_id: id, // ✅ important
+              description: product_name || "Product",
               amount: {
                 currency_code: "USD",
-                // FIX: Ensures price is a string with 2 decimals (e.g., "1.00")
-                value: parseFloat(price?.toString() || "1").toFixed(2), 
+                value: parseFloat(price.toString()).toFixed(2),
               },
             },
           ],
           payment_source: {
             paypal: {
               experience_context: {
-                payment_method_preference: "IMMEDIATE_PAYMENT_REQUIRED",
                 brand_name: "AI Automation Agency",
-                locale: "en-US",
                 user_action: "PAY_NOW",
                 return_url: `${process.env.NEXT_PUBLIC_BASE_URL}/api/order-success-paypal?order_id=${id}`,
                 cancel_url: `${process.env.NEXT_PUBLIC_BASE_URL}/order-failed?order_id=${id}`,
-              }
-            }
-          }
+              },
+            },
+          },
         }),
       }
     );
 
     const orderData = await orderRes.json();
 
-    // LOGGING: If this fails, check Vercel Logs for the specific schema error
     if (!orderRes.ok) {
-        console.error("PAYPAL SCHEMA ERROR:", JSON.stringify(orderData, null, 2));
-        throw new Error(orderData.message || "PayPal Order Creation Failed");
+      console.error("PAYPAL ERROR:", orderData);
+      throw new Error(orderData.message || "PayPal Order Failed");
     }
 
     const approvalUrl = orderData.links?.find(
@@ -104,13 +114,33 @@ export async function POST(req: Request) {
     )?.href;
 
     if (!approvalUrl) {
-      throw new Error("No approval URL returned by PayPal");
+      throw new Error("No approval URL from PayPal");
     }
 
-    // 4. Return 'payment_link' to match your n8n chatbot logic
+    // ✅ OPTIONAL: Store order in DB (VERY IMPORTANT)
+    await supabase.from("orders").insert({
+      order_id: id,
+      user_id,
+      product_name,
+      price,
+      customer_email,
+      phone,
+      name,
+      bot_id,
+      payment_link: approvalUrl,
+      status: "pending",
+    });
+
+    // ✅ Return FULL response (like PayU)
     return NextResponse.json({
       success: true,
       payment_link: approvalUrl,
+      order_id: id,
+      product_name,
+      price,
+      customer_email,
+      phone,
+      name,
     });
 
   } catch (err: any) {
