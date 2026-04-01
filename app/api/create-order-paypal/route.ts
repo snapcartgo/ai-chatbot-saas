@@ -15,18 +15,28 @@ export async function POST(req: Request) {
     const bot_id = body.bot_id ?? body.botId ?? null;
     const product_name = body.product_name ?? body.productName;
     const customer_email = body.customer_email ?? body.email;
-    const name = body.name ?? null;
+    const name = body.name ? String(body.name).trim() : null;
     const rawPhone = body.phone ?? null;
     const currency = (body.currency ?? "USD").toString().toUpperCase();
     const parsedPrice = Number(body.price);
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
 
-    const phone =
+    const phoneString =
       rawPhone === null || rawPhone === undefined || rawPhone === ""
         ? null
-        : Number(String(rawPhone).replace(/\D/g, ""));
+        : String(rawPhone).replace(/\D/g, "");
 
-    if (!id || !user_id || !product_name || !customer_email || Number.isNaN(parsedPrice) || parsedPrice <= 0) {
+    const phone =
+      phoneString && phoneString.length > 0 ? Number(phoneString) : null;
+
+    if (
+      !id ||
+      !user_id ||
+      !product_name ||
+      !customer_email ||
+      Number.isNaN(parsedPrice) ||
+      parsedPrice <= 0
+    ) {
       return NextResponse.json(
         {
           error: "Missing or invalid required fields",
@@ -36,15 +46,10 @@ export async function POST(req: Request) {
             product_name,
             customer_email,
             price: body.price,
+            name,
+            rawPhone,
           },
         },
-        { status: 400 }
-      );
-    }
-
-    if (rawPhone && Number.isNaN(phone)) {
-      return NextResponse.json(
-        { error: "Invalid phone number" },
         { status: 400 }
       );
     }
@@ -53,6 +58,16 @@ export async function POST(req: Request) {
       return NextResponse.json(
         { error: "NEXT_PUBLIC_BASE_URL is not configured" },
         { status: 500 }
+      );
+    }
+
+    if (rawPhone && (phone === null || Number.isNaN(phone))) {
+      return NextResponse.json(
+        {
+          error: "Invalid phone number",
+          raw_phone: rawPhone,
+        },
+        { status: 400 }
       );
     }
 
@@ -77,14 +92,17 @@ export async function POST(req: Request) {
       `${profile.paypal_client_id}:${profile.paypal_secret}`
     ).toString("base64");
 
-    const tokenRes = await fetch("https://api-m.sandbox.paypal.com/v1/oauth2/token", {
-      method: "POST",
-      headers: {
-        Authorization: `Basic ${auth}`,
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: "grant_type=client_credentials",
-    });
+    const tokenRes = await fetch(
+      "https://api-m.sandbox.paypal.com/v1/oauth2/token",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Basic ${auth}`,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: "grant_type=client_credentials",
+      }
+    );
 
     const tokenData = await tokenRes.json();
 
@@ -118,14 +136,17 @@ export async function POST(req: Request) {
       },
     };
 
-    const orderRes = await fetch("https://api-m.sandbox.paypal.com/v2/checkout/orders", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${tokenData.access_token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(paypalPayload),
-    });
+    const orderRes = await fetch(
+      "https://api-m.sandbox.paypal.com/v2/checkout/orders",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${tokenData.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(paypalPayload),
+      }
+    );
 
     const orderData = await orderRes.json();
 
@@ -143,36 +164,40 @@ export async function POST(req: Request) {
     const approvalUrl =
       orderData.links?.find((l: any) => l.rel === "approve")?.href ?? null;
 
-    const minimalInsert = {
-  id: String(id),
-  user_id,
-  product_name,
-  price: parsedPrice,
-  payment_status: "pending",
-  customer_email,
-  bot_id,
-  phone,
-};
+    const insertPayload = {
+      id: String(id),
+      user_id,
+      bot_id,
+      product_name,
+      price: parsedPrice,
+      payment_status: "pending",
+      payment_id: orderData.id ?? null,
+      customer_email,
+      name,
+      phone,
+      payment_link: approvalUrl,
+      paypal_data: JSON.stringify(orderData),
+      payu_data: null,
+    };
 
-const { data: insertedOrder, error: insertError } = await supabase
-  .from("orders")
-  .insert(minimalInsert)
-  .select()
-  .single();
+    const { data: insertedOrder, error: insertError } = await supabase
+      .from("orders")
+      .insert(insertPayload)
+      .select()
+      .single();
 
-if (insertError) {
-  return NextResponse.json(
-    {
-      error: "Minimal Supabase insert failed",
-      supabase_error: insertError.message,
-      supabase_details: insertError.details,
-      supabase_hint: insertError.hint,
-      insert_payload: minimalInsert,
-    },
-    { status: 500 }
-  );
-}
-
+    if (insertError) {
+      return NextResponse.json(
+        {
+          error: "Supabase insert failed",
+          supabase_error: insertError.message,
+          supabase_details: insertError.details,
+          supabase_hint: insertError.hint,
+          insert_payload: insertPayload,
+        },
+        { status: 500 }
+      );
+    }
 
     return NextResponse.json({
       success: true,
@@ -180,7 +205,11 @@ if (insertError) {
       order: insertedOrder,
       payment_link: approvalUrl,
       paypal_order_id: orderData.id,
+      payment_id: orderData.id,
       order_id: id,
+      phone,
+      name,
+      payment_gateway: "PayPal",
     });
   } catch (err: any) {
     return NextResponse.json(
