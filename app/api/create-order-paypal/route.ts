@@ -10,33 +10,43 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
 
-    const normalizedId = body.id ?? body.order_id;
-    const normalizedUserId = body.user_id ?? body.userId;
-    const normalizedPrice = body.price;
-    const normalizedProductName = body.product_name ?? body.productName;
-    const normalizedCustomerEmail = body.customer_email ?? body.email;
-    const normalizedPhone = body.phone;
-    const normalizedName = body.name;
-    const normalizedBotId = body.bot_id ?? body.botId;
-    const normalizedCurrency = (body.currency ?? "USD").toString().toUpperCase();
-
-    const {
-      id = normalizedId,
-      user_id = normalizedUserId,
-      price = normalizedPrice,
-      product_name = normalizedProductName,
-      customer_email = normalizedCustomerEmail,
-      phone = normalizedPhone,
-      name = normalizedName,
-      bot_id = normalizedBotId,
-    } = body;
-
-    const parsedPrice = Number(price);
+    const id = body.id ?? body.order_id;
+    const user_id = body.user_id ?? body.userId;
+    const bot_id = body.bot_id ?? body.botId ?? null;
+    const product_name = body.product_name ?? body.productName;
+    const customer_email = body.customer_email ?? body.email;
+    const name = body.name ?? null;
+    const rawPhone = body.phone ?? null;
+    const currency = (body.currency ?? "USD").toString().toUpperCase();
+    const parsedPrice = Number(body.price);
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
 
-    // 1. Check for basic fields
-    if (!id || !user_id || Number.isNaN(parsedPrice) || parsedPrice <= 0) {
-      return NextResponse.json({ error: "Missing id, user_id, or price" }, { status: 400 });
+    const phone =
+      rawPhone === null || rawPhone === undefined || rawPhone === ""
+        ? null
+        : Number(String(rawPhone).replace(/\D/g, ""));
+
+    if (!id || !user_id || !product_name || !customer_email || Number.isNaN(parsedPrice) || parsedPrice <= 0) {
+      return NextResponse.json(
+        {
+          error: "Missing or invalid required fields",
+          received: {
+            id,
+            user_id,
+            product_name,
+            customer_email,
+            price: body.price,
+          },
+        },
+        { status: 400 }
+      );
+    }
+
+    if (rawPhone && Number.isNaN(phone)) {
+      return NextResponse.json(
+        { error: "Invalid phone number" },
+        { status: 400 }
+      );
     }
 
     if (!baseUrl) {
@@ -46,19 +56,27 @@ export async function POST(req: Request) {
       );
     }
 
-    // 2. Fetch Credentials
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
       .select("paypal_client_id, paypal_secret")
       .eq("id", user_id)
       .single();
 
-    if (profileError || !profile?.paypal_client_id) {
-      return NextResponse.json({ error: "PayPal credentials not found" }, { status: 400 });
+    if (profileError || !profile?.paypal_client_id || !profile?.paypal_secret) {
+      return NextResponse.json(
+        {
+          error: "PayPal credentials not found",
+          profile_error: profileError,
+          user_id,
+        },
+        { status: 400 }
+      );
     }
 
-    // 3. PayPal Auth
-    const auth = Buffer.from(`${profile.paypal_client_id}:${profile.paypal_secret}`).toString("base64");
+    const auth = Buffer.from(
+      `${profile.paypal_client_id}:${profile.paypal_secret}`
+    ).toString("base64");
+
     const tokenRes = await fetch("https://api-m.sandbox.paypal.com/v1/oauth2/token", {
       method: "POST",
       headers: {
@@ -69,71 +87,116 @@ export async function POST(req: Request) {
     });
 
     const tokenData = await tokenRes.json();
-    if (!tokenData.access_token) throw new Error("PayPal Token Failed");
 
-    // 4. Create Order (Schema Optimized)
+    if (!tokenRes.ok || !tokenData.access_token) {
+      return NextResponse.json(
+        {
+          error: "PayPal token generation failed",
+          paypal: tokenData,
+        },
+        { status: 500 }
+      );
+    }
+
+    const paypalPayload = {
+      intent: "CAPTURE",
+      purchase_units: [
+        {
+          reference_id: String(id),
+          amount: {
+            currency_code: currency,
+            value: parsedPrice.toFixed(2),
+          },
+          description: product_name,
+        },
+      ],
+      application_context: {
+        brand_name: "AI SaaS",
+        user_action: "PAY_NOW",
+        return_url: `${baseUrl}/api/order-success-paypal?order_id=${id}`,
+        cancel_url: `${baseUrl}/order-failed?order_id=${id}`,
+      },
+    };
+
     const orderRes = await fetch("https://api-m.sandbox.paypal.com/v2/checkout/orders", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${tokenData.access_token}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        intent: "CAPTURE",
-        purchase_units: [{
-          reference_id: id.toString(),
-          amount: {
-            currency_code: normalizedCurrency,
-            value: parsedPrice.toFixed(2), // Force string "X.XX"
-          }
-        }],
-        application_context: {
-          brand_name: "AI SaaS",
-          user_action: "PAY_NOW",
-          return_url: `${baseUrl}/api/order-success-paypal?order_id=${id}`,
-          cancel_url: `${baseUrl}/order-failed`,
-        }
-      }),
+      body: JSON.stringify(paypalPayload),
     });
 
     const orderData = await orderRes.json();
 
     if (!orderRes.ok) {
-      console.error("PayPal Schema Error Details:", JSON.stringify(orderData, null, 2));
       return NextResponse.json(
         {
           error: "PayPal order creation failed",
           paypal: orderData,
-          request_payload: {
-            id,
-            user_id,
-            price: parsedPrice,
-            currency: normalizedCurrency,
-            return_url: `${baseUrl}/api/order-success-paypal?order_id=${id}`,
-            cancel_url: `${baseUrl}/order-failed`,
-          },
+          request_payload: paypalPayload,
         },
         { status: 500 }
       );
     }
 
-    const approvalUrl = orderData.links?.find((l: any) => l.rel === "approve")?.href;
+    const approvalUrl =
+      orderData.links?.find((l: any) => l.rel === "approve")?.href ?? null;
 
-    // 5. Database Save
-    await supabase.from("orders").insert({
-      order_id: id,
+    const insertPayload = {
+      id: String(id),
       user_id,
+      bot_id,
       product_name,
       price: parsedPrice,
+      payment_status: "pending",
+      payment_id: orderData.id ?? null,
       customer_email,
+      created_at: new Date().toISOString(),
+      name,
+      phone,
       payment_link: approvalUrl,
-      status: "pending",
-      bot_id
+      payu_data: {
+        provider: "paypal",
+        currency,
+        paypal_order_id: orderData.id ?? null,
+        paypal_order_response: orderData,
+      },
+    };
+
+    const { data: insertedOrder, error: insertError } = await supabase
+      .from("orders")
+      .insert(insertPayload)
+      .select()
+      .single();
+
+    if (insertError) {
+      return NextResponse.json(
+        {
+          error: "Failed to save order in Supabase",
+          supabase_error: insertError.message,
+          supabase_details: insertError.details,
+          supabase_hint: insertError.hint,
+          insert_payload: insertPayload,
+        },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({
+      success: true,
+      order_saved: true,
+      order: insertedOrder,
+      payment_link: approvalUrl,
+      paypal_order_id: orderData.id,
+      order_id: id,
     });
-
-    return NextResponse.json({ success: true, payment_link: approvalUrl });
-
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return NextResponse.json(
+      {
+        error: err.message || "Internal server error",
+      },
+      { status: 500 }
+    );
   }
 }
