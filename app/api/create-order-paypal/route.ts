@@ -143,45 +143,34 @@ export async function POST(req: Request) {
     const approvalUrl =
       orderData.links?.find((l: any) => l.rel === "approve")?.href ?? null;
 
-    const insertPayload = {
-      id: String(id),
-      user_id,
-      bot_id,
-      product_name,
-      price: parsedPrice,
-      payment_status: "pending",
-      payment_id: orderData.id ?? null,
-      customer_email,
-      created_at: new Date().toISOString(),
-      name,
-      phone,
-      payment_link: approvalUrl,
-      payu_data: {
-        provider: "paypal",
-        currency,
-        paypal_order_id: orderData.id ?? null,
-        paypal_order_response: orderData,
-      },
-    };
+    const minimalInsert = {
+  id: String(id),
+  user_id,
+  product_name,
+  price: parsedPrice,
+  payment_status: "pending",
+  customer_email,
+};
 
-    const { data: insertedOrder, error: insertError } = await supabase
-      .from("orders")
-      .insert(insertPayload)
-      .select()
-      .single();
+const { data: insertedOrder, error: insertError } = await supabase
+  .from("orders")
+  .insert(minimalInsert)
+  .select()
+  .single();
 
-    if (insertError) {
-      return NextResponse.json(
-        {
-          error: "Failed to save order in Supabase",
-          supabase_error: insertError.message,
-          supabase_details: insertError.details,
-          supabase_hint: insertError.hint,
-          insert_payload: insertPayload,
-        },
-        { status: 500 }
-      );
-    }
+if (insertError) {
+  return NextResponse.json(
+    {
+      error: "Minimal Supabase insert failed",
+      supabase_error: insertError.message,
+      supabase_details: insertError.details,
+      supabase_hint: insertError.hint,
+      insert_payload: minimalInsert,
+    },
+    { status: 500 }
+  );
+}
+
 
     return NextResponse.json({
       success: true,
