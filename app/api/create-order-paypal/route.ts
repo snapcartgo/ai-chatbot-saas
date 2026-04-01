@@ -150,6 +150,8 @@ export async function POST(req: Request) {
   price: parsedPrice,
   payment_status: "pending",
   customer_email,
+  bot_id,
+  phone,
 };
 
 const { data: insertedOrder, error: insertError } = await supabase
