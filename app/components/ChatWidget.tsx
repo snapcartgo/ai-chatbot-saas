@@ -178,6 +178,9 @@ export default function ChatWidget({
           >
             {messages.map((m, i) => {
               const paymentLink = getPaymentLink(m.content);
+              const displayText = paymentLink
+                ? "Click below to complete your payment."
+                : m.content;
 
               return (
                 <div
@@ -195,7 +198,7 @@ export default function ChatWidget({
                         : "bg-white text-gray-800 border shadow-sm"
                     }`}
                   >
-                    <div>{m.content}</div>
+                    <div>{displayText}</div>
 
                     {paymentLink && (
                       <div className="mt-2">
