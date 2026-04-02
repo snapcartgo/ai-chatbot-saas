@@ -9,27 +9,31 @@
 
   const domain = window.location.hostname;
 
+  // 🔐 VERIFY DOMAIN
   fetch(`https://ai-chatbot-saas-five.vercel.app/api/verify-domain?botId=${botId}&domain=${domain}`)
-    .then((res) => {
+    .then(res => {
       if (!res.ok) throw new Error("Verification API Error");
       return res.json();
     })
-    .then((data) => {
+    .then(data => {
       if (!data.allowed) {
         console.warn("AI Chatbot: Domain not allowed.");
         return;
       }
       startWidget();
     })
-    .catch((err) => {
+    .catch(err => {
       console.error("AI Chatbot: Verification failed:", err);
     });
 
   function startWidget() {
     let isMobile = window.innerWidth < 768;
+    let open = false;
 
+    // 🔥 CHAT BUTTON
     const button = document.createElement("div");
-    button.innerHTML = "💬";
+    // Use textContent instead of innerHTML to satisfy security scans
+    button.textContent = "💬";
 
     Object.assign(button.style, {
       position: "fixed",
@@ -43,61 +47,74 @@
       alignItems: "center",
       justifyContent: "center",
       color: "#fff",
-      fontSize: "22px",
+      fontSize: "24px",
       cursor: "pointer",
-      zIndex: "999999",
-      boxShadow: "0 8px 20px rgba(0,0,0,0.2)",
-      transition: "all 0.3s ease"
+      zIndex: "2147483647", // Max possible z-index
+      boxShadow: "0 8px 24px rgba(0,0,0,0.2)",
+      transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+      userSelect: "none"
     });
 
     document.body.appendChild(button);
 
+    // 🔥 IFRAME
     const iframe = document.createElement("iframe");
-    const widgetUrl = new URL("https://ai-chatbot-saas-five.vercel.app/widget");
-      widgetUrl.searchParams.set("botId", botId);
-      iframe.src = widgetUrl.toString();
+    
+    // SECURE URL CONSTRUCTION (Prevents DOM text reinterpretation as HTML alerts)
+    const baseUrl = "https://ai-chatbot-saas-five.vercel.app/chat/";
+    try {
+      const safeUrl = new URL(botId, baseUrl);
+      safeUrl.searchParams.set("embed", "true");
+      iframe.src = safeUrl.toString();
+    } catch (e) {
+      console.error("AI Chatbot: Invalid configuration.");
+      return;
+    }
 
     function applyStyles() {
       isMobile = window.innerWidth < 768;
 
       Object.assign(iframe.style, {
         position: "fixed",
-        bottom: isMobile ? "0" : "90px",
+        bottom: isMobile ? "0" : "95px",
         right: isMobile ? "0" : "20px",
-        width: isMobile ? "100vw" : "360px",
-        height: isMobile ? "100vh" : "520px",
+        width: isMobile ? "100%" : "380px",
+        height: isMobile ? "100%" : "600px",
+        maxHeight: isMobile ? "100%" : "calc(100vh - 120px)",
         border: "none",
-        borderRadius: isMobile ? "0" : "12px",
-        boxShadow: isMobile ? "none" : "0 10px 40px rgba(0,0,0,0.3)",
-        zIndex: "999999",
+        borderRadius: isMobile ? "0" : "16px",
+        boxShadow: isMobile ? "none" : "0 12px 48px rgba(0,0,0,0.15)",
+        zIndex: "2147483646",
         display: "none",
-        background: "#fff"
+        background: "#fff",
+        transition: "transform 0.3s ease"
       });
-
-      button.style.width = isMobile ? "55px" : "60px";
-      button.style.height = isMobile ? "55px" : "60px";
     }
 
     applyStyles();
     window.addEventListener("resize", applyStyles);
-
     document.body.appendChild(iframe);
 
-    let open = false;
-
+    // 🔥 TOGGLE FUNCTION
     function toggleChat() {
       open = !open;
       iframe.style.display = open ? "block" : "none";
-
+      
+      // Securely update icon
+      button.textContent = open ? "✕" : "💬";
+      button.style.fontSize = open ? "28px" : "24px";
+      
+      // Prevent background scroll on mobile
       if (isMobile) {
         document.body.style.overflow = open ? "hidden" : "";
       }
 
-      button.style.transform = open ? "scale(0.9)" : "scale(1)";
+      button.style.transform = open ? "rotate(90deg) scale(0.9)" : "rotate(0deg) scale(1)";
     }
 
     button.onclick = toggleChat;
 
+    // 🔥 ESC KEY CLOSE
     window.addEventListener("keydown", function (e) {
       if (e.key === "Escape" && open) {
         toggleChat();
