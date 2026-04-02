@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 
 interface ChatWidgetProps {
@@ -9,18 +9,43 @@ interface ChatWidgetProps {
   plan?: string;
 }
 
-function getPaymentLink(content: string) {
+type Message = {
+  role: string;
+  content: string;
+};
+
+const ALLOWED_PAYMENT_HOSTS = new Set([
+  "ai-chatbot-saas-five.vercel.app",
+  "www.sandbox.paypal.com",
+  "sandbox.paypal.com",
+  "www.paypal.com",
+  "paypal.com",
+  "secure.payu.in",
+  "test.payu.in",
+]);
+
+function getSafePaymentLink(content: string): string | null {
   const hrefMatch = content.match(/href=['"]([^'"]+)['"]/i);
-  if (hrefMatch?.[1] && /^https?:\/\//i.test(hrefMatch[1])) {
-    return hrefMatch[1];
-  }
-
   const urlMatch = content.match(/https?:\/\/[^\s"'<>]+/i);
-  if (urlMatch?.[0]) {
-    return urlMatch[0];
-  }
+  const candidate = hrefMatch?.[1] || urlMatch?.[0];
 
-  return null;
+  if (!candidate) return null;
+
+  try {
+    const parsed = new URL(candidate);
+
+    if (parsed.protocol !== "https:") {
+      return null;
+    }
+
+    if (!ALLOWED_PAYMENT_HOSTS.has(parsed.hostname)) {
+      return null;
+    }
+
+    return parsed.toString();
+  } catch {
+    return null;
+  }
 }
 
 export default function ChatWidget({
@@ -28,12 +53,11 @@ export default function ChatWidget({
   isEmbed = false,
   plan = "free",
 }: ChatWidgetProps) {
-  const [messages, setMessages] = useState<{ role: string; content: string }[]>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [userInput, setUserInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [botCategory, setBotCategory] = useState("Booking");
   const [open, setOpen] = useState(false);
-
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -57,8 +81,7 @@ export default function ChatWidget({
           {
             role: "assistant",
             content:
-              data?.welcome_message ||
-              "Hello! How can I help you today?",
+              data?.welcome_message || "Hello! How can I help you today?",
           },
         ]);
       } catch (err) {
@@ -77,15 +100,14 @@ export default function ChatWidget({
 
   useEffect(() => {
     if (scrollRef.current) {
-      scrollRef.current.scrollTop =
-        scrollRef.current.scrollHeight;
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages]);
+  }, [messages, isLoading]);
 
   const handleSendMessage = async () => {
     if (!userInput.trim()) return;
 
-    const currentInput = userInput;
+    const currentInput = userInput.trim();
 
     const payload = {
       message: currentInput,
@@ -94,10 +116,7 @@ export default function ChatWidget({
       category: botCategory,
     };
 
-    const newMessages = [
-      ...messages,
-      { role: "user", content: currentInput },
-    ];
+    const newMessages = [...messages, { role: "user", content: currentInput }];
 
     setMessages(newMessages);
     setUserInput("");
@@ -123,9 +142,7 @@ export default function ChatWidget({
         ...newMessages,
         {
           role: "assistant",
-          content:
-            data.reply ||
-            "I received your message but have no response.",
+          content: data.reply || "I received your message but have no response.",
         },
       ]);
     } catch (error) {
@@ -142,33 +159,37 @@ export default function ChatWidget({
     }
   };
 
+  const handlePaymentOpen = (url: string) => {
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
+
   return (
-    <div className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-50 font-sans">
-
+    <div className="fixed bottom-4 right-4 z-50 font-sans">
       {open && (
-        <div className="flex flex-col w-[90vw] max-w-[360px] h-[75vh] max-h-[520px] bg-white rounded-2xl shadow-2xl border overflow-hidden">
-
-          <div className="bg-blue-600 text-white p-3 flex justify-between items-center">
+        <div
+          className="
+            flex flex-col overflow-hidden border bg-white shadow-2xl
+            rounded-2xl
+            w-[92vw] max-w-[360px]
+            h-[70vh] max-h-[520px]
+            sm:w-[360px] sm:h-[520px]
+          "
+        >
+          <div className="bg-blue-600 px-4 py-3 text-white flex items-center justify-between">
             <span className="font-semibold text-sm md:text-base">
               AI Assistant
             </span>
-
-            {!isEmbed && (
-              <button
-                onClick={() => setOpen(false)}
-                className="text-lg"
-              >
-                ✕
-              </button>
-            )}
+            <button onClick={() => setOpen(false)} className="text-lg leading-none">
+              ✕
+            </button>
           </div>
 
           <div
             ref={scrollRef}
-            className="flex-1 overflow-y-auto p-3 space-y-3 bg-gray-50"
+            className="flex-1 overflow-y-auto bg-gray-50 p-3 space-y-3"
           >
             {messages.map((m, i) => {
-              const paymentLink = getPaymentLink(m.content);
+              const paymentLink = getSafePaymentLink(m.content);
               const displayText = paymentLink
                 ? "Click below to complete your payment."
                 : m.content;
@@ -177,30 +198,27 @@ export default function ChatWidget({
                 <div
                   key={i}
                   className={`flex ${
-                    m.role === "user"
-                      ? "justify-end"
-                      : "justify-start"
+                    m.role === "user" ? "justify-end" : "justify-start"
                   }`}
                 >
                   <div
-                    className={`max-w-[85%] p-2 rounded-xl text-xs md:text-sm whitespace-pre-wrap break-words ${
+                    className={`max-w-[85%] rounded-xl p-2 text-xs md:text-sm whitespace-pre-wrap break-words ${
                       m.role === "user"
                         ? "bg-blue-600 text-white"
-                        : "bg-white text-gray-800 border shadow-sm"
+                        : "border bg-white text-gray-800 shadow-sm"
                     }`}
                   >
                     <div>{displayText}</div>
 
                     {paymentLink && (
                       <div className="mt-2">
-                        <a
-                          href={paymentLink}
-                          target="_blank"
-                          rel="noopener noreferrer"
+                        <button
+                          type="button"
+                          onClick={() => handlePaymentOpen(paymentLink)}
                           className="font-semibold text-blue-600 underline"
                         >
                           Pay Now
-                        </a>
+                        </button>
                       </div>
                     )}
                   </div>
@@ -215,31 +233,26 @@ export default function ChatWidget({
             )}
           </div>
 
-          <div className="p-2 border-t bg-white">
+          <div className="border-t bg-white p-2">
             <div className="flex gap-2">
               <input
                 type="text"
                 value={userInput}
-                onChange={(e) =>
-                  setUserInput(e.target.value)
-                }
-                onKeyDown={(e) =>
-                  e.key === "Enter" && handleSendMessage()
-                }
+                onChange={(e) => setUserInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
                 placeholder="Type your message..."
-                className="flex-1 border rounded-md px-3 py-2 text-xs md:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-black"
+                className="flex-1 rounded-md border px-3 py-2 text-xs md:text-sm text-black focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
-
               <button
                 onClick={handleSendMessage}
-                className="bg-blue-600 text-white px-3 py-2 rounded-md text-xs md:text-sm"
+                className="rounded-md bg-blue-600 px-3 py-2 text-xs md:text-sm text-white"
               >
                 Send
               </button>
             </div>
 
             {plan === "free" && (
-              <div className="text-[10px] text-gray-400 text-center mt-1">
+              <div className="mt-1 text-center text-[10px] text-gray-400">
                 Powered by{" "}
                 <a
                   href="https://ai-chatbot-saas-five.vercel.app"
@@ -255,14 +268,12 @@ export default function ChatWidget({
         </div>
       )}
 
-      {!isEmbed && (
-        <button
-          onClick={() => setOpen(!open)}
-          className="w-12 h-12 bg-blue-600 text-white rounded-full shadow-lg flex items-center justify-center text-xl hover:scale-105 transition"
-        >
-          💬
-        </button>
-      )}
+      <button
+        onClick={() => setOpen((prev) => !prev)}
+        className="ml-auto flex h-12 w-12 items-center justify-center rounded-full bg-blue-600 text-xl text-white shadow-lg transition hover:scale-105"
+      >
+        💬
+      </button>
     </div>
   );
 }
