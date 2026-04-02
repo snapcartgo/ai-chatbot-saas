@@ -9,31 +9,18 @@ interface ChatWidgetProps {
   plan?: string;
 }
 
-function stripHtml(input: string) {
-  return input
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/p>/gi, "\n")
-    .replace(/<[^>]*>/g, "")
-    .trim();
-}
-
-function parseMessageContent(content: string) {
-  const anchorRegex = /<a\s+[^>]*href=['"]([^'"]+)['"][^>]*>(.*?)<\/a>/gi;
-  const links: { href: string; label: string }[] = [];
-
-  let match;
-  while ((match = anchorRegex.exec(content)) !== null) {
-    const href = match[1];
-    const label = stripHtml(match[2]) || "Open link";
-
-    if (/^https?:\/\//i.test(href)) {
-      links.push({ href, label });
-    }
+function getPaymentLink(content: string) {
+  const hrefMatch = content.match(/href=['"]([^'"]+)['"]/i);
+  if (hrefMatch?.[1] && /^https?:\/\//i.test(hrefMatch[1])) {
+    return hrefMatch[1];
   }
 
-  const text = stripHtml(content.replace(anchorRegex, ""));
+  const urlMatch = content.match(/https?:\/\/[^\s"'<>]+/i);
+  if (urlMatch?.[0]) {
+    return urlMatch[0];
+  }
 
-  return { text, links };
+  return null;
 }
 
 export default function ChatWidget({
@@ -190,7 +177,7 @@ export default function ChatWidget({
             className="flex-1 overflow-y-auto p-3 space-y-3 bg-gray-50"
           >
             {messages.map((m, i) => {
-              const parsed = parseMessageContent(m.content);
+              const paymentLink = getPaymentLink(m.content);
 
               return (
                 <div
@@ -208,20 +195,20 @@ export default function ChatWidget({
                         : "bg-white text-gray-800 border shadow-sm"
                     }`}
                   >
-                    {parsed.text && <div>{parsed.text}</div>}
+                    <div>{m.content}</div>
 
-                    {parsed.links.map((link, index) => (
-                      <div key={index} className="mt-2">
+                    {paymentLink && (
+                      <div className="mt-2">
                         <a
-                          href={link.href}
+                          href={paymentLink}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="font-semibold text-blue-600 underline"
                         >
-                          {link.label}
+                          Pay Now
                         </a>
                       </div>
-                    ))}
+                    )}
                   </div>
                 </div>
               );
