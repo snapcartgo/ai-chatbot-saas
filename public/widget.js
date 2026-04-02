@@ -32,7 +32,7 @@
 
     // 🔥 CHAT BUTTON
     const button = document.createElement("div");
-    button.innerHTML = "💬"; // Default icon
+    button.textContent = "💬";
 
     Object.assign(button.style, {
       position: "fixed",
@@ -91,7 +91,7 @@
       iframe.style.display = open ? "block" : "none";
       
       // Update Button Icon
-      button.innerHTML = open ? "✕" : "💬";
+      button.textContent = open ? "✕" : "💬";
       button.style.fontSize = open ? "28px" : "24px";
       
       // Prevent background scroll on mobile
