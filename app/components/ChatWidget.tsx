@@ -163,9 +163,10 @@ export default function ChatWidget({
       className={
         isEmbed
           ? "flex h-full min-h-[500px] w-full flex-col overflow-hidden rounded-2xl border bg-white shadow-2xl"
-          : "flex h-[70vh] max-h-[520px] w-[92vw] max-w-[360px] flex-col overflow-hidden rounded-2xl border bg-white shadow-2xl sm:h-[520px] sm:w-[360px]"
+          : "flex h-[65vh] max-h-[500px] w-[90vw] max-w-[350px] flex-col overflow-hidden rounded-2xl border bg-white shadow-2xl mb-2"
       }
     >
+      {/* Header */}
       <div className="flex items-center justify-between bg-blue-600 px-4 py-3 text-white">
         <span className="font-semibold text-sm md:text-base">
           AI Assistant
@@ -178,6 +179,7 @@ export default function ChatWidget({
         )}
       </div>
 
+      {/* Messages */}
       <div
         ref={scrollRef}
         className="flex-1 overflow-y-auto bg-gray-50 p-3 space-y-3"
@@ -227,6 +229,7 @@ export default function ChatWidget({
         )}
       </div>
 
+      {/* Input */}
       <div className="border-t bg-white p-2">
         <div className="flex gap-2">
           <input
@@ -267,12 +270,12 @@ export default function ChatWidget({
   }
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 font-sans">
+    <div className="fixed bottom-4 right-4 z-[9999] flex flex-col items-end gap-2 font-sans">
       {open && chatPanel}
 
       <button
         onClick={() => setOpen((prev) => !prev)}
-        className="ml-auto flex h-12 w-12 items-center justify-center rounded-full bg-blue-600 text-xl text-white shadow-lg transition hover:scale-105"
+        className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-600 text-xl text-white shadow-lg transition hover:scale-105"
       >
         💬
       </button>
