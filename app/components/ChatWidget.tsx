@@ -95,7 +95,8 @@ export default function ChatWidget({
 
     try {
       const response = await fetch(
-        "https://ai-chatbot-saas-five.vercel.app/api/chat",
+            "/api/chat",
+
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -185,11 +186,8 @@ export default function ChatWidget({
                       : "bg-white text-gray-800 border shadow-sm"
                   }`}
                 >
-                  <span
-                    dangerouslySetInnerHTML={{
-                      __html: m.content,
-                    }}
-                  />
+                  <span>{m.content}</span>
+
                 </div>
               </div>
             ))}
