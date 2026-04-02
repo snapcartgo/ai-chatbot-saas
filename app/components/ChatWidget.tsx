@@ -32,7 +32,8 @@ export default function ChatWidget({
   const [userInput, setUserInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [botCategory, setBotCategory] = useState("Booking");
-  const [open, setOpen] = useState(isEmbed ? true : false);
+  const [open, setOpen] = useState(false);
+
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -142,21 +143,11 @@ export default function ChatWidget({
   };
 
   return (
-    <div
-      className={
-        isEmbed
-          ? "w-full h-screen font-sans"
-          : "fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-50 font-sans"
-      }
-    >
+    <div className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-50 font-sans">
+
       {open && (
-        <div
-          className={
-            isEmbed
-              ? "flex flex-col h-screen w-full bg-white"
-              : "flex flex-col w-[90vw] max-w-[360px] h-[75vh] max-h-[520px] bg-white rounded-2xl shadow-2xl border overflow-hidden"
-          }
-        >
+        <div className="flex flex-col w-[90vw] max-w-[360px] h-[75vh] max-h-[520px] bg-white rounded-2xl shadow-2xl border overflow-hidden">
+
           <div className="bg-blue-600 text-white p-3 flex justify-between items-center">
             <span className="font-semibold text-sm md:text-base">
               AI Assistant
