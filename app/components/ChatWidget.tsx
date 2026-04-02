@@ -163,7 +163,7 @@ export default function ChatWidget({
       className={
         isEmbed
           ? "flex h-full min-h-[500px] w-full flex-col overflow-hidden rounded-2xl border bg-white shadow-2xl"
-          : "flex h-[65vh] max-h-[500px] w-[90vw] max-w-[350px] flex-col overflow-hidden rounded-2xl border bg-white shadow-2xl mb-2"
+          : "flex h-[420px] w-[92vw] sm:w-[350px] max-w-[350px] flex-col overflow-hidden rounded-2xl border bg-white shadow-xl"
       }
     >
       {/* Header */}
@@ -270,7 +270,7 @@ export default function ChatWidget({
   }
 
   return (
-    <div className="fixed bottom-4 right-4 z-[9999] flex flex-col items-end gap-2 font-sans">
+    <div className="fixed bottom-4 right-4 z-[9999] font-sans">
       {open && chatPanel}
 
       <button
