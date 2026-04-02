@@ -4,7 +4,7 @@ import "./globals.css";
 import { usePathname } from "next/navigation";
 import Footer from "./components/Footer";
 import Header from "./components/Header";
-import ChatWidget from "./components/ChatWidget"; // 1. Import your widget
+import ChatWidget from "./components/ChatWidget";
 
 export default function RootLayout({
   children,
@@ -13,7 +13,7 @@ export default function RootLayout({
 }) {
   const pathname = usePathname();
   
-  // Detects if the URL is the standalone chat page or embed route
+  // 1. Logic to hide elements on specific routes
   const isChatWidgetRoute = pathname.startsWith("/chat");
 
   return (
@@ -30,14 +30,14 @@ export default function RootLayout({
           minHeight: "100vh",
         }}
       >
-        {/* Hide Header if it's the chatbot widget route */}
+        {/* Only show Header if not in the standalone chat view */}
         {!isChatWidgetRoute && <Header />}
 
         <main style={{ flex: 1 }}>{children}</main>
 
-        {/* 2. Render the ChatWidget globally.
-          We hide it ONLY when the user is already on the /chat page 
-          to prevent a "chatbot inside a chatbot" loop.
+        {/* 2. GLOBAL CHATBOT COMPONENT 
+           This renders the chatbot on every page (Landing, Dashboard, etc.)
+           We wrap it in a check so it doesn't load inside its own iframe.
         */}
         {!isChatWidgetRoute && (
           <ChatWidget 
@@ -46,7 +46,6 @@ export default function RootLayout({
           />
         )}
 
-        {/* Hide Footer if it's the chatbot widget route */}
         {!isChatWidgetRoute && <Footer />}
       </body>
     </html>
