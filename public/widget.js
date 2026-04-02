@@ -76,18 +76,25 @@
 
       Object.assign(iframe.style, {
         position: "fixed",
-        bottom: isMobile ? "0" : "95px",
-        right: isMobile ? "0" : "20px",
-        width: isMobile ? "100%" : "380px",
-        height: isMobile ? "100%" : "600px",
-        maxHeight: isMobile ? "100%" : "calc(100vh - 120px)",
+        // Position it 80px from bottom on desktop, 10px on mobile
+        bottom: isMobile ? "80px" : "95px", 
+        right: isMobile ? "10px" : "20px",
+        
+        // Mobile: take up 90% width and 60% height to show website behind it
+        width: isMobile ? "calc(100% - 20px)" : "380px", 
+        height: isMobile ? "65vh" : "600px", 
+        
+        maxHeight: isMobile ? "65vh" : "calc(100vh - 120px)",
         border: "none",
-        borderRadius: isMobile ? "0" : "16px",
-        boxShadow: isMobile ? "none" : "0 12px 48px rgba(0,0,0,0.15)",
+        borderRadius: "16px", // Keep rounded corners on mobile too
+        boxShadow: "0 12px 48px rgba(0,0,0,0.15)",
         zIndex: "2147483646",
         display: "none",
-        background: "#fff",
-        transition: "transform 0.3s ease"
+        
+        // Fix the blank/white page issue
+        background: "transparent", 
+        colorScheme: "light",
+        transition: "all 0.3s ease"
       });
     }
 
@@ -100,15 +107,12 @@
       open = !open;
       iframe.style.display = open ? "block" : "none";
       
-      // Securely update icon
       button.textContent = open ? "✕" : "💬";
       button.style.fontSize = open ? "28px" : "24px";
       
-      // Prevent background scroll on mobile
-      if (isMobile) {
-        document.body.style.overflow = open ? "hidden" : "";
-      }
-
+      // REMOVED: document.body.style.overflow = open ? "hidden" : ""; 
+      // This allows the user to see/scroll the website while chatting
+      
       button.style.transform = open ? "rotate(90deg) scale(0.9)" : "rotate(0deg) scale(1)";
     }
 
