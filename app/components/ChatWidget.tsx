@@ -14,14 +14,38 @@ type Message = {
   content: string;
 };
 
-function getPaymentLink(content: string) {
-  const hrefMatch = content.match(/href=['"]([^'"]+)['"]/i);
-  if (hrefMatch?.[1] && /^https?:\/\//i.test(hrefMatch[1])) {
-    return hrefMatch[1];
-  }
+const ALLOWED_PAYMENT_HOSTS = new Set([
+  "ai-chatbot-saas-five.vercel.app",
+  "www.sandbox.paypal.com",
+  "sandbox.paypal.com",
+  "www.paypal.com",
+  "paypal.com",
+  "secure.payu.in",
+  "test.payu.in",
+]);
 
+function getSafePaymentLink(content: string): string | null {
+  const hrefMatch = content.match(/href=['"]([^'"]+)['"]/i);
   const urlMatch = content.match(/https?:\/\/[^\s"'<>]+/i);
-  return urlMatch?.[0] || null;
+  const candidate = hrefMatch?.[1] || urlMatch?.[0];
+
+  if (!candidate) return null;
+
+  try {
+    const parsed = new URL(candidate);
+
+    if (parsed.protocol !== "https:") {
+      return null;
+    }
+
+    if (!ALLOWED_PAYMENT_HOSTS.has(parsed.hostname)) {
+      return null;
+    }
+
+    return parsed.toString();
+  } catch {
+    return null;
+  }
 }
 
 export default function ChatWidget({
@@ -135,6 +159,10 @@ export default function ChatWidget({
     }
   };
 
+  const handlePaymentOpen = (url: string) => {
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
+
   return (
     <div className="fixed bottom-4 right-4 z-50 font-sans">
       {open && (
@@ -161,7 +189,7 @@ export default function ChatWidget({
             className="flex-1 overflow-y-auto bg-gray-50 p-3 space-y-3"
           >
             {messages.map((m, i) => {
-              const paymentLink = getPaymentLink(m.content);
+              const paymentLink = getSafePaymentLink(m.content);
               const displayText = paymentLink
                 ? "Click below to complete your payment."
                 : m.content;
@@ -184,14 +212,13 @@ export default function ChatWidget({
 
                     {paymentLink && (
                       <div className="mt-2">
-                        <a
-                          href={paymentLink}
-                          target="_blank"
-                          rel="noopener noreferrer"
+                        <button
+                          type="button"
+                          onClick={() => handlePaymentOpen(paymentLink)}
                           className="font-semibold text-blue-600 underline"
                         >
                           Pay Now
-                        </a>
+                        </button>
                       </div>
                     )}
                   </div>
