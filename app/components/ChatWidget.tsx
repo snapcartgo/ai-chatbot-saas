@@ -24,23 +24,29 @@ const ALLOWED_PAYMENT_HOSTS = new Set([
   "test.payu.in",
 ]);
 
-function getSafePaymentLink(content: string): string | null {
+// Helper to extract the link and clean up the text
+function processMessageContent(content: string) {
   const hrefMatch = content.match(/href=['"]([^'"]+)['"]/i);
   const urlMatch = content.match(/https?:\/\/[^\s"'<>]+/i);
   const candidate = hrefMatch?.[1] || urlMatch?.[0];
 
-  if (!candidate) return null;
+  let safeUrl = null;
+  let cleanText = content;
 
-  try {
-    const parsed = new URL(candidate);
-
-    if (parsed.protocol !== "https:") return null;
-    if (!ALLOWED_PAYMENT_HOSTS.has(parsed.hostname)) return null;
-
-    return parsed.toString();
-  } catch {
-    return null;
+  if (candidate) {
+    try {
+      const parsed = new URL(candidate);
+      if (parsed.protocol === "https:" && ALLOWED_PAYMENT_HOSTS.has(parsed.hostname)) {
+        safeUrl = parsed.toString();
+        // If it's a payment link, strip all HTML tags from the display text
+        cleanText = content.replace(/<[^>]*>?/gm, '').replace(/Click below to complete your payment:?/gi, '').trim();
+      }
+    } catch {
+      safeUrl = null;
+    }
   }
+
+  return { safeUrl, cleanText };
 }
 
 export default function ChatWidget({
@@ -56,8 +62,7 @@ export default function ChatWidget({
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const activeBotId =
-    chatbotId || "9ff1f58c-d09d-4449-97cc-a5860b640e2c";
+  const activeBotId = chatbotId || "9ff1f58c-d09d-4449-97cc-a5860b640e2c";
 
   useEffect(() => {
     const loadBot = async () => {
@@ -69,14 +74,12 @@ export default function ChatWidget({
           .single();
 
         if (error) throw error;
-
         if (data?.category) setBotCategory(data.category);
 
         setMessages([
           {
             role: "assistant",
-            content:
-              data?.welcome_message || "Hello! How can I help you today?",
+            content: data?.welcome_message || "Hello! How can I help you today?",
           },
         ]);
       } catch (err) {
@@ -89,7 +92,6 @@ export default function ChatWidget({
         ]);
       }
     };
-
     loadBot();
   }, [activeBotId]);
 
@@ -103,7 +105,6 @@ export default function ChatWidget({
     if (!userInput.trim()) return;
 
     const currentInput = userInput.trim();
-
     const payload = {
       message: currentInput,
       bot_id: activeBotId,
@@ -112,7 +113,6 @@ export default function ChatWidget({
     };
 
     const newMessages = [...messages, { role: "user", content: currentInput }];
-
     setMessages(newMessages);
     setUserInput("");
     setIsLoading(true);
@@ -128,10 +128,7 @@ export default function ChatWidget({
       );
 
       const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.reply || "Server Error");
-      }
+      if (!response.ok) throw new Error(data.reply || "Server Error");
 
       setMessages([
         ...newMessages,
@@ -159,59 +156,27 @@ export default function ChatWidget({
   };
 
   const chatPanel = (
-    <div
-      className={
-        isEmbed
-          ? "flex h-full min-h-[500px] w-full flex-col overflow-hidden rounded-2xl border bg-white shadow-2xl"
-          : "flex h-[420px] w-[92vw] sm:w-[350px] max-w-[350px] flex-col overflow-hidden rounded-2xl border bg-white shadow-xl"
-      }
-    >
-      {/* Header */}
+    <div className={isEmbed ? "flex h-full min-h-[500px] w-full flex-col overflow-hidden rounded-2xl border bg-white shadow-2xl" : "flex h-[420px] w-[92vw] sm:w-[350px] max-w-[350px] flex-col overflow-hidden rounded-2xl border bg-white shadow-xl"}>
       <div className="flex items-center justify-between bg-blue-600 px-4 py-3 text-white">
-        <span className="font-semibold text-sm md:text-base">
-          AI Assistant
-        </span>
-
-        {!isEmbed && (
-          <button onClick={() => setOpen(false)} className="text-lg leading-none">
-            ✕
-          </button>
-        )}
+        <span className="font-semibold text-sm md:text-base">AI Assistant</span>
+        {!isEmbed && <button onClick={() => setOpen(false)} className="text-lg leading-none">✕</button>}
       </div>
 
-      {/* Messages */}
-      <div
-        ref={scrollRef}
-        className="flex-1 overflow-y-auto bg-gray-50 p-3 space-y-3"
-      >
+      <div ref={scrollRef} className="flex-1 overflow-y-auto bg-gray-50 p-3 space-y-3">
         {messages.map((m, i) => {
-          const paymentLink = getSafePaymentLink(m.content);
-          const displayText = paymentLink
-            ? "Click below to complete your payment."
-            : m.content;
+          const { safeUrl, cleanText } = processMessageContent(m.content);
 
           return (
-            <div
-              key={i}
-              className={`flex ${
-                m.role === "user" ? "justify-end" : "justify-start"
-              }`}
-            >
-              <div
-                className={`max-w-[85%] rounded-xl p-2 text-xs md:text-sm whitespace-pre-wrap break-words ${
-                  m.role === "user"
-                    ? "bg-blue-600 text-white"
-                    : "border bg-white text-gray-800 shadow-sm"
-                }`}
-              >
-                <div>{displayText}</div>
-
-                {paymentLink && (
+            <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+              <div className={`max-w-[85%] rounded-xl p-2 text-xs md:text-sm whitespace-pre-wrap break-words ${m.role === "user" ? "bg-blue-600 text-white" : "border bg-white text-gray-800 shadow-sm"}`}>
+                <div>{safeUrl ? "Click below to complete your payment:" : cleanText}</div>
+                
+                {safeUrl && (
                   <div className="mt-2">
                     <button
                       type="button"
-                      onClick={() => handlePaymentOpen(paymentLink)}
-                      className="font-semibold text-blue-600 underline"
+                      onClick={() => handlePaymentOpen(safeUrl)}
+                      className="w-full rounded-lg bg-blue-600 px-4 py-2 text-center font-bold text-white transition hover:bg-blue-700"
                     >
                       Pay Now
                     </button>
@@ -221,15 +186,9 @@ export default function ChatWidget({
             </div>
           );
         })}
-
-        {isLoading && (
-          <div className="text-xs text-gray-400 animate-pulse">
-            Assistant is typing...
-          </div>
-        )}
+        {isLoading && <div className="text-xs text-gray-400 animate-pulse">Assistant is typing...</div>}
       </div>
 
-      {/* Input */}
       <div className="border-t bg-white p-2">
         <div className="flex gap-2">
           <input
@@ -240,45 +199,23 @@ export default function ChatWidget({
             placeholder="Type your message..."
             className="flex-1 rounded-md border px-3 py-2 text-xs md:text-sm text-black focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
-          <button
-            onClick={handleSendMessage}
-            className="rounded-md bg-blue-600 px-3 py-2 text-xs md:text-sm text-white"
-          >
-            Send
-          </button>
+          <button onClick={handleSendMessage} className="rounded-md bg-blue-600 px-3 py-2 text-xs md:text-sm text-white">Send</button>
         </div>
-
         {plan === "free" && (
           <div className="mt-1 text-center text-[10px] text-gray-400">
-            Powered by{" "}
-            <a
-              href="https://ai-chatbot-saas-five.vercel.app"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="font-medium hover:text-blue-600"
-            >
-              aiautomation
-            </a>
+            Powered by <a href="https://ai-chatbot-saas-five.vercel.app" target="_blank" rel="noopener noreferrer" className="font-medium hover:text-blue-600">aiautomation</a>
           </div>
         )}
       </div>
     </div>
   );
 
-  if (isEmbed) {
-    return <div className="w-full">{chatPanel}</div>;
-  }
+  if (isEmbed) return <div className="w-full">{chatPanel}</div>;
 
   return (
     <div className="fixed bottom-4 right-4 z-[9999] font-sans">
       {open && chatPanel}
-
-      <button
-        onClick={() => setOpen((prev) => !prev)}
-        className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-600 text-xl text-white shadow-lg transition hover:scale-105"
-      >
-        💬
-      </button>
+      <button onClick={() => setOpen((prev) => !prev)} className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-600 text-xl text-white shadow-lg transition hover:scale-105">💬</button>
     </div>
   );
 }
