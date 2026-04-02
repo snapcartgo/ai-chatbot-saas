@@ -26,8 +26,9 @@
       console.error("AI Chatbot: Verification failed:", err);
     });
 
-  function startWidget() {
+   function startWidget() {
     let isMobile = window.innerWidth < 768;
+    let initialWidth = window.innerWidth; // Store initial width
     let open = false;
 
     // 🔥 CHAT BUTTON
@@ -72,29 +73,32 @@
     }
 
     function applyStyles() {
-      isMobile = window.innerWidth < 768;
+      const currentWidth = window.innerWidth;
+      isMobile = currentWidth < 768;
+
+      // 🛑 KEYBOARD FIX: If the width hasn't changed, don't re-apply styles.
+      // This stops the "jumping" when the mobile keyboard opens.
+      if (open && isMobile && currentWidth === initialWidth) {
+          return; 
+      }
+      initialWidth = currentWidth;
 
       Object.assign(iframe.style, {
         position: "fixed",
-        // Position it 80px from bottom on desktop, 10px on mobile
         bottom: isMobile ? "80px" : "95px", 
         right: isMobile ? "10px" : "20px",
-        
-        // Mobile: take up 90% width and 60% height to show website behind it
         width: isMobile ? "calc(100% - 20px)" : "380px", 
         height: isMobile ? "65vh" : "600px", 
-        
         maxHeight: isMobile ? "65vh" : "calc(100vh - 120px)",
         border: "none",
-        borderRadius: "16px", // Keep rounded corners on mobile too
+        borderRadius: "16px",
         boxShadow: "0 12px 48px rgba(0,0,0,0.15)",
         zIndex: "2147483646",
-        display: "none",
-        
-        // Fix the blank/white page issue
+        display: open ? "block" : "none",
+        // 🌈 EXTRA SPACE FIX: Make iframe background invisible
         background: "transparent", 
         colorScheme: "light",
-        transition: "all 0.3s ease"
+        transition: "width 0.3s ease, bottom 0.3s ease" // Don't animate height to avoid lag
       });
     }
 
