@@ -9,27 +9,25 @@
 
   const domain = window.location.hostname;
 
-  // 🔐 VERIFY DOMAIN
   fetch(`https://ai-chatbot-saas-five.vercel.app/api/verify-domain?botId=${botId}&domain=${domain}`)
-    .then(res => {
+    .then((res) => {
       if (!res.ok) throw new Error("Verification API Error");
       return res.json();
     })
-    .then(data => {
+    .then((data) => {
       if (!data.allowed) {
         console.warn("AI Chatbot: Domain not allowed.");
         return;
       }
       startWidget();
     })
-    .catch(err => {
+    .catch((err) => {
       console.error("AI Chatbot: Verification failed:", err);
     });
 
   function startWidget() {
     let isMobile = window.innerWidth < 768;
 
-    // 🔥 CHAT BUTTON
     const button = document.createElement("div");
     button.innerHTML = "💬";
 
@@ -54,9 +52,10 @@
 
     document.body.appendChild(button);
 
-    // 🔥 IFRAME
     const iframe = document.createElement("iframe");
-    iframe.src = `https://ai-chatbot-saas-five.vercel.app/chat/${botId}`;
+    const widgetUrl = new URL("https://ai-chatbot-saas-five.vercel.app/widget");
+      widgetUrl.searchParams.set("botId", botId);
+      iframe.src = widgetUrl.toString();
 
     function applyStyles() {
       isMobile = window.innerWidth < 768;
@@ -75,7 +74,6 @@
         background: "#fff"
       });
 
-      // update button size also on resize
       button.style.width = isMobile ? "55px" : "60px";
       button.style.height = isMobile ? "55px" : "60px";
     }
@@ -87,24 +85,19 @@
 
     let open = false;
 
-    // 🔥 TOGGLE FUNCTION
     function toggleChat() {
       open = !open;
-
       iframe.style.display = open ? "block" : "none";
 
-      // 🔥 Prevent background scroll on mobile
       if (isMobile) {
         document.body.style.overflow = open ? "hidden" : "";
       }
 
-      // 🔥 Optional: button animation
       button.style.transform = open ? "scale(0.9)" : "scale(1)";
     }
 
     button.onclick = toggleChat;
 
-    // 🔥 ESC KEY CLOSE (desktop UX upgrade)
     window.addEventListener("keydown", function (e) {
       if (e.key === "Escape" && open) {
         toggleChat();
