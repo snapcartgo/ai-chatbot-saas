@@ -18,8 +18,6 @@ export default function ChatWidget({
   const [userInput, setUserInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [botCategory, setBotCategory] = useState("Booking");
-
-  // 🔥 IMPORTANT FIX: embed should always be open
   const [open, setOpen] = useState(isEmbed ? true : false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -27,7 +25,6 @@ export default function ChatWidget({
   const activeBotId =
     chatbotId || "9ff1f58c-d09d-4449-97cc-a5860b640e2c";
 
-  // 🔥 LOAD BOT DATA
   useEffect(() => {
     const loadBot = async () => {
       try {
@@ -54,7 +51,7 @@ export default function ChatWidget({
         setMessages([
           {
             role: "assistant",
-            content: "Hello 👋 How can I help you today?",
+            content: "Hello! How can I help you today?",
           },
         ]);
       }
@@ -63,7 +60,6 @@ export default function ChatWidget({
     loadBot();
   }, [activeBotId]);
 
-  // 🔥 AUTO SCROLL
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop =
@@ -71,7 +67,6 @@ export default function ChatWidget({
     }
   }, [messages]);
 
-  // 🔥 SEND MESSAGE
   const handleSendMessage = async () => {
     if (!userInput.trim()) return;
 
@@ -148,7 +143,6 @@ export default function ChatWidget({
               : "flex flex-col w-[90vw] max-w-[360px] h-[75vh] max-h-[520px] bg-white rounded-2xl shadow-2xl border overflow-hidden"
           }
         >
-          {/* HEADER */}
           <div className="bg-blue-600 text-white p-3 flex justify-between items-center">
             <span className="font-semibold text-sm md:text-base">
               AI Assistant
@@ -159,12 +153,11 @@ export default function ChatWidget({
                 onClick={() => setOpen(false)}
                 className="text-lg"
               >
-                ✕
+                X
               </button>
             )}
           </div>
 
-          {/* MESSAGES */}
           <div
             ref={scrollRef}
             className="flex-1 overflow-y-auto p-3 space-y-3 bg-gray-50"
@@ -179,17 +172,13 @@ export default function ChatWidget({
                 }`}
               >
                 <div
-                  className={`max-w-[85%] p-2 rounded-xl text-xs md:text-sm ${
+                  className={`max-w-[85%] p-2 rounded-xl text-xs md:text-sm whitespace-pre-wrap break-words ${
                     m.role === "user"
                       ? "bg-blue-600 text-white"
                       : "bg-white text-gray-800 border shadow-sm"
                   }`}
                 >
-                  <span
-                    dangerouslySetInnerHTML={{
-                      __html: m.content,
-                    }}
-                  />
+                  <span>{m.content}</span>
                 </div>
               </div>
             ))}
@@ -201,7 +190,6 @@ export default function ChatWidget({
             )}
           </div>
 
-          {/* INPUT */}
           <div className="p-2 border-t bg-white">
             <div className="flex gap-2">
               <input
@@ -242,13 +230,12 @@ export default function ChatWidget({
         </div>
       )}
 
-      {/* FLOAT BUTTON */}
       {!isEmbed && (
         <button
           onClick={() => setOpen(!open)}
           className="w-12 h-12 bg-blue-600 text-white rounded-full shadow-lg flex items-center justify-center text-xl hover:scale-105 transition"
         >
-          💬
+          Chat
         </button>
       )}
     </div>
