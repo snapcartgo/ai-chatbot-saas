@@ -122,7 +122,8 @@ export default function HomeClient() {
         </p>
       </div>
 
-      
+      {/* CHAT */}
+      <ChatWidget />
 
     </main>
   );
