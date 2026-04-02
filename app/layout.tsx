@@ -1,9 +1,10 @@
-"use client"; // This is required to use usePathname
+"use client";
 
 import "./globals.css";
 import { usePathname } from "next/navigation";
 import Footer from "./components/Footer";
 import Header from "./components/Header";
+import ChatWidget from "./components/ChatWidget"; // 1. Import your widget
 
 export default function RootLayout({
   children,
@@ -12,8 +13,8 @@ export default function RootLayout({
 }) {
   const pathname = usePathname();
   
-  // This detects if the URL is /chat/something
-  const isChatWidget = pathname.startsWith("/chat");
+  // Detects if the URL is the standalone chat page or embed route
+  const isChatWidgetRoute = pathname.startsWith("/chat");
 
   return (
     <html lang="en">
@@ -29,13 +30,24 @@ export default function RootLayout({
           minHeight: "100vh",
         }}
       >
-        {/* Hide Header if it's the chatbot widget */}
-        {!isChatWidget && <Header />}
+        {/* Hide Header if it's the chatbot widget route */}
+        {!isChatWidgetRoute && <Header />}
 
         <main style={{ flex: 1 }}>{children}</main>
 
-        {/* Hide Footer if it's the chatbot widget */}
-        {!isChatWidget && <Footer />}
+        {/* 2. Render the ChatWidget globally.
+          We hide it ONLY when the user is already on the /chat page 
+          to prevent a "chatbot inside a chatbot" loop.
+        */}
+        {!isChatWidgetRoute && (
+          <ChatWidget 
+            chatbotId="9ff1f58c-d09d-4449-97cc-a5860b640e2c" 
+            plan="free" 
+          />
+        )}
+
+        {/* Hide Footer if it's the chatbot widget route */}
+        {!isChatWidgetRoute && <Footer />}
       </body>
     </html>
   );
