@@ -24,7 +24,6 @@ const ALLOWED_PAYMENT_HOSTS = new Set([
   "test.payu.in",
 ]);
 
-// Helper to extract the link and clean up the text
 function processMessageContent(content: string) {
   const hrefMatch = content.match(/href=['"]([^'"]+)['"]/i);
   const urlMatch = content.match(/https?:\/\/[^\s"'<>]+/i);
@@ -38,10 +37,6 @@ function processMessageContent(content: string) {
       const parsed = new URL(candidate);
       if (parsed.protocol === "https:" && ALLOWED_PAYMENT_HOSTS.has(parsed.hostname)) {
         safeUrl = parsed.toString();
-        
-        // SECURE FIX: Instead of regex, we strip tags by 
-        // extracting textContent only if we are in a browser context.
-        // If not, we just show a generic string.
         cleanText = "Payment link generated."; 
       }
     } catch {
@@ -64,7 +59,6 @@ export default function ChatWidget({
   const [open, setOpen] = useState(isEmbed ? true : false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
-
   const activeBotId = chatbotId || "9ff1f58c-d09d-4449-97cc-a5860b640e2c";
 
   useEffect(() => {
@@ -159,21 +153,30 @@ export default function ChatWidget({
   };
 
   const chatPanel = (
-    <div className={isEmbed ? "flex h-full min-h-[500px] w-full flex-col overflow-hidden rounded-2xl border bg-white shadow-2xl" : "flex h-[420px] w-[92vw] sm:w-[350px] max-w-[350px] flex-col overflow-hidden rounded-2xl border bg-white shadow-xl"}>
-      <div className="flex items-center justify-between bg-blue-600 px-4 py-3 text-white">
-        <span className="font-semibold text-sm md:text-base">AI Assistant</span>
-        {!isEmbed && <button onClick={() => setOpen(false)} className="text-lg leading-none">✕</button>}
+    <div 
+      className={`flex flex-col overflow-hidden border bg-white shadow-2xl transition-all duration-300 
+      ${isEmbed ? "h-full w-full rounded-2xl" : "h-[450px] w-[92vw] sm:w-[350px] rounded-2xl"}`}
+      style={isEmbed ? { height: '100dvh' } : {}}
+    >
+      {/* Header */}
+      <div className="flex shrink-0 items-center justify-between bg-blue-600 px-4 py-3 text-white">
+        <span className="text-sm font-semibold md:text-base">AI Assistant</span>
+        {!isEmbed && (
+          <button onClick={() => setOpen(false)} className="text-lg leading-none hover:opacity-80">✕</button>
+        )}
       </div>
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto bg-gray-50 p-3 space-y-3">
+      {/* Messages Area */}
+      <div 
+        ref={scrollRef} 
+        className="flex-1 overflow-y-auto bg-gray-50 p-3 space-y-3 overscroll-contain"
+      >
         {messages.map((m, i) => {
           const { safeUrl, cleanText } = processMessageContent(m.content);
-
           return (
             <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
               <div className={`max-w-[85%] rounded-xl p-2 text-xs md:text-sm whitespace-pre-wrap break-words ${m.role === "user" ? "bg-blue-600 text-white" : "border bg-white text-gray-800 shadow-sm"}`}>
                 <div>{safeUrl ? "Click below to complete your payment:" : cleanText}</div>
-                
                 {safeUrl && (
                   <div className="mt-2">
                     <button
@@ -192,7 +195,8 @@ export default function ChatWidget({
         {isLoading && <div className="text-xs text-gray-400 animate-pulse">Assistant is typing...</div>}
       </div>
 
-      <div className="border-t bg-white p-2">
+      {/* Input Area */}
+      <div className="shrink-0 border-t bg-white p-2">
         <div className="flex gap-2">
           <input
             type="text"
@@ -202,7 +206,12 @@ export default function ChatWidget({
             placeholder="Type your message..."
             className="flex-1 rounded-md border px-3 py-2 text-xs md:text-sm text-black focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
-          <button onClick={handleSendMessage} className="rounded-md bg-blue-600 px-3 py-2 text-xs md:text-sm text-white">Send</button>
+          <button 
+            onClick={handleSendMessage} 
+            className="rounded-md bg-blue-600 px-3 py-2 text-xs md:text-sm text-white hover:bg-blue-700 transition"
+          >
+            Send
+          </button>
         </div>
         {plan === "free" && (
           <div className="mt-1 text-center text-[10px] text-gray-400">
@@ -213,12 +222,24 @@ export default function ChatWidget({
     </div>
   );
 
-  if (isEmbed) return <div className="w-full">{chatPanel}</div>;
+  // When embedded in an iframe, we return just the panel with a wrapper that allows for no-bg gaps
+  if (isEmbed) {
+    return (
+      <div className="fixed inset-0 flex h-full w-full items-end justify-end bg-transparent p-0">
+        {chatPanel}
+      </div>
+    );
+  }
 
   return (
     <div className="fixed bottom-4 right-4 z-[9999] font-sans">
       {open && chatPanel}
-      <button onClick={() => setOpen((prev) => !prev)} className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-600 text-xl text-white shadow-lg transition hover:scale-105">💬</button>
+      <button 
+        onClick={() => setOpen((prev) => !prev)} 
+        className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-600 text-xl text-white shadow-lg transition hover:scale-105"
+      >
+        💬
+      </button>
     </div>
   );
 }
