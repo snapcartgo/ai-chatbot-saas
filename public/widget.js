@@ -53,7 +53,9 @@
     document.body.appendChild(button);
 
     const iframe = document.createElement("iframe");
-    iframe.src = `https://ai-chatbot-saas-five.vercel.app/widget?botId=${botId}`;
+    const widgetUrl = new URL("https://ai-chatbot-saas-five.vercel.app/widget");
+      widgetUrl.searchParams.set("botId", botId);
+      iframe.src = widgetUrl.toString();
 
     function applyStyles() {
       isMobile = window.innerWidth < 768;
