@@ -185,10 +185,11 @@ export default function ChatWidget({
                       : "bg-white text-gray-800 border shadow-sm"
                   }`}
                 >
-                      <span>{m.content}</span>
-
-
-
+                  <span
+                    dangerouslySetInnerHTML={{
+                      __html: m.content,
+                    }}
+                  />
                 </div>
               </div>
             ))}
