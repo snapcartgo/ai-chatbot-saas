@@ -99,15 +99,24 @@ export default function ChatWidget({
   }, [messages, isLoading]);
 
   const handleSendMessage = async () => {
-    if (!userInput.trim()) return;
+  if (!userInput.trim()) return;
 
-    const currentInput = userInput.trim();
-    const payload = {
-      message: currentInput,
-      bot_id: activeBotId,
-      conversation_id: "session_" + activeBotId,
-      category: botCategory,
-    };
+  // 1. Check if this browser already has a unique session ID
+  let uniqueSessionId = localStorage.getItem(`chat_session_${activeBotId}`);
+
+  // 2. If not, create a new one (Unique per person)
+  if (!uniqueSessionId) {
+    uniqueSessionId = "session_" + Math.random().toString(36).substring(2, 15) + "_" + Date.now();
+    localStorage.setItem(`chat_session_${activeBotId}`, uniqueSessionId);
+  }
+
+  const currentInput = userInput.trim();
+  const payload = {
+    message: currentInput,
+    bot_id: activeBotId,
+    conversation_id: uniqueSessionId, // <--- Now it uses the UNIQUE ID
+    category: botCategory,
+  };
 
     const newMessages = [...messages, { role: "user", content: currentInput }];
     setMessages(newMessages);
