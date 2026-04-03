@@ -105,10 +105,16 @@ export default function ChatWidget({
   let uniqueSessionId = localStorage.getItem(`chat_session_${activeBotId}`);
 
   // 2. If not, create a new one (Unique per person)
-  if (!uniqueSessionId) {
-    uniqueSessionId = "session_" + Math.random().toString(36).substring(2, 15) + "_" + Date.now();
+  // 2. If not, create a new one (Unique per person)
+if (!uniqueSessionId) {
+    // Generate a cryptographically secure random string
+    const array = new Uint32Array(1);
+    window.crypto.getRandomValues(array);
+    const secureRandom = array[0].toString(36);
+    
+    uniqueSessionId = "session_" + secureRandom + "_" + Date.now();
     localStorage.setItem(`chat_session_${activeBotId}`, uniqueSessionId);
-  }
+}
 
   const currentInput = userInput.trim();
   const payload = {
