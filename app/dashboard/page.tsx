@@ -11,17 +11,18 @@ export default function DashboardPage() {
   });
   const [loading, setLoading] = useState(true);
 
-  // New states for Calendar Sync
+  // Calendar Sync States
   const [calendarId, setCalendarId] = useState("");
   const [clientName, setClientName] = useState("");
+  const [activeCalendar, setActiveCalendar] = useState<string | null>(null);
   const [syncLoading, setSyncLoading] = useState(false);
   const [syncMessage, setSyncMessage] = useState({ text: "", type: "" });
 
   useEffect(() => {
-    loadStats();
+    loadDashboardData();
   }, []);
 
-  async function loadStats() {
+  async function loadDashboardData() {
     setLoading(true);
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
@@ -29,6 +30,18 @@ export default function DashboardPage() {
       return;
     }
 
+    // 1. Fetch Synced Calendar for this user
+    const { data: calData } = await supabase
+      .from("client_calendars")
+      .select("calendar_id")
+      .eq("user_id", user.id)
+      .maybeSingle(); // Using maybeSingle to avoid errors if no record exists
+
+    if (calData) {
+      setActiveCalendar(calData.calendar_id);
+    }
+
+    // 2. Fetch Chatbot Stats
     const { data: bots } = await supabase
       .from("chatbots")
       .select("id")
@@ -57,7 +70,6 @@ export default function DashboardPage() {
     setLoading(false);
   }
 
-  // --- New Calendar Sync Function ---
   async function handleCalendarSync(e: React.FormEvent) {
     e.preventDefault();
     setSyncLoading(true);
@@ -70,21 +82,22 @@ export default function DashboardPage() {
       return;
     }
 
+    // Use upsert to handle "One User = One Calendar" 
+    // This will update the existing record if it exists, or insert a new one
     const { error } = await supabase
       .from("client_calendars")
-      .insert([
-        { 
-          calendar_id: calendarId, 
-          client_name: clientName, 
-          user_id: user.id,
-          status: 'pending' 
-        }
-      ]);
+      .upsert({ 
+        calendar_id: calendarId, 
+        client_name: clientName, 
+        user_id: user.id,
+        status: 'pending' 
+      }, { onConflict: 'user_id' });
 
     if (error) {
       setSyncMessage({ text: `Error: ${error.message}`, type: "error" });
     } else {
-      setSyncMessage({ text: "Success! Calendar added to sync queue.", type: "success" });
+      setSyncMessage({ text: "Success! Calendar synced.", type: "success" });
+      setActiveCalendar(calendarId); // Update local state to show current ID
       setCalendarId("");
       setClientName("");
     }
@@ -94,7 +107,7 @@ export default function DashboardPage() {
   const conversionRate = stats.leads > 0 ? ((stats.bookings / stats.leads) * 100).toFixed(1) : "0.0";
 
   return (
-    <main className="min-h-screen bg-gray-50 p-4 md:p-8">
+    <main className="min-h-screen bg-gray-50 p-4 md:p-8 text-gray-900">
       <div className="max-w-7xl mx-auto">
         <h1 className="text-3xl font-bold text-gray-800 mb-8">Agency Dashboard</h1>
 
@@ -110,53 +123,73 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* Calendar Sync Section */}
+        {/* Calendar Configuration Section */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 max-w-2xl">
-          <div className="mb-6">
-            <h2 className="text-xl font-bold text-gray-800">Add Customer Calendar</h2>
-            <p className="text-sm text-gray-500">Automatically sync a customer's shared calendar to your main view.</p>
+          <div className="mb-6 flex justify-between items-start">
+            <div>
+              <h2 className="text-xl font-bold">Calendar Configuration</h2>
+              <p className="text-sm text-gray-500">Manage the Google Calendar pulled into your main view.</p>
+            </div>
+            {activeCalendar && (
+              <span className="bg-green-100 text-green-700 text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-widest">
+                Linked
+              </span>
+            )}
           </div>
 
-          <form onSubmit={handleCalendarSync} className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-semibold text-gray-600 uppercase">Customer Name</label>
-                <input
-                  type="text"
-                  required
-                  value={clientName}
-                  onChange={(e) => setClientName(e.target.value)}
-                  className="p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition"
-                  placeholder="e.g. Azaadi Band"
-                />
-              </div>
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-semibold text-gray-600 uppercase">Calendar Email ID</label>
-                <input
-                  type="email"
-                  required
-                  value={calendarId}
-                  onChange={(e) => setCalendarId(e.target.value)}
-                  className="p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition"
-                  placeholder="customer@gmail.com"
-                />
-              </div>
+          {activeCalendar ? (
+            <div className="p-5 bg-gray-50 rounded-xl border border-gray-200">
+              <div className="text-xs font-semibold text-gray-400 uppercase mb-1">Active Calendar ID</div>
+              <div className="text-lg font-mono font-bold text-blue-600 truncate">{activeCalendar}</div>
+              <button 
+                onClick={() => setActiveCalendar(null)}
+                className="mt-4 text-sm font-medium text-gray-600 hover:text-red-500 transition-colors"
+              >
+                Change Calendar Settings
+              </button>
             </div>
+          ) : (
+            <form onSubmit={handleCalendarSync} className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-semibold text-gray-600 uppercase">Customer Name</label>
+                  <input
+                    type="text"
+                    required
+                    value={clientName}
+                    onChange={(e) => setClientName(e.target.value)}
+                    className="p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                    placeholder="e.g. Azaadi Band"
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-semibold text-gray-600 uppercase">Calendar Email ID</label>
+                  <input
+                    type="email"
+                    required
+                    value={calendarId}
+                    onChange={(e) => setCalendarId(e.target.value)}
+                    className="p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                    placeholder="customer@gmail.com"
+                  />
+                </div>
+              </div>
 
-            <button
-              type="submit"
-              disabled={syncLoading}
-              className="bg-gray-900 text-white px-6 py-2.5 rounded-lg font-medium hover:bg-gray-800 disabled:opacity-50 transition"
-            >
-              {syncLoading ? "Processing..." : "Sync Calendar"}
-            </button>
+              <button
+                type="submit"
+                disabled={syncLoading}
+                className="w-full md:w-auto bg-gray-900 text-white px-8 py-2.5 rounded-lg font-medium hover:bg-gray-800 disabled:opacity-50 transition"
+              >
+                {syncLoading ? "Saving..." : "Sync Calendar"}
+              </button>
+            </form>
+          )}
 
-            {syncMessage.text && (
-              <p className={`text-sm mt-2 font-medium ${syncMessage.type === 'error' ? 'text-red-500' : 'text-green-600'}`}>
-                {syncMessage.text}
-              </p>
-            )}
-          </form>
+          {syncMessage.text && (
+            <p className={`text-sm mt-4 font-medium ${syncMessage.type === 'error' ? 'text-red-500' : 'text-green-600'}`}>
+              {syncMessage.text}
+            </p>
+          )}
         </div>
       </div>
     </main>
