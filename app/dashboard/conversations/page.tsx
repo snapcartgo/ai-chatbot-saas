@@ -32,22 +32,37 @@ export default function ConversationsPage() {
         return;
       }
 
-      // 3. Get messages using bot_id (Avoids the conversation_id text prefix issue)
+      // 3. Get messages
       const { data, error } = await supabase
         .from("messages")
         .select("*")
         .in("bot_id", botIds)
-        .order("created_at", { ascending: true }); // Chronological order (oldest to newest)
+        .order("created_at", { ascending: true }); 
 
       if (!error && data) {
-        // Group messages by conversation_id
-        const groups = data.reduce((acc: any, msg) => {
+        // 1. Group messages by conversation_id
+        // Added explicit type to acc for better TS support
+        const groups = data.reduce((acc: Record<string, any[]>, msg) => {
           const id = msg.conversation_id || "unknown_session";
           if (!acc[id]) acc[id] = [];
           acc[id].push(msg);
           return acc;
         }, {});
-        setGroupedMessages(groups);
+
+        // 2. Sort sessions by LATEST message timestamp
+        const sortedEntries = Object.entries(groups).sort((a: any, b: any) => {
+          const messagesA = a[1];
+          const messagesB = b[1];
+          
+          const lastTimeA = new Date(messagesA[messagesA.length - 1].created_at).getTime();
+          const lastTimeB = new Date(messagesB[messagesB.length - 1].created_at).getTime();
+          
+          return lastTimeB - lastTimeA; // Newest activity at top
+        });
+
+        // 3. Set the state
+        const sortedGroups = Object.fromEntries(sortedEntries) as Record<string, any[]>;
+        setGroupedMessages(sortedGroups);
       }
 
       setLoading(false);
@@ -66,7 +81,7 @@ export default function ConversationsPage() {
         <p>No conversations yet.</p>
       )}
 
-      {Object.entries(groupedMessages).reverse().map(([sessionId, msgs]) => (
+      {Object.entries(groupedMessages).map(([sessionId, msgs]) => (
         <div
           key={sessionId}
           style={{
@@ -77,7 +92,6 @@ export default function ConversationsPage() {
             boxShadow: "0 2px 5px rgba(0,0,0,0.05)",
           }}
         >
-          {/* Header Box - Clickable */}
           <div
             onClick={() => setExpandedSession(expandedSession === sessionId ? null : sessionId)}
             style={{
@@ -100,12 +114,11 @@ export default function ConversationsPage() {
             </span>
           </div>
 
-          {/* Chat Content - Visible when expanded */}
           {expandedSession === sessionId && (
             <div style={{ padding: "20px", backgroundColor: "#ffffff" }}>
               {msgs.map((msg) => (
                 <div
-                  key={msg.id} // Correctly placed unique key
+                  key={msg.id}
                   style={{
                     marginBottom: "15px",
                     display: "flex",
