@@ -13,7 +13,7 @@ type Lead = {
   name: string;
   phone: string;
   service: string;
-  lead_status: string;
+  leads_status: string; // ✅ YOUR COLUMN NAME
 };
 
 const columns = ["new", "contacted", "booked", "closed"];
@@ -50,7 +50,7 @@ export default function PipelinePage() {
     };
 
     data.forEach((lead) => {
-      const status = lead.lead_status || "new";
+      const status = lead.leads_status || "new"; // ✅ FIXED
       if (grouped[status]) {
         grouped[status].push(lead);
       }
@@ -73,7 +73,7 @@ export default function PipelinePage() {
 
     const [movedItem] = sourceItems.splice(result.source.index, 1);
 
-    movedItem.lead_status = destCol;
+    movedItem.leads_status = destCol; // ✅ FIXED
 
     destItems.splice(result.destination.index, 0, movedItem);
 
@@ -85,11 +85,15 @@ export default function PipelinePage() {
 
     setLeads(newState);
 
-    // 🔥 UPDATE DB
-    await supabase
+    // 🔥 UPDATE DB (FIXED COLUMN)
+    const { error } = await supabase
       .from("leads")
-      .update({ lead_status: destCol })
+      .update({ leads_status: destCol }) // ✅ FIXED
       .eq("id", movedItem.id);
+
+    if (error) {
+      console.error("Update failed:", error);
+    }
   };
 
   return (
