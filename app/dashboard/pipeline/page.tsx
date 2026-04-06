@@ -88,8 +88,12 @@ export default function PipelinePage() {
     // 🔥 UPDATE DB (FIXED COLUMN)
     const { error } = await supabase
       .from("leads")
-      .update({ leads_status: destCol }) // ✅ FIXED
+      .update({ leads_status: destCol })
       .eq("id", movedItem.id);
+
+if (error) {
+  console.error("Update error:", error);
+}
 
     if (error) {
       console.error("Update failed:", error);
