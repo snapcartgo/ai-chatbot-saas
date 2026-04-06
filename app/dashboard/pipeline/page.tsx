@@ -13,7 +13,7 @@ type Lead = {
   name: string;
   phone: string;
   service: string;
-  leads_status: string; // ✅ YOUR COLUMN NAME
+  leads_status?: string;
 };
 
 const columns = ["new", "contacted", "booked", "closed"];
@@ -30,15 +30,25 @@ export default function PipelinePage() {
     loadLeads();
   }, []);
 
-  // 🔥 FETCH + GROUP
+  // 🔥 HYBRID LOAD (leads + conversations)
   async function loadLeads() {
-    const { data, error } = await supabase
+    // 1️⃣ Fetch leads (booked users)
+    const { data: leadsData, error: leadsError } = await supabase
       .from("leads")
-      .select("*")
-      .order("created_at", { ascending: false });
+      .select("*");
 
-    if (error) {
-      console.error(error);
+    if (leadsError) {
+      console.error(leadsError);
+      return;
+    }
+
+    // 2️⃣ Fetch conversations (all users)
+    const { data: convoData, error: convoError } = await supabase
+      .from("conversations")
+      .select("*");
+
+    if (convoError) {
+      console.error(convoError);
       return;
     }
 
@@ -49,17 +59,48 @@ export default function PipelinePage() {
       closed: [],
     };
 
-    data.forEach((lead) => {
-      const status = lead.leads_status || "new"; // ✅ FIXED
-      if (grouped[status]) {
-        grouped[status].push(lead);
+    // ✅ Step 1: Add booked leads
+    leadsData?.forEach((lead) => {
+      grouped.booked.push({
+        id: lead.id,
+        name: lead.name,
+        phone: lead.phone,
+        service: lead.service,
+        leads_status: "booked",
+      });
+    });
+
+    // ✅ Step 2: Add conversations (not yet leads)
+    convoData?.forEach((conv: any) => {
+      const alreadyLead = leadsData?.find(
+        (l) => l.phone === conv.phone
+      );
+
+      if (!alreadyLead) {
+        // 🔹 If user has some info → contacted
+        if (conv.name || conv.phone) {
+          grouped.contacted.push({
+            id: conv.id,
+            name: conv.name || "Unknown",
+            phone: conv.phone || "-",
+            service: "From Chat",
+          });
+        } else {
+          // 🔹 Just started chat → new
+          grouped.new.push({
+            id: conv.id,
+            name: "New Visitor",
+            phone: "-",
+            service: "Chat Started",
+          });
+        }
       }
     });
 
     setLeads(grouped);
   }
 
-  // 🔥 DRAG HANDLER
+  // 🔥 DRAG HANDLER (only for real leads)
   const handleDragEnd = async (result: any) => {
     if (!result.destination) return;
 
@@ -73,8 +114,6 @@ export default function PipelinePage() {
 
     const [movedItem] = sourceItems.splice(result.source.index, 1);
 
-    movedItem.leads_status = destCol; // ✅ FIXED
-
     destItems.splice(result.destination.index, 0, movedItem);
 
     const newState = {
@@ -85,18 +124,16 @@ export default function PipelinePage() {
 
     setLeads(newState);
 
-    // 🔥 UPDATE DB (FIXED COLUMN)
-    const { error } = await supabase
-      .from("leads")
-      .update({ leads_status: destCol })
-      .eq("id", movedItem.id);
+    // ⚠️ Only update DB if it's from leads table (booked items)
+    if (movedItem.phone !== "-") {
+      const { error } = await supabase
+        .from("leads")
+        .update({ leads_status: destCol })
+        .eq("id", movedItem.id);
 
-if (error) {
-  console.error("Update error:", error);
-}
-
-    if (error) {
-      console.error("Update failed:", error);
+      if (error) {
+        console.error("Update error:", error);
+      }
     }
   };
 
@@ -118,17 +155,15 @@ if (error) {
                     {...provided.droppableProps}
                     className="bg-gray-100 p-3 rounded-lg min-h-[400px] w-[250px] md:w-auto"
                   >
-                    {/* COLUMN TITLE */}
                     <h3 className="mb-3 capitalize font-medium text-sm md:text-base">
                       {status}
                     </h3>
 
-                    {/* LEADS */}
                     <div className="space-y-2">
                       {leads[status].map((lead, index) => (
                         <Draggable
                           key={lead.id}
-                          draggableId={lead.id}
+                          draggableId={lead.id.toString()}
                           index={index}
                         >
                           {(provided) => (
@@ -149,6 +184,13 @@ if (error) {
                               <div className="text-xs text-gray-500">
                                 {lead.service}
                               </div>
+
+                              {/* 🔥 Badge */}
+                              {lead.phone === "-" && (
+                                <div className="text-[10px] text-blue-500 mt-1">
+                                  Chat User
+                                </div>
+                              )}
                             </div>
                           )}
                         </Draggable>
