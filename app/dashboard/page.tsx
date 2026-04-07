@@ -2,41 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import Link from "next/link";
-
-/**
- * Reusable StatCard Component
- * Now supports an optional 'href' to make the card clickable.
- */
-function StatCard({ 
-  title, 
-  value, 
-  color, 
-  href 
-}: { 
-  title: string; 
-  value: any; 
-  color: string; 
-  href?: string 
-}) {
-  const cardContent = (
-    <div className={`p-6 rounded-2xl text-white shadow-sm transition-all duration-200 hover:scale-[1.03] hover:shadow-md ${color} ${href ? 'cursor-pointer' : ''}`}>
-      <div className="text-xs font-bold uppercase opacity-70 tracking-wider">
-        {title}
-      </div>
-      <div className="text-4xl font-extrabold mt-2 tracking-tight">
-        {value}
-      </div>
-    </div>
-  );
-
-  // If an href is provided, wrap the card in a Next.js Link
-  if (href) {
-    return <Link href={href} className="block">{cardContent}</Link>;
-  }
-
-  return cardContent;
-}
 
 export default function DashboardPage() {
   const [stats, setStats] = useState({
@@ -65,12 +30,12 @@ export default function DashboardPage() {
       return;
     }
 
-    // 1. Fetch Synced Calendar
+    // 1. Fetch Synced Calendar for this user
     const { data: calData } = await supabase
       .from("client_calendars")
       .select("calendar_id")
       .eq("user_id", user.id)
-      .maybeSingle();
+      .maybeSingle(); // Using maybeSingle to avoid errors if no record exists
 
     if (calData) {
       setActiveCalendar(calData.calendar_id);
@@ -117,6 +82,8 @@ export default function DashboardPage() {
       return;
     }
 
+    // Use upsert to handle "One User = One Calendar" 
+    // This will update the existing record if it exists, or insert a new one
     const { error } = await supabase
       .from("client_calendars")
       .upsert({ 
@@ -130,7 +97,7 @@ export default function DashboardPage() {
       setSyncMessage({ text: `Error: ${error.message}`, type: "error" });
     } else {
       setSyncMessage({ text: "Success! Calendar synced.", type: "success" });
-      setActiveCalendar(calendarId);
+      setActiveCalendar(calendarId); // Update local state to show current ID
       setCalendarId("");
       setClientName("");
     }
@@ -149,29 +116,10 @@ export default function DashboardPage() {
           <p className="text-gray-500 text-lg animate-pulse">Updating stats...</p>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
-            <StatCard 
-              title="Total Leads" 
-              value={stats.leads} 
-              color="bg-blue-600" 
-              href="/leads" 
-            />
-            <StatCard 
-              title="Conversations" 
-              value={stats.conversations} 
-              color="bg-purple-600" 
-              href="/conversations" 
-            />
-            <StatCard 
-              title="Bookings" 
-              value={stats.bookings} 
-              color="bg-green-600" 
-              href="/pipeline" 
-            />
-            <StatCard 
-              title="Conversion Rate" 
-              value={conversionRate + "%"} 
-              color="bg-orange-600" 
-            />
+            <StatCard title="Total Leads" value={stats.leads} color="bg-blue-600" />
+            <StatCard title="Conversations" value={stats.conversations} color="bg-purple-600" />
+            <StatCard title="Bookings" value={stats.bookings} color="bg-green-600" />
+            <StatCard title="Conversion Rate" value={conversionRate + "%"} color="bg-orange-600" />
           </div>
         )}
 
@@ -245,5 +193,14 @@ export default function DashboardPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+function StatCard({ title, value, color }: { title: string; value: any; color: string }) {
+  return (
+    <div className={`p-6 rounded-2xl text-white shadow-sm transition-transform hover:scale-[1.02] ${color}`}>
+      <div className="text-xs font-bold uppercase opacity-70 tracking-wider">{title}</div>
+      <div className="text-4xl font-extrabold mt-2 tracking-tight">{value}</div>
+    </div>
   );
 }
