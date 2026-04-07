@@ -12,7 +12,6 @@ export default function DashboardPage() {
   });
   const [loading, setLoading] = useState(true);
 
-  // Calendar Sync States
   const [calendarId, setCalendarId] = useState("");
   const [clientName, setClientName] = useState("");
   const [activeCalendar, setActiveCalendar] = useState<string | null>(null);
@@ -25,6 +24,7 @@ export default function DashboardPage() {
 
   async function loadDashboardData() {
     setLoading(true);
+
     const {
       data: { user }
     } = await supabase.auth.getUser();
@@ -51,20 +51,28 @@ export default function DashboardPage() {
 
     const botIds = bots?.map((b) => b.id) || [];
 
-    if (botIds.length === 0) {
-      setStats({ leads: 0, conversations: 0, bookings: 0 });
-      setLoading(false);
-      return;
-    }
+    const leadsPromise = supabase
+      .from("leads")
+      .select("*", { count: "exact", head: true });
 
-    const [leadsRes, convosRes, bookingsRes] = await Promise.all([
-      supabase.from("leads").select("*", { count: "exact", head: true }).in("bot_id", botIds),
-      supabase.from("messages").select("*", { count: "exact", head: true }).in("bot_id", botIds),
-      supabase
-        .from("leads")
-        .select("*", { count: "exact", head: true })
-        .in("bot_id", botIds)
-        .eq("lead_status", "booked")
+    const bookingsPromise = supabase
+      .from("orders")
+      .select("*", { count: "exact", head: true })
+      .eq("user_id", user.id)
+      .eq("payment_status", "paid");
+
+    const conversationsPromise =
+      botIds.length > 0
+        ? supabase
+            .from("messages")
+            .select("*", { count: "exact", head: true })
+            .in("bot_id", botIds)
+        : Promise.resolve({ count: 0 });
+
+    const [leadsRes, bookingsRes, convosRes] = await Promise.all([
+      leadsPromise,
+      bookingsPromise,
+      conversationsPromise
     ]);
 
     setStats({
@@ -145,7 +153,7 @@ export default function DashboardPage() {
             />
             <StatCard
               title="Conversion Rate"
-              value={conversionRate + "%"}
+              value={`${conversionRate}%`}
               color="bg-orange-600"
               href="/dashboard/pipeline"
             />
@@ -252,12 +260,10 @@ function StatCard({
   return (
     <Link
       href={href}
-      className={`block rounded-2xl text-white shadow-sm transition-transform duration-200 hover:scale-[1.02] hover:shadow-lg focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200 ${color}`}
+      className={`block p-6 rounded-2xl text-white shadow-sm transition-transform hover:scale-[1.02] ${color}`}
     >
-      <div className="p-6">
-        <div className="text-xs font-bold uppercase opacity-70 tracking-wider">{title}</div>
-        <div className="text-4xl font-extrabold mt-2 tracking-tight">{value}</div>
-      </div>
+      <div className="text-xs font-bold uppercase opacity-70 tracking-wider">{title}</div>
+      <div className="text-4xl font-extrabold mt-2 tracking-tight">{value}</div>
     </Link>
   );
 }
