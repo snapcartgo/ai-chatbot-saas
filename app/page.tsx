@@ -78,7 +78,7 @@ export default function HomeClient() {
         </div>
 
         <p className="mt-6 text-gray-500 text-xs md:text-sm">
-          No coding required • Setup in 2 minutes • Start free
+          Launch before your coffee gets cold • Setup in 2 minutes • Start free
         </p>
 
       </section>
@@ -116,6 +116,12 @@ export default function HomeClient() {
       </section>
 
       {/* 🔥 USP */}
+      <div className="text-center pb-12 md:pb-20 px-4">
+        <p className="text-base md:text-xl font-semibold">
+          The Bot That Pays for Itself
+        </p>
+      </div>
+
       <div className="text-center pb-12 md:pb-20 px-4">
         <p className="text-base md:text-xl font-semibold">
           Most chatbots just reply. Ours converts visitors into customers.
