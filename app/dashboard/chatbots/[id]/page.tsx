@@ -6,7 +6,6 @@ import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
 
 export default function ChatbotSettings() {
-
   const router = useRouter();
   const params = useParams();
   const id = params.id as string;
@@ -16,9 +15,7 @@ export default function ChatbotSettings() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-
     const loadBot = async () => {
-
       const {
         data: { user },
       } = await supabase.auth.getUser();
@@ -40,7 +37,6 @@ export default function ChatbotSettings() {
         return;
       }
 
-      // IMPORTANT FIX: ensure category is never null
       setBot({
         ...data,
         category: data?.category || "booking",
@@ -50,13 +46,9 @@ export default function ChatbotSettings() {
     };
 
     loadBot();
-
   }, [id, router]);
 
-
-
   const handleSave = async () => {
-
     setSaving(true);
 
     const {
@@ -92,13 +84,9 @@ export default function ChatbotSettings() {
 
     setBot(data);
     alert("Chatbot updated successfully!");
-
   };
 
-
-
   const handleDelete = async () => {
-
     const confirmDelete = confirm(
       "Are you sure you want to delete this chatbot?"
     );
@@ -132,46 +120,34 @@ export default function ChatbotSettings() {
 
     router.push("/dashboard/chatbots");
     router.refresh();
-
   };
-
-
 
   if (loading) return <p>Loading...</p>;
   if (!bot) return <p>Chatbot not found.</p>;
 
-
+  const scriptCode = `<script src="https://ai-chatbot-saas-five.vercel.app/widget.js" data-bot-id="${id}"></script>`;
 
   return (
-    <div style={{ padding: 40, maxWidth: 600 }}>
-
+    <div style={{ padding: 40, maxWidth: 700 }}>
       <h1>Edit Chatbot</h1>
 
       {/* NAME */}
-
       <div style={{ marginTop: 20 }}>
         <label>Name</label>
         <input
           type="text"
           value={bot.name || ""}
-          onChange={(e) =>
-            setBot({ ...bot, name: e.target.value })
-          }
+          onChange={(e) => setBot({ ...bot, name: e.target.value })}
           style={{ width: "100%", padding: 8, marginTop: 5 }}
         />
       </div>
 
-
       {/* CATEGORY */}
-
       <div style={{ marginTop: 20 }}>
         <label>Business Category</label>
-
         <select
           value={bot.category}
-          onChange={(e) =>
-            setBot({ ...bot, category: e.target.value })
-          }
+          onChange={(e) => setBot({ ...bot, category: e.target.value })}
           style={{ width: "100%", padding: 8, marginTop: 5 }}
         >
           <option value="booking">Booking</option>
@@ -179,16 +155,12 @@ export default function ChatbotSettings() {
         </select>
       </div>
 
-
       {/* MODEL */}
-
       <div style={{ marginTop: 20 }}>
         <label>Model</label>
         <select
           value={bot.model}
-          onChange={(e) =>
-            setBot({ ...bot, model: e.target.value })
-          }
+          onChange={(e) => setBot({ ...bot, model: e.target.value })}
           style={{ width: "100%", padding: 8, marginTop: 5 }}
         >
           <option value="gpt-4o-mini">gpt-4o-mini</option>
@@ -196,9 +168,7 @@ export default function ChatbotSettings() {
         </select>
       </div>
 
-
       {/* TEMPERATURE */}
-
       <div style={{ marginTop: 20 }}>
         <label>Temperature</label>
         <input
@@ -217,9 +187,7 @@ export default function ChatbotSettings() {
         />
       </div>
 
-
       {/* WELCOME MESSAGE */}
-
       <div style={{ marginTop: 20 }}>
         <label>Welcome Message</label>
         <textarea
@@ -239,10 +207,7 @@ export default function ChatbotSettings() {
         />
       </div>
 
-
-
-      {/* SAVE BUTTON */}
-
+      {/* BUTTONS */}
       <button
         onClick={handleSave}
         disabled={saving}
@@ -256,10 +221,6 @@ export default function ChatbotSettings() {
       >
         {saving ? "Saving..." : "Save Changes"}
       </button>
-
-
-
-      {/* DELETE BUTTON */}
 
       <button
         onClick={handleDelete}
@@ -275,10 +236,7 @@ export default function ChatbotSettings() {
         Delete Chatbot
       </button>
 
-
-
       {/* MANAGE DOMAINS */}
-
       <div style={{ marginTop: 20 }}>
         <Link
           href={`/dashboard/chatbots/${id}/domains`}
@@ -295,49 +253,73 @@ export default function ChatbotSettings() {
         </Link>
       </div>
 
-
-
       {/* EMBED SCRIPT */}
-
       <div style={{ marginTop: 40 }}>
         <h3>Embed Script</h3>
-
         <p>Copy and paste this into your website:</p>
 
-        <textarea
-          readOnly
-          value={`<script src="https://ai-chatbot-saas-five.vercel.app/widget.js" data-bot-id="${id}"></script>`}
-          style={{
-            width: "100%",
-            padding: 10,
-            minHeight: 80,
-            marginTop: 10,
-            background: "#111",
-            color: "white",
-            borderRadius: 8,
-          }}
-        />
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <textarea
+            readOnly
+            value={scriptCode}
+            style={{
+              flex: 1,
+              padding: 12,
+              minHeight: 80,
+              background: "#111",
+              color: "white",
+              borderRadius: 8,
+              border: "1px solid #333",
+            }}
+          />
 
-        <button
-          onClick={() => {
-            navigator.clipboard.writeText(
-              `<script src="https://ai-chatbot-saas-five.vercel.app/widget.js" data-bot-id="${id}"></script>`
-            );
-            alert("Copied!");
-          }}
+          <button
+            onClick={() => {
+              navigator.clipboard.writeText(scriptCode);
+              alert("Copied!");
+            }}
+            style={{
+              height: 50,
+              padding: "0 20px",
+              background: "#2563eb",
+              color: "white",
+              borderRadius: 6,
+              fontWeight: "bold",
+              whiteSpace: "nowrap",
+              border: "none",
+              cursor: "pointer",
+            }}
+          >
+            Copy Script
+          </button>
+        </div>
+
+        {/* INSTRUCTIONS */}
+        <div
           style={{
-            marginTop: 10,
-            padding: "8px 15px",
-            background: "#2563eb",
-            color: "white",
-            borderRadius: 6,
+            marginTop: 20,
+            padding: 15,
+            background: "#0f172a",
+            borderRadius: 10,
+            border: "1px solid #1f2937",
+            color: "#cbd5f5",
+            fontSize: 14,
+            lineHeight: 1.7,
           }}
         >
-          Copy Script
-        </button>
+          <p>
+            <strong>WordPress:</strong> Admin → Code Snippets → Header & Footer → Paste script in Footer
+          </p>
 
+          <p>
+            <strong>Shopify:</strong> Admin → Online Store → Themes → Edit Code → theme.liquid → Paste before {"</body>"}
+          </p>
+
+          <p>
+            If you face any issue, simply open the chatbot and ask your question for instant step-by-step help.
+          </p>
+        </div>
       </div>
-
     </div>
   );
 }
