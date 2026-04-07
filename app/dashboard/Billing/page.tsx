@@ -118,6 +118,11 @@ export default function BillingPage() {
             <div className="space-y-2 mb-6 text-xs md:text-sm text-gray-300 flex-grow">
               <p>✅ {plan.messages}</p>
               <p>✅ {plan.bots}</p>
+              <p>✅ Knowledge Base: {plan.knowledgeBase}</p>
+
+              {plan.features.map((feature, index) => (
+                <p key={index}>✅ {feature}</p>
+              ))}
             </div>
 
             {/* PAYU */}
