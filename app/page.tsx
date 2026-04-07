@@ -91,7 +91,7 @@ export default function HomeClient() {
             AI Chatbot
           </h3>
           <p className="text-gray-400 text-sm md:text-base">
-            Instantly respond to visitors and answer their questions automatically using AI.
+            Automatically handle customer queries 24/7 without human effort.
           </p>
         </div>
 
@@ -117,9 +117,12 @@ export default function HomeClient() {
 
       {/* 🔥 USP */}
       <div className="text-center pb-12 md:pb-20 px-4">
-        <p className="text-base md:text-xl font-semibold">
+        <p className="text-base md:text-xl font-semibold leading-relaxed">
           The Bot That Pays for Itself
-          Most chatbots just reply. Ours converts visitors into customers.
+          <br />
+          <span className="text-gray-400 font-normal">
+            Most chatbots just reply. Ours converts visitors into customers.
+          </span>
         </p>
       </div>
 
