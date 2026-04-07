@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 
@@ -24,24 +25,25 @@ export default function DashboardPage() {
 
   async function loadDashboardData() {
     setLoading(true);
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user }
+    } = await supabase.auth.getUser();
+
     if (!user) {
       setLoading(false);
       return;
     }
 
-    // 1. Fetch Synced Calendar for this user
     const { data: calData } = await supabase
       .from("client_calendars")
       .select("calendar_id")
       .eq("user_id", user.id)
-      .maybeSingle(); // Using maybeSingle to avoid errors if no record exists
+      .maybeSingle();
 
     if (calData) {
       setActiveCalendar(calData.calendar_id);
     }
 
-    // 2. Fetch Chatbot Stats
     const { data: bots } = await supabase
       .from("chatbots")
       .select("id")
@@ -58,7 +60,11 @@ export default function DashboardPage() {
     const [leadsRes, convosRes, bookingsRes] = await Promise.all([
       supabase.from("leads").select("*", { count: "exact", head: true }).in("bot_id", botIds),
       supabase.from("messages").select("*", { count: "exact", head: true }).in("bot_id", botIds),
-      supabase.from("leads").select("*", { count: "exact", head: true }).in("bot_id", botIds).eq("lead_status", "booked")
+      supabase
+        .from("leads")
+        .select("*", { count: "exact", head: true })
+        .in("bot_id", botIds)
+        .eq("lead_status", "booked")
     ]);
 
     setStats({
@@ -66,7 +72,7 @@ export default function DashboardPage() {
       conversations: convosRes.count || 0,
       bookings: bookingsRes.count || 0
     });
-    
+
     setLoading(false);
   }
 
@@ -75,60 +81,84 @@ export default function DashboardPage() {
     setSyncLoading(true);
     setSyncMessage({ text: "", type: "" });
 
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user }
+    } = await supabase.auth.getUser();
+
     if (!user) {
       setSyncMessage({ text: "Please log in first.", type: "error" });
       setSyncLoading(false);
       return;
     }
 
-    // Use upsert to handle "One User = One Calendar" 
-    // This will update the existing record if it exists, or insert a new one
-    const { error } = await supabase
-      .from("client_calendars")
-      .upsert({ 
-        calendar_id: calendarId, 
-        client_name: clientName, 
+    const { error } = await supabase.from("client_calendars").upsert(
+      {
+        calendar_id: calendarId,
+        client_name: clientName,
         user_id: user.id,
-        status: 'pending' 
-      }, { onConflict: 'user_id' });
+        status: "pending"
+      },
+      { onConflict: "user_id" }
+    );
 
     if (error) {
       setSyncMessage({ text: `Error: ${error.message}`, type: "error" });
     } else {
       setSyncMessage({ text: "Success! Calendar synced.", type: "success" });
-      setActiveCalendar(calendarId); // Update local state to show current ID
+      setActiveCalendar(calendarId);
       setCalendarId("");
       setClientName("");
     }
+
     setSyncLoading(false);
   }
 
-  const conversionRate = stats.leads > 0 ? ((stats.bookings / stats.leads) * 100).toFixed(1) : "0.0";
+  const conversionRate =
+    stats.leads > 0 ? ((stats.bookings / stats.leads) * 100).toFixed(1) : "0.0";
 
   return (
     <main className="min-h-screen bg-gray-50 p-4 md:p-8 text-gray-900">
       <div className="max-w-7xl mx-auto">
         <h1 className="text-3xl font-bold text-gray-800 mb-8">Agency Dashboard</h1>
 
-        {/* Stats Grid */}
         {loading ? (
           <p className="text-gray-500 text-lg animate-pulse">Updating stats...</p>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
-            <StatCard title="Total Leads" value={stats.leads} color="bg-blue-600" />
-            <StatCard title="Conversations" value={stats.conversations} color="bg-purple-600" />
-            <StatCard title="Bookings" value={stats.bookings} color="bg-green-600" />
-            <StatCard title="Conversion Rate" value={conversionRate + "%"} color="bg-orange-600" />
+            <StatCard
+              title="Total Leads"
+              value={stats.leads}
+              color="bg-blue-600"
+              href="/dashboard/leads"
+            />
+            <StatCard
+              title="Conversations"
+              value={stats.conversations}
+              color="bg-purple-600"
+              href="/dashboard/conversations"
+            />
+            <StatCard
+              title="Bookings"
+              value={stats.bookings}
+              color="bg-green-600"
+              href="/dashboard/orders"
+            />
+            <StatCard
+              title="Conversion Rate"
+              value={conversionRate + "%"}
+              color="bg-orange-600"
+              href="/dashboard/pipeline"
+            />
           </div>
         )}
 
-        {/* Calendar Configuration Section */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 max-w-2xl">
           <div className="mb-6 flex justify-between items-start">
             <div>
               <h2 className="text-xl font-bold">Calendar Configuration</h2>
-              <p className="text-sm text-gray-500">Manage the Google Calendar pulled into your main view.</p>
+              <p className="text-sm text-gray-500">
+                Manage the Google Calendar pulled into your main view.
+              </p>
             </div>
             {activeCalendar && (
               <span className="bg-green-100 text-green-700 text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-widest">
@@ -139,9 +169,13 @@ export default function DashboardPage() {
 
           {activeCalendar ? (
             <div className="p-5 bg-gray-50 rounded-xl border border-gray-200">
-              <div className="text-xs font-semibold text-gray-400 uppercase mb-1">Active Calendar ID</div>
-              <div className="text-lg font-mono font-bold text-blue-600 truncate">{activeCalendar}</div>
-              <button 
+              <div className="text-xs font-semibold text-gray-400 uppercase mb-1">
+                Active Calendar ID
+              </div>
+              <div className="text-lg font-mono font-bold text-blue-600 truncate">
+                {activeCalendar}
+              </div>
+              <button
                 onClick={() => setActiveCalendar(null)}
                 className="mt-4 text-sm font-medium text-gray-600 hover:text-red-500 transition-colors"
               >
@@ -152,7 +186,9 @@ export default function DashboardPage() {
             <form onSubmit={handleCalendarSync} className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="flex flex-col gap-1">
-                  <label className="text-xs font-semibold text-gray-600 uppercase">Customer Name</label>
+                  <label className="text-xs font-semibold text-gray-600 uppercase">
+                    Customer Name
+                  </label>
                   <input
                     type="text"
                     required
@@ -163,7 +199,9 @@ export default function DashboardPage() {
                   />
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="text-xs font-semibold text-gray-600 uppercase">Calendar Email ID</label>
+                  <label className="text-xs font-semibold text-gray-600 uppercase">
+                    Calendar Email ID
+                  </label>
                   <input
                     type="email"
                     required
@@ -186,7 +224,11 @@ export default function DashboardPage() {
           )}
 
           {syncMessage.text && (
-            <p className={`text-sm mt-4 font-medium ${syncMessage.type === 'error' ? 'text-red-500' : 'text-green-600'}`}>
+            <p
+              className={`text-sm mt-4 font-medium ${
+                syncMessage.type === "error" ? "text-red-500" : "text-green-600"
+              }`}
+            >
               {syncMessage.text}
             </p>
           )}
@@ -196,11 +238,26 @@ export default function DashboardPage() {
   );
 }
 
-function StatCard({ title, value, color }: { title: string; value: any; color: string }) {
+function StatCard({
+  title,
+  value,
+  color,
+  href
+}: {
+  title: string;
+  value: React.ReactNode;
+  color: string;
+  href: string;
+}) {
   return (
-    <div className={`p-6 rounded-2xl text-white shadow-sm transition-transform hover:scale-[1.02] ${color}`}>
-      <div className="text-xs font-bold uppercase opacity-70 tracking-wider">{title}</div>
-      <div className="text-4xl font-extrabold mt-2 tracking-tight">{value}</div>
-    </div>
+    <Link
+      href={href}
+      className={`block rounded-2xl text-white shadow-sm transition-transform duration-200 hover:scale-[1.02] hover:shadow-lg focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200 ${color}`}
+    >
+      <div className="p-6">
+        <div className="text-xs font-bold uppercase opacity-70 tracking-wider">{title}</div>
+        <div className="text-4xl font-extrabold mt-2 tracking-tight">{value}</div>
+      </div>
+    </Link>
   );
 }
