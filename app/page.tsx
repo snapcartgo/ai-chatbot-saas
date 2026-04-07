@@ -119,11 +119,6 @@ export default function HomeClient() {
       <div className="text-center pb-12 md:pb-20 px-4">
         <p className="text-base md:text-xl font-semibold">
           The Bot That Pays for Itself
-        </p>
-      </div>
-
-      <div className="text-center pb-12 md:pb-20 px-4">
-        <p className="text-base md:text-xl font-semibold">
           Most chatbots just reply. Ours converts visitors into customers.
         </p>
       </div>
