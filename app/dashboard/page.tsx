@@ -146,7 +146,7 @@ export default function DashboardPage() {
               href="/dashboard/conversations"
             />
             <StatCard
-              title="Bookings"
+              title="ORDERS"
               value={stats.bookings}
               color="bg-green-600"
               href="/dashboard/orders"
