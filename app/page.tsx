@@ -97,19 +97,19 @@ export default function HomeClient() {
 
         <div className="bg-gray-900 p-5 md:p-8 rounded-xl border border-gray-800">
           <h3 className="text-lg md:text-xl font-semibold mb-2 text-blue-400">
-            Lead Capture
+            Analytics Dashboard
           </h3>
           <p className="text-gray-400 text-sm md:text-base">
-            Capture every visitor as a potential customer and store their details automatically.
+            Track conversations, leads, and performance easily.
           </p>
         </div>
 
         <div className="bg-gray-900 p-5 md:p-8 rounded-xl border border-gray-800">
           <h3 className="text-lg md:text-xl font-semibold mb-2 text-blue-400">
-            Booking Automation
+            Sales & Booking Automation
           </h3>
           <p className="text-gray-400 text-sm md:text-base">
-            Let users book appointments or services without any manual effort.
+            Your bot works like a 24/7 manager. From scheduling meetings to processing e-commerce orders, our AI handles the entire transaction so you never miss a sale.
           </p>
         </div>
 
