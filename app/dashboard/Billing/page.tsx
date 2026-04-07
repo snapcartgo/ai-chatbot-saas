@@ -28,31 +28,55 @@ export default function BillingPage() {
   };
 
   const plans = [
-    {
-      name: "Starter",
-      price: 499,
-      description: "Basic chatbot plan",
-      messages: "100 Messages",
-      bots: "1 Chatbot",
-      planId: "starter",
-    },
-    {
-      name: "Pro",
-      price: 1999,
-      description: "Advanced chatbot plan",
-      messages: "5000 Messages",
-      bots: "5 Chatbots",
-      planId: "pro",
-    },
-    {
-      name: "Growth",
-      price: 4999,
-      description: "Best for businesses",
-      messages: "20000 Messages",
-      bots: "20 Chatbots",
-      planId: "growth",
-    },
-  ];
+      {
+        name: "Starter",
+        price: 999,
+        description: "Perfect for getting started",
+        messages: "100 AI Messages / month",
+        bots: "1 AI Chatbot",
+        knowledgeBase: "10 MB",
+        features: [
+          "Capture Leads Automatically",
+          "View Conversations Dashboard",
+          "Simple Auto-Reply Workflow",
+          "Email Support",
+        ],
+        planId: "starter",
+      },
+      {
+        name: "Pro",
+        price: 1999,
+        description: "Scale your customer engagement",
+        messages: "3000 AI Messages / month",
+        bots: "2 AI Chatbots",
+        knowledgeBase: "50 MB",
+        features: [
+          "Advanced Lead Capture + Pipeline",
+          "Full Conversation History",
+          "Smart Follow-ups & Automation",
+          "Analytics Dashboard",
+          "Priority Email Support",
+        ],
+        planId: "pro",
+      },
+      {
+        name: "Growth",
+        price: 4999,
+        description: "Built for serious businesses",
+        messages: "12000 AI Messages / month",
+        bots: "5 AI Chatbots",
+        knowledgeBase: "100 MB",
+        features: [
+          "Advanced CRM (Leads + Pipeline + Orders)",
+          "Auto Lead Assignment",
+          "Advanced Automation Workflows",
+          "Cart Recovery & Follow-ups",
+          "Advanced Analytics & Conversion Tracking",
+          "Priority Support + Faster Response",
+        ],
+        planId: "growth",
+      },
+    ];
 
   return (
     <div className="p-4 md:p-8 bg-black min-h-screen text-white w-full">
