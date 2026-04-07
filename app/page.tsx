@@ -109,7 +109,7 @@ export default function HomeClient() {
             Sales & Booking Automation
           </h3>
           <p className="text-gray-400 text-sm md:text-base">
-            Your bot works like a 24/7 manager. From scheduling meetings to processing e-commerce orders, our AI handles the entire transaction so you never miss a sale.
+            Most chatbots just talk. Ours closes the sale and fills your calendar.
           </p>
         </div>
 
