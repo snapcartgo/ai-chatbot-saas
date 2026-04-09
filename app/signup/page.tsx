@@ -14,7 +14,7 @@ export default function Signup() {
 
   const router = useRouter();
 
-  // ✅ SAFE VERSION (NO useSearchParams)
+  // ✅ Referral logic (same as yours)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const refFromUrl = params.get("ref");
@@ -28,6 +28,7 @@ export default function Signup() {
     }
   }, []);
 
+  // ✅ EMAIL SIGNUP
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -70,6 +71,24 @@ export default function Signup() {
     }
   };
 
+  // ✅ GOOGLE SIGNUP / LOGIN
+  const handleGoogleSignup = async () => {
+    const finalRef =
+      referralCode || localStorage.getItem("referral");
+
+    // Save referral temporarily (important for OAuth flow)
+    if (finalRef) {
+      localStorage.setItem("referral", finalRef);
+    }
+
+    await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: "http://localhost:3000/dashboard", // change when live
+      },
+    });
+  };
+
   return (
     <main className="min-h-screen flex items-center justify-center bg-gray-950 text-white px-4">
       <div className="grid md:grid-cols-2 bg-gray-900 rounded-2xl overflow-hidden shadow-2xl max-w-4xl w-full border border-gray-800">
@@ -90,6 +109,20 @@ export default function Signup() {
             </div>
           )}
 
+          {/* ✅ GOOGLE BUTTON */}
+          <button
+            onClick={handleGoogleSignup}
+            className="w-full bg-white text-black p-3 rounded-lg font-semibold mb-4 flex items-center justify-center gap-2"
+          >
+            Continue with Google
+          </button>
+
+          {/* Divider */}
+          <div className="text-center text-gray-400 text-sm mb-4">
+            OR
+          </div>
+
+          {/* EMAIL FORM */}
           <form onSubmit={handleSignup} className="space-y-4">
 
             <input
