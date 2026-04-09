@@ -22,29 +22,39 @@ export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
     const file = formData.get("file") as File;
-    
-    // 1. Get the chatbotId sent from your frontend
     const chatbotId = formData.get("chatbotId"); 
 
     if (!file) return NextResponse.json({ error: "No file" }, { status: 400 });
     if (!chatbotId) return NextResponse.json({ error: "No chatbot ID provided" }, { status: 400 });
 
+    // --- FIX: CAPTURE FILE SIZE ---
+    // We get the size in bytes directly from the file object
+    const sizeInBytes = file.size; 
+    const sizeInKB = Math.round(sizeInBytes / 1024);
+
     const buffer = Buffer.from(await file.arrayBuffer());
     const data = await pdf(buffer);
 
-    // 2. Include chatbot_id in the insert
+    // --- FIX: INCLUDE SIZE IN THE INSERT ---
     const { error: dbError } = await supabase
       .from("knowledge_base")
       .insert([{ 
         source: file.name,
         content: data.text,
-        chatbot_id: chatbotId // This fixes the database constraint
+        chatbot_id: chatbotId,
+        file_size: sizeInBytes,    // Updates your 'file_size' column
+        file_size_kb: sizeInKB     // Updates your 'file_size_kb' column
       }]);
 
-    if (dbError) throw dbError;
+    if (dbError) {
+      console.error("Database Insert Error:", dbError);
+      throw dbError;
+    }
+
     return NextResponse.json({ success: true });
 
   } catch (error: any) {
+    console.error("Upload Route Error:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
