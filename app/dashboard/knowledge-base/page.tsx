@@ -5,9 +5,9 @@ import { supabase } from "@/lib/supabase";
 
 // Define limits based on your billing plans
 const PLAN_LIMITS: Record<string, number> = {
-  free: 1,      // 1MB for testing
+  free: 45,      // 45MB for testing
   starter: 10,  // 10MB
-  pro: 50,      // 50MB
+  pro: 45,      // 45MB
   growth: 100,  // 100MB
 };
 
