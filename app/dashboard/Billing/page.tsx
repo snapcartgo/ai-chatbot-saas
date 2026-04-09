@@ -49,7 +49,7 @@ export default function BillingPage() {
         description: "Scale your customer engagement",
         messages: "3000 AI Messages / month",
         bots: "2 AI Chatbots",
-        knowledgeBase: "50 MB",
+        knowledgeBase: "45 MB",
         features: [
           "Advanced Lead Capture + Pipeline",
           "Full Conversation History",
