@@ -12,6 +12,7 @@ export default function Login() {
 
   const router = useRouter();
 
+  // ✅ EMAIL LOGIN
   const handleLogin = async (e: any) => {
     e.preventDefault();
 
@@ -26,6 +27,16 @@ export default function Login() {
     }
 
     router.push("/dashboard");
+  };
+
+  // ✅ GOOGLE LOGIN
+  const handleGoogleLogin = async () => {
+    await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: "http://localhost:3000/dashboard", // change in production
+      },
+    });
   };
 
   return (
@@ -64,6 +75,19 @@ export default function Login() {
           <p className="text-gray-400 mb-6">
             Access your AI chatbot dashboard.
           </p>
+
+          {/* ✅ GOOGLE BUTTON */}
+          <button
+            onClick={handleGoogleLogin}
+            className="w-full bg-white text-black p-3 rounded-lg font-semibold mb-4"
+          >
+            Continue with Google
+          </button>
+
+          {/* Divider */}
+          <div className="text-center text-gray-400 text-sm mb-4">
+            OR
+          </div>
 
           <form onSubmit={handleLogin} className="space-y-4">
 
@@ -133,4 +157,3 @@ export default function Login() {
     </main>
   );
 }
-
