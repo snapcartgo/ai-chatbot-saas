@@ -13,7 +13,10 @@ export default function ConversationsPage() {
       setLoading(true);
 
       // 1. Get logged user
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
       if (!user) {
         setLoading(false);
         return;
@@ -32,38 +35,53 @@ export default function ConversationsPage() {
         return;
       }
 
-      // 3. Get messages
-      const { data, error } = await supabase
-        .from("messages")
-        .select("*")
-        .in("bot_id", botIds)
-        .order("created_at", { ascending: true }); 
+      // 3. Get messages in pages (Supabase returns 1000 rows per page by default)
+      // 3. Get messages in pages
+const pageSize = 1000;
+let from = 0;
+const allMessages: any[] = [];
 
-      if (!error && data) {
-        // 1. Group messages by conversation_id
-        // Added explicit type to acc for better TS support
-        const groups = data.reduce((acc: Record<string, any[]>, msg) => {
-          const id = msg.conversation_id || "unknown_session";
-          if (!acc[id]) acc[id] = [];
-          acc[id].push(msg);
-          return acc;
-        }, {});
+while (true) {
+  const { data, error } = await supabase
+    .from("messages")
+    .select("id, conversation_id, role, content, created_at, bot_id")
+    .in("bot_id", botIds)
+    .order("created_at", { ascending: true })
+    .range(from, from + pageSize - 1); // 0-999, 1000-1999, ...
 
-        // 2. Sort sessions by LATEST message timestamp
-        const sortedEntries = Object.entries(groups).sort((a: any, b: any) => {
-          const messagesA = a[1];
-          const messagesB = b[1];
-          
-          const lastTimeA = new Date(messagesA[messagesA.length - 1].created_at).getTime();
-          const lastTimeB = new Date(messagesB[messagesB.length - 1].created_at).getTime();
-          
-          return lastTimeB - lastTimeA; // Newest activity at top
-        });
+  if (error) {
+    console.error("Failed to load messages:", error);
+    break;
+  }
 
-        // 3. Set the state
-        const sortedGroups = Object.fromEntries(sortedEntries) as Record<string, any[]>;
-        setGroupedMessages(sortedGroups);
-      }
+  if (!data || data.length === 0) break;
+
+  allMessages.push(...data);
+
+  if (data.length < pageSize) break; // last page reached
+  from += pageSize;
+}
+
+// Group only after all pages are merged
+if (allMessages.length > 0) {
+  const groups = allMessages.reduce((acc: Record<string, any[]>, msg) => {
+    const id = msg.conversation_id || "unknown_session";
+    if (!acc[id]) acc[id] = [];
+    acc[id].push(msg);
+    return acc;
+  }, {});
+
+  const sortedEntries = Object.entries(groups).sort((a: any, b: any) => {
+    const lastTimeA = new Date(a[1][a[1].length - 1].created_at).getTime();
+    const lastTimeB = new Date(b[1][b[1].length - 1].created_at).getTime();
+    return lastTimeB - lastTimeA;
+  });
+
+  setGroupedMessages(Object.fromEntries(sortedEntries) as Record<string, any[]>);
+} else {
+  setGroupedMessages({});
+}
+
 
       setLoading(false);
     };
@@ -77,9 +95,7 @@ export default function ConversationsPage() {
 
       {loading && <p>Loading sessions...</p>}
 
-      {!loading && Object.keys(groupedMessages).length === 0 && (
-        <p>No conversations yet.</p>
-      )}
+      {!loading && Object.keys(groupedMessages).length === 0 && <p>No conversations yet.</p>}
 
       {Object.entries(groupedMessages).map(([sessionId, msgs]) => (
         <div
@@ -107,10 +123,12 @@ export default function ConversationsPage() {
           >
             <div style={{ display: "flex", flexDirection: "column" }}>
               <span style={{ fontSize: "14px", color: "#555" }}>Session ID:</span>
-              <span style={{ fontSize: "12px", fontWeight: "normal", color: "#888" }}>{sessionId}</span>
+              <span style={{ fontSize: "12px", fontWeight: "normal", color: "#888" }}>
+                {sessionId}
+              </span>
             </div>
             <span style={{ fontSize: "12px", color: "#007bff" }}>
-              {expandedSession === sessionId ? "▲ Close" : "▼ View Conversation"}
+              {expandedSession === sessionId ? "Close" : "View Conversation"}
             </span>
           </div>
 
@@ -142,16 +160,15 @@ export default function ConversationsPage() {
                     <div dangerouslySetInnerHTML={{ __html: msg.content }} />
                   </div>
                   <span style={{ fontSize: "10px", color: "#aaa", marginTop: "4px" }}>
-                    {msg.role === "user" ? "User" : "Bot"} • {
-                      new Date(msg.created_at).toLocaleString('en-IN', {
-                        timeZone: 'Asia/Kolkata',
-                        day: '2-digit',
-                        month: 'short',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                        hour12: true
-                      })
-                    }
+                    {msg.role === "user" ? "User" : "Bot"} -{" "}
+                    {new Date(msg.created_at).toLocaleString("en-IN", {
+                      timeZone: "Asia/Kolkata",
+                      day: "2-digit",
+                      month: "short",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                      hour12: true,
+                    })}
                   </span>
                 </div>
               ))}
