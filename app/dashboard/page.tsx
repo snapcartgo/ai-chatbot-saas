@@ -30,40 +30,25 @@ export default function DashboardPage() {
 
     if (!ref || !user?.id || !user?.email) return;
 
-    const normalizedEmail = user.email.toLowerCase();
+    const res = await fetch("/api/referrals/attach", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        ref,
+        userId: user.id,
+        email: user.email.toLowerCase(),
+      }),
+    });
 
-    const { data: partner } = await supabase
-      .from("partners")
-      .select("id, referral_code")
-      .eq("referral_code", ref)
-      .maybeSingle();
-
-    if (!partner?.id) {
-      localStorage.removeItem("referral");
+    const data = await res.json();
+    if (!res.ok) {
+      console.error("Referral attach failed:", data);
       return;
     }
 
-    const { data: existing } = await supabase
-      .from("referrals")
-      .select("id")
-      .eq("referred_user_id", user.id)
-      .maybeSingle();
-
-    if (!existing) {
-      await supabase.from("referrals").insert([
-        {
-          partner_id: partner.id,
-          source_referral_code: partner.referral_code,
-          referred_email: normalizedEmail,
-          referred_user_id: user.id,
-          status: "pending",
-          payment_status: "pending",
-        },
-      ]);
-    }
-
     localStorage.removeItem("referral");
-
     if (refFromUrl) {
       window.history.replaceState({}, "", "/dashboard");
     }
@@ -194,7 +179,6 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* Optional calendar section */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
           <h2 className="text-xl font-bold mb-4">Calendar Sync</h2>
 
