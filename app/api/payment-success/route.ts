@@ -9,7 +9,10 @@ const supabase = createClient(
 const saasUrl =
   process.env.NEXT_PUBLIC_APP_URL || "https://ai-chatbot-saas-five.vercel.app";
 
-const PLAN_CONFIG: Record<string, { amount: number; chatbot_limit: number; message_limit: number }> = {
+const PLAN_CONFIG: Record<
+  "starter" | "pro" | "growth",
+  { amount: number; chatbot_limit: number; message_limit: number }
+> = {
   starter: { amount: 999, chatbot_limit: 1, message_limit: 100 },
   pro: { amount: 1999, chatbot_limit: 2, message_limit: 3000 },
   growth: { amount: 4999, chatbot_limit: 5, message_limit: 12000 },
@@ -27,7 +30,32 @@ function normalizeStatus(raw: string | null | undefined): string {
   return (raw || "").toLowerCase().trim();
 }
 
-async function updatePlanAndReferral(email: string, plan: "starter" | "pro" | "growth", amountFromGateway?: number) {
+async function resolvePartnerUuid(partnerRef: string | null): Promise<string | null> {
+  if (!partnerRef) return null;
+
+  const { data: p1 } = await supabase
+    .from("partners")
+    .select("id")
+    .eq("id", partnerRef)
+    .maybeSingle();
+
+  if (p1?.id) return p1.id;
+
+  const { data: p2 } = await supabase
+    .from("partners")
+    .select("id")
+    .eq("referral_code", partnerRef)
+    .maybeSingle();
+
+  return p2?.id || null;
+}
+
+async function updatePlanAndReferral(
+  email: string,
+  plan: "starter" | "pro" | "growth",
+  amountFromGateway?: number,
+  paymentId?: string
+) {
   const { data: profile } = await supabase
     .from("profiles")
     .select("id")
@@ -67,27 +95,54 @@ async function updatePlanAndReferral(email: string, plan: "starter" | "pro" | "g
 
   const commission = Number((amount * 0.2).toFixed(2));
 
-  const { data: refRows } = await supabase
+  const { data: referralRows } = await supabase
     .from("referrals")
-    .select("id")
+    .select("id, partner_id")
     .or(`referred_user_id.eq.${profile.id},referred_email.eq.${email}`);
 
-  if (refRows?.length) {
-    const ids = refRows.map((r: any) => r.id);
+  if (!referralRows?.length) return;
+
+  const ids = referralRows.map((r: any) => r.id);
+
+  await supabase
+    .from("referrals")
+    .update({
+      amount,
+      commission_amount: commission,
+      payment_status: "paid", // customer paid
+      status: "completed",
+      purchased_plan: plan,
+    })
+    .in("id", ids);
+
+  for (const ref of referralRows) {
+    const partnerUuid = await resolvePartnerUuid(ref.partner_id);
+    if (!partnerUuid) continue;
 
     await supabase
-      .from("referrals")
-      .update({
-        amount,
-        commission_amount: commission,
-        payment_status: "paid",
-        status: "completed",
-      })
-      .in("id", ids);
+      .from("commissions")
+      .upsert(
+        {
+          partner_id: partnerUuid,
+          referral_id: ref.id,
+          amount: commission,
+          status: "pending", // payout still pending
+          payout_date: null,
+        },
+        { onConflict: "referral_id" }
+      );
+  }
+
+  if (paymentId) {
+    await supabase
+      .from("orders")
+      .update({ payment_status: "paid", payment_id: paymentId })
+      .eq("customer_email", email)
+      .eq("payment_status", "pending");
   }
 }
 
-// GET: for return URLs where query params come back
+// GET return URL flow
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
 
@@ -106,7 +161,7 @@ export async function GET(req: Request) {
   return NextResponse.redirect(`${saasUrl}/dashboard/payment-success`, { status: 303 });
 }
 
-// POST: for gateways/webhooks posting form-data
+// POST webhook/form flow
 export async function POST(req: Request) {
   try {
     const formData = await req.formData();
@@ -133,20 +188,11 @@ export async function POST(req: Request) {
       return NextResponse.redirect(`${saasUrl}/dashboard?payment=failed`, { status: 303 });
     }
 
-    // optional: mark related pending order(s) paid by email
-    if (email) {
-      await supabase
-        .from("orders")
-        .update({ payment_status: "paid", payment_id: paymentId })
-        .eq("customer_email", email)
-        .eq("payment_status", "pending");
-    }
-
     if (!email || !plan) {
       return NextResponse.redirect(`${saasUrl}/dashboard?payment=missing_data`, { status: 303 });
     }
 
-    await updatePlanAndReferral(email, plan, amount);
+    await updatePlanAndReferral(email, plan, amount, paymentId);
 
     return NextResponse.redirect(`${saasUrl}/dashboard?payment=success&type=plan`, { status: 303 });
   } catch (err) {
