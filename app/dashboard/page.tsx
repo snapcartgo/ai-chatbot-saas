@@ -8,7 +8,7 @@ export default function DashboardPage() {
   const [stats, setStats] = useState({
     leads: 0,
     conversations: 0,
-    bookings: 0
+    bookings: 0,
   });
   const [loading, setLoading] = useState(true);
 
@@ -22,12 +22,52 @@ export default function DashboardPage() {
     initDashboard();
   }, []);
 
-  // ✅ MAIN INIT FUNCTION
+  async function attachReferralFromStorage(user: any) {
+    const ref = localStorage.getItem("referral");
+    if (!ref || !user?.id || !user?.email) return;
+
+    const normalizedEmail = user.email.toLowerCase();
+
+    // Find partner by referral code
+    const { data: partner } = await supabase
+      .from("partners")
+      .select("id, referral_code")
+      .eq("referral_code", ref)
+      .maybeSingle();
+
+    if (!partner?.id) {
+      localStorage.removeItem("referral");
+      return;
+    }
+
+    // Avoid duplicate referral row for same user
+    const { data: existingByUser } = await supabase
+      .from("referrals")
+      .select("id")
+      .eq("referred_user_id", user.id)
+      .maybeSingle();
+
+    if (!existingByUser) {
+      await supabase.from("referrals").insert([
+        {
+          partner_id: partner.id, // store partner UUID (string in your table)
+          source_referral_code: partner.referral_code,
+          referred_email: normalizedEmail,
+          referred_user_id: user.id,
+          status: "pending",
+          payment_status: "pending",
+        },
+      ]);
+    }
+
+    localStorage.removeItem("referral");
+  }
+
   async function initDashboard() {
     setLoading(true);
 
     const {
-      data: { user }
+      data: { user },
     } = await supabase.auth.getUser();
 
     if (!user) {
@@ -35,13 +75,14 @@ export default function DashboardPage() {
       return;
     }
 
-    // 🔥 IMPORTANT: USER SYNC (THIS WAS MISSING)
+    // Keep profile in sync
     await supabase.from("profiles").upsert({
       id: user.id,
       email: user.email?.toLowerCase(),
     });
 
-    // ---------------- EXISTING CODE ----------------
+    // IMPORTANT: capture referral after OAuth/email signup login
+    await attachReferralFromStorage(user);
 
     const { data: calData } = await supabase
       .from("client_calendars")
@@ -58,7 +99,7 @@ export default function DashboardPage() {
       .select("id")
       .eq("user_id", user.id);
 
-    const botIds = bots?.map((b) => b.id) || [];
+    const botIds = bots?.map((b: any) => b.id) || [];
 
     const leadsPromise = supabase
       .from("leads")
@@ -76,18 +117,18 @@ export default function DashboardPage() {
             .from("messages")
             .select("*", { count: "exact", head: true })
             .in("bot_id", botIds)
-        : Promise.resolve({ count: 0 });
+        : Promise.resolve({ count: 0 } as any);
 
     const [leadsRes, bookingsRes, convosRes] = await Promise.all([
       leadsPromise,
       bookingsPromise,
-      conversationsPromise
+      conversationsPromise,
     ]);
 
     setStats({
       leads: leadsRes.count || 0,
       conversations: convosRes.count || 0,
-      bookings: bookingsRes.count || 0
+      bookings: bookingsRes.count || 0,
     });
 
     setLoading(false);
@@ -99,7 +140,7 @@ export default function DashboardPage() {
     setSyncMessage({ text: "", type: "" });
 
     const {
-      data: { user }
+      data: { user },
     } = await supabase.auth.getUser();
 
     if (!user) {
@@ -113,7 +154,7 @@ export default function DashboardPage() {
         calendar_id: calendarId,
         client_name: clientName,
         user_id: user.id,
-        status: "pending"
+        status: "pending",
       },
       { onConflict: "user_id" }
     );
@@ -149,7 +190,7 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* Your existing calendar UI stays same */}
+        {/* Keep your existing calendar section below if you want */}
       </div>
     </main>
   );
@@ -159,7 +200,7 @@ function StatCard({
   title,
   value,
   color,
-  href
+  href,
 }: {
   title: string;
   value: React.ReactNode;
