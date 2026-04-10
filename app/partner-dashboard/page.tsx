@@ -44,10 +44,19 @@ export default function PartnerPage() {
         setPartner(partnerData);
         setIsPartner(true);
 
-        // Supports both old and new partner_id styles
+        // IMPORTANT: fetch payout status from commissions table
         const { data: refData } = await supabase
           .from("referrals")
-          .select("*")
+          .select(`
+            id,
+            referred_email,
+            amount,
+            commission_amount,
+            payment_status,
+            purchased_plan,
+            created_at,
+            commissions:commissions!left(status,payout_date)
+          `)
           .or(`partner_id.eq.${partnerData.id},partner_id.eq.${partnerData.referral_code}`)
           .order("created_at", { ascending: false });
 
@@ -60,9 +69,20 @@ export default function PartnerPage() {
     checkStatus();
   }, [router]);
 
-  const totalEarnings = referrals
-    .filter((r) => r.payment_status === "paid")
-    .reduce((sum, r) => sum + (Number(r.commission_amount) || 0), 0);
+  // Total commission generated (customer paid)
+  const totalGenerated = referrals.reduce(
+    (sum, r) => sum + (Number(r.commission_amount) || 0),
+    0
+  );
+
+  // Total payout completed (you paid partner)
+  const totalPaidOut = referrals.reduce((sum, r) => {
+    const payoutStatus = r.commissions?.[0]?.status || "pending";
+    if (payoutStatus === "paid") {
+      return sum + (Number(r.commission_amount) || 0);
+    }
+    return sum;
+  }, 0);
 
   const handleCreatePartner = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -155,6 +175,7 @@ export default function PartnerPage() {
               Welcome, {partner.business_name}
             </p>
           </div>
+
           <p className="text-xs md:text-sm text-gray-400">ID: {partner.referral_code}</p>
         </div>
 
@@ -165,52 +186,85 @@ export default function PartnerPage() {
           </div>
 
           <div className="bg-gray-900 p-5 rounded-xl">
-            <p className="text-gray-400 text-xs mb-1">Total Earnings</p>
+            <p className="text-gray-400 text-xs mb-1">Total Commission Generated</p>
             <h2 className="text-green-400 text-2xl md:text-4xl font-bold">
-              {formatINR(totalEarnings)}
+              {formatINR(totalGenerated)}
             </h2>
           </div>
 
           <div className="bg-gray-900 p-5 rounded-xl">
-            <p className="text-gray-400 text-xs mb-2">Referral Link</p>
-            <div className="flex flex-col gap-2">
-              <code className="text-xs text-blue-400 break-all">
-                {`https://ai-chatbot-saas-five.vercel.app/signup?ref=${partner.referral_code}`}
-              </code>
-              <button
-                onClick={() => {
-                  navigator.clipboard.writeText(
-                    `https://ai-chatbot-saas-five.vercel.app/signup?ref=${partner.referral_code}`
-                  );
-                  alert("Copied!");
-                }}
-                className="bg-blue-600 px-3 py-2 rounded text-xs"
-              >
-                Copy Link
-              </button>
-            </div>
+            <p className="text-gray-400 text-xs mb-1">Total Paid To Partner</p>
+            <h2 className="text-yellow-400 text-2xl md:text-4xl font-bold">
+              {formatINR(totalPaidOut)}
+            </h2>
+            <p className="text-xs text-gray-500 mt-2">
+              This increases only when payout status becomes paid.
+            </p>
+          </div>
+        </div>
+
+        <div className="bg-gray-900 p-5 rounded-xl mb-8">
+          <p className="text-gray-400 text-xs mb-2">Referral Link</p>
+          <div className="flex flex-col gap-2">
+            <code className="text-xs text-blue-400 break-all">
+              {`https://ai-chatbot-saas-five.vercel.app/signup?ref=${partner.referral_code}`}
+            </code>
+
+            <button
+              onClick={() => {
+                navigator.clipboard.writeText(
+                  `https://ai-chatbot-saas-five.vercel.app/signup?ref=${partner.referral_code}`
+                );
+                alert("Copied!");
+              }}
+              className="bg-blue-600 px-3 py-2 rounded text-xs"
+            >
+              Copy Link
+            </button>
           </div>
         </div>
 
         <div className="overflow-x-auto bg-gray-900 rounded-xl">
-          <table className="min-w-[600px] w-full text-sm">
+          <table className="min-w-[900px] w-full text-sm">
             <thead className="text-gray-400">
               <tr>
                 <th className="p-3 text-left">Email</th>
+                <th className="p-3 text-left">Plan</th>
                 <th className="p-3 text-left">Amount</th>
                 <th className="p-3 text-left">Commission</th>
-                <th className="p-3 text-left">Status</th>
+                <th className="p-3 text-left">Customer Payment</th>
+                <th className="p-3 text-left">Partner Payout</th>
+                <th className="p-3 text-left">Payout Date</th>
               </tr>
             </thead>
+
             <tbody>
-              {referrals.map((ref) => (
-                <tr key={ref.id} className="border-t border-gray-800">
-                  <td className="p-3">{ref.referred_email}</td>
-                  <td className="p-3">{formatINR(ref.amount)}</td>
-                  <td className="p-3 text-green-400">{formatINR(ref.commission_amount)}</td>
-                  <td className="p-3">{ref.payment_status}</td>
-                </tr>
-              ))}
+              {referrals.map((ref) => {
+                const payoutStatus = ref.commissions?.[0]?.status || "pending";
+                const payoutDate = ref.commissions?.[0]?.payout_date || null;
+
+                return (
+                  <tr key={ref.id} className="border-t border-gray-800">
+                    <td className="p-3">{ref.referred_email || "-"}</td>
+                    <td className="p-3 uppercase">{ref.purchased_plan || "-"}</td>
+                    <td className="p-3">{formatINR(Number(ref.amount) || 0)}</td>
+                    <td className="p-3 text-green-400">
+                      {formatINR(Number(ref.commission_amount) || 0)}
+                    </td>
+                    <td className="p-3">{ref.payment_status || "pending"}</td>
+                    <td
+                      className={`p-3 ${
+                        payoutStatus === "paid" ? "text-green-400" : "text-yellow-400"
+                      }`}
+                    >
+                      {payoutStatus}
+                    </td>
+                    <td className="p-3">
+                      {payoutDate ? new Date(payoutDate).toLocaleString("en-IN") : "-"}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
