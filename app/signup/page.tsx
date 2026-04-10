@@ -83,7 +83,8 @@ export default function Signup() {
     }
   };
 
-  const handleGoogleSignup = async () => {
+  // only replace handleGoogleSignup function in your existing file
+const handleGoogleSignup = async () => {
   const finalRef = referralCode || localStorage.getItem("referral");
 
   if (finalRef) {
@@ -101,6 +102,7 @@ export default function Signup() {
     },
   });
 };
+
 
 
   return (
