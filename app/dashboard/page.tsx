@@ -23,12 +23,15 @@ export default function DashboardPage() {
   }, []);
 
   async function attachReferralFromStorage(user: any) {
-    const ref = localStorage.getItem("referral");
+    const params = new URLSearchParams(window.location.search);
+    const refFromUrl = params.get("ref");
+    const refFromStorage = localStorage.getItem("referral");
+    const ref = refFromUrl || refFromStorage;
+
     if (!ref || !user?.id || !user?.email) return;
 
     const normalizedEmail = user.email.toLowerCase();
 
-    // Find partner by referral code
     const { data: partner } = await supabase
       .from("partners")
       .select("id, referral_code")
@@ -40,17 +43,16 @@ export default function DashboardPage() {
       return;
     }
 
-    // Avoid duplicate referral row for same user
-    const { data: existingByUser } = await supabase
+    const { data: existing } = await supabase
       .from("referrals")
       .select("id")
       .eq("referred_user_id", user.id)
       .maybeSingle();
 
-    if (!existingByUser) {
+    if (!existing) {
       await supabase.from("referrals").insert([
         {
-          partner_id: partner.id, // store partner UUID (string in your table)
+          partner_id: partner.id,
           source_referral_code: partner.referral_code,
           referred_email: normalizedEmail,
           referred_user_id: user.id,
@@ -61,6 +63,10 @@ export default function DashboardPage() {
     }
 
     localStorage.removeItem("referral");
+
+    if (refFromUrl) {
+      window.history.replaceState({}, "", "/dashboard");
+    }
   }
 
   async function initDashboard() {
@@ -75,13 +81,11 @@ export default function DashboardPage() {
       return;
     }
 
-    // Keep profile in sync
     await supabase.from("profiles").upsert({
       id: user.id,
       email: user.email?.toLowerCase(),
     });
 
-    // IMPORTANT: capture referral after OAuth/email signup login
     await attachReferralFromStorage(user);
 
     const { data: calData } = await supabase
@@ -190,7 +194,52 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* Keep your existing calendar section below if you want */}
+        {/* Optional calendar section */}
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+          <h2 className="text-xl font-bold mb-4">Calendar Sync</h2>
+
+          {activeCalendar ? (
+            <p className="text-green-700 mb-4">
+              Active calendar: <b>{activeCalendar}</b>
+            </p>
+          ) : (
+            <p className="text-gray-600 mb-4">No calendar synced yet.</p>
+          )}
+
+          <form onSubmit={handleCalendarSync} className="grid gap-3 md:grid-cols-3">
+            <input
+              value={clientName}
+              onChange={(e) => setClientName(e.target.value)}
+              placeholder="Client Name"
+              className="border rounded-lg p-3"
+              required
+            />
+            <input
+              value={calendarId}
+              onChange={(e) => setCalendarId(e.target.value)}
+              placeholder="Calendar ID"
+              className="border rounded-lg p-3"
+              required
+            />
+            <button
+              type="submit"
+              disabled={syncLoading}
+              className="bg-blue-600 text-white rounded-lg p-3 font-semibold disabled:opacity-60"
+            >
+              {syncLoading ? "Syncing..." : "Sync Calendar"}
+            </button>
+          </form>
+
+          {syncMessage.text ? (
+            <p
+              className={`mt-3 text-sm ${
+                syncMessage.type === "error" ? "text-red-600" : "text-green-600"
+              }`}
+            >
+              {syncMessage.text}
+            </p>
+          ) : null}
+        </div>
       </div>
     </main>
   );

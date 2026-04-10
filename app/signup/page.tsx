@@ -84,16 +84,24 @@ export default function Signup() {
   };
 
   const handleGoogleSignup = async () => {
-    const finalRef = referralCode || localStorage.getItem("referral");
-    if (finalRef) localStorage.setItem("referral", finalRef);
+  const finalRef = referralCode || localStorage.getItem("referral");
 
-    await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo: `${window.location.origin}/dashboard`,
-      },
-    });
-  };
+  if (finalRef) {
+    localStorage.setItem("referral", finalRef);
+  }
+
+  const redirectUrl = finalRef
+    ? `${window.location.origin}/dashboard?ref=${encodeURIComponent(finalRef)}`
+    : `${window.location.origin}/dashboard`;
+
+  await supabase.auth.signInWithOAuth({
+    provider: "google",
+    options: {
+      redirectTo: redirectUrl,
+    },
+  });
+};
+
 
   return (
     <main className="min-h-screen flex items-center justify-center bg-gray-950 text-white px-4">
