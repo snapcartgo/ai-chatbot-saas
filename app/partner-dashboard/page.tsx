@@ -246,7 +246,7 @@ export default function PartnerPage() {
                 return (
                   <tr key={ref.id} className="border-t border-gray-800">
                     <td className="p-3">{ref.referred_email || "-"}</td>
-                    <td className="p-3 uppercase">{ref.purchased_plan || "-"}</td>
+                    <td className="p-3 uppercase">{ref.purchased_plan || "free"}</td>
                     <td className="p-3">{formatINR(Number(ref.amount) || 0)}</td>
                     <td className="p-3 text-green-400">
                       {formatINR(Number(ref.commission_amount) || 0)}
