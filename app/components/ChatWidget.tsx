@@ -155,7 +155,7 @@ if (!uniqueSessionId) {
         ...newMessages,
         {
           role: "assistant",
-          content: "Connection lost. Please try again.",
+          content: "I'm having trouble connecting right now. Could you try that again in a moment.",
         },
       ]);
     } finally {
