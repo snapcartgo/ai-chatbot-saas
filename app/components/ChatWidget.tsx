@@ -25,27 +25,18 @@ const ALLOWED_PAYMENT_HOSTS = new Set([
 ]);
 
 function processMessageContent(content: string) {
-  const hrefMatch = content.match(/href=['"]([^'"]+)['"]/i);
-  const urlMatch = content.match(/https?:\/\/[^\s"'<>]+/i);
-  const candidate = hrefMatch?.[1] || urlMatch?.[0];
+  const urlMatch = content.match(/https?:\/\/[^\s]+/g);
 
-  let safeUrl = null;
-  let cleanText = content;
-
-  if (candidate) {
-    try {
-      const parsed = new URL(candidate);
-      if (parsed.protocol === "https:" && ALLOWED_PAYMENT_HOSTS.has(parsed.hostname)) {
-        safeUrl = parsed.toString();
-        cleanText = "Payment link generated."; 
-      }
-    } catch {
-      safeUrl = null;
-    }
-  }
-
-  return { safeUrl, cleanText };
+  return {
+    urls: urlMatch || [],
+    cleanText: content
+  };
 }
+
+ 
+
+
+
 
 export default function ChatWidget({
   chatbotId,
