@@ -178,25 +178,44 @@ if (!uniqueSessionId) {
         className="flex-1 overflow-y-auto bg-gray-50 p-3 space-y-3 overscroll-contain"
       >
         {messages.map((m, i) => {
-          const { safeUrl, cleanText } = processMessageContent(m.content);
-          return (
-            <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-              <div className={`max-w-[85%] rounded-xl p-2 text-xs md:text-sm whitespace-pre-wrap break-words ${m.role === "user" ? "bg-blue-600 text-white" : "border bg-white text-gray-800 shadow-sm"}`}>
-                <div>{safeUrl ? "Click below to complete your payment:" : cleanText}</div>
-                {safeUrl && (
-                  <div className="mt-2">
-                    <button
-                      type="button"
-                      onClick={() => handlePaymentOpen(safeUrl)}
-                      className="w-full rounded-lg bg-blue-600 px-4 py-2 text-center font-bold text-white transition hover:bg-blue-700"
-                    >
-                      Pay Now
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-          );
+          const { urls, cleanText } = processMessageContent(m.content);
+
+return (
+  <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+    <div className={`max-w-[85%] rounded-xl p-2 text-xs md:text-sm whitespace-pre-wrap break-words ${m.role === "user" ? "bg-blue-600 text-white" : "border bg-white text-gray-800 shadow-sm"}`}>
+      
+      {/* TEXT + CLICKABLE LINKS */}
+      <div>
+        {cleanText.split(/(https?:\/\/[^\s]+)/g).map((part, index) =>
+          part.match(/https?:\/\/[^\s]+/) ? (
+            <a
+              key={index}
+              href={part}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-600 underline"
+            >
+              {part}
+            </a>
+          ) : (
+            part
+          )
+        )}
+      </div>
+
+      {/* BUTTON */}
+      {urls.length > 0 && (
+        <button
+          onClick={() => window.open(urls[0], "_blank")}
+          className="mt-2 w-full rounded-lg bg-blue-600 px-4 py-2 text-white"
+        >
+          Open Link
+        </button>
+      )}
+
+    </div>
+  </div>
+);
         })}
         {isLoading && <div className="text-xs text-gray-400 animate-pulse">Assistant is typing...</div>}
       </div>
