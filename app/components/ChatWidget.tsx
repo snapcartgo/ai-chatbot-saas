@@ -25,6 +25,16 @@ const EXTERNAL_PAYMENT_HOSTS = new Set([
   "test.payu.in",
 ]);
 
+function sanitizeHttpUrl(raw: string): string | null {
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    return `${url.protocol}//${url.host}${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return null;
+  }
+}
+
 function processMessageContent(content: string) {
   const hrefMatch = content.match(/href=['"]([^'"]+)['"]/i);
   const urlMatch = content.match(/https?:\/\/[^\s"'<>]+/i);
@@ -34,9 +44,9 @@ function processMessageContent(content: string) {
   let cleanText = content;
 
   if (candidate) {
-    try {
-      const parsed = new URL(candidate);
-      const isHttps = parsed.protocol === "https:";
+    const normalized = sanitizeHttpUrl(candidate);
+    if (normalized) {
+      const parsed = new URL(normalized);
       const host = parsed.hostname.toLowerCase();
       const path = parsed.pathname.toLowerCase();
 
@@ -49,12 +59,10 @@ function processMessageContent(content: string) {
           path.includes("paypal") ||
           path.includes("order-success"));
 
-      if (isHttps && (isExternalGateway || isInternalPaymentPath)) {
-        safeUrl = parsed.toString();
+      if (isExternalGateway || isInternalPaymentPath) {
+        safeUrl = normalized;
         cleanText = "Payment link generated.";
       }
-    } catch {
-      safeUrl = null;
     }
   }
 
@@ -66,15 +74,18 @@ function renderTextWithLinks(text: string) {
 
   return parts.map((part, idx) => {
     if (/^https?:\/\//i.test(part)) {
+      const safeHref = sanitizeHttpUrl(part);
+      if (!safeHref) return <span key={idx}>{part}</span>;
+
       return (
         <a
           key={idx}
-          href={part}
+          href={safeHref}
           target="_blank"
           rel="noopener noreferrer"
           className="underline text-blue-600 hover:text-blue-700 break-all"
         >
-          {part}
+          {safeHref}
         </a>
       );
     }
@@ -157,31 +168,28 @@ export default function ChatWidget({
       category: botCategory,
     };
 
-    const newMessages: Message[] = [
-      ...messages,
-      { role: "user", content: currentInput },
-    ];
+    const newMessages: Message[] = [...messages, { role: "user", content: currentInput }];
 
     setMessages(newMessages);
     setUserInput("");
     setIsLoading(true);
 
     try {
-      const response = await fetch(
-        "https://ai-chatbot-saas-five.vercel.app/api/chat",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        }
-      );
+      const response = await fetch("https://ai-chatbot-saas-five.vercel.app/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
 
       const data = await response.json();
       if (!response.ok) throw new Error(data.reply || "Server Error");
 
+      const safeActionUrl =
+        typeof data.redirect_url === "string" ? sanitizeHttpUrl(data.redirect_url) : null;
+
       let actionLabel: string | undefined;
-      if (typeof data.redirect_url === "string") {
-        const lower = data.redirect_url.toLowerCase();
+      if (safeActionUrl) {
+        const lower = safeActionUrl.toLowerCase();
         if (lower.includes("/contact")) actionLabel = "Open Contact Us";
         else if (lower.includes("/dashboard/billing")) actionLabel = "Open Billing";
         else actionLabel = "Open Page";
@@ -192,7 +200,7 @@ export default function ChatWidget({
         {
           role: "assistant",
           content: data.reply || "I received your message but have no response.",
-          actionUrl: data.redirect_url || undefined,
+          actionUrl: safeActionUrl || undefined,
           actionLabel,
         },
       ]);
@@ -202,8 +210,7 @@ export default function ChatWidget({
         ...newMessages,
         {
           role: "assistant",
-          content:
-            "I am having trouble connecting right now. Could you try again in a moment?",
+          content: "I am having trouble connecting right now. Could you try again in a moment?",
         },
       ]);
     } finally {
@@ -212,7 +219,9 @@ export default function ChatWidget({
   };
 
   const handleOpen = (url: string) => {
-    window.open(url, "_blank", "noopener,noreferrer");
+    const safe = sanitizeHttpUrl(url);
+    if (!safe) return;
+    window.open(safe, "_blank", "noopener,noreferrer");
   };
 
   const chatPanel = (
@@ -235,10 +244,7 @@ export default function ChatWidget({
         )}
       </div>
 
-      <div
-        ref={scrollRef}
-        className="flex-1 space-y-3 overflow-y-auto bg-gray-50 p-3 overscroll-contain"
-      >
+      <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto bg-gray-50 p-3 overscroll-contain">
         {messages.map((m, i) => {
           const { safeUrl, cleanText } = processMessageContent(m.content);
           const actionUrl = m.actionUrl || safeUrl;
@@ -252,9 +258,7 @@ export default function ChatWidget({
                 }`}
               >
                 <div>
-                  {safeUrl
-                    ? "Click below to complete your payment:"
-                    : renderTextWithLinks(cleanText)}
+                  {safeUrl ? "Click below to complete your payment:" : renderTextWithLinks(cleanText)}
                 </div>
 
                 {actionUrl && (
@@ -273,9 +277,7 @@ export default function ChatWidget({
           );
         })}
 
-        {isLoading && (
-          <div className="animate-pulse text-xs text-gray-400">Assistant is typing...</div>
-        )}
+        {isLoading && <div className="animate-pulse text-xs text-gray-400">Assistant is typing...</div>}
       </div>
 
       <div className="shrink-0 border-t bg-white p-2">
