@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { supabase } from "@/lib/supabase";
 
 interface ChatWidgetProps {
@@ -25,26 +25,27 @@ const EXTERNAL_PAYMENT_HOSTS = new Set([
   "test.payu.in",
 ]);
 
+const PLAIN_URL_REGEX = /\bhttps?:\/\/[^\s<>"']+/gi;
+
 function sanitizeHttpUrl(raw: string): string | null {
   try {
     const url = new URL(raw);
     if (url.protocol !== "http:" && url.protocol !== "https:") return null;
-    return `${url.protocol}//${url.host}${url.pathname}${url.search}${url.hash}`;
+    return url.toString();
   } catch {
     return null;
   }
 }
 
 function processMessageContent(content: string) {
-  const hrefMatch = content.match(/href=['"]([^'"]+)['"]/i);
-  const urlMatch = content.match(/https?:\/\/[^\s"'<>]+/i);
-  const candidate = hrefMatch?.[1] || urlMatch?.[0];
+  // Only parse plain text URLs, never HTML href fragments.
+  const firstUrl = content.match(PLAIN_URL_REGEX)?.[0] ?? null;
 
   let safeUrl: string | null = null;
   let cleanText = content;
 
-  if (candidate) {
-    const normalized = sanitizeHttpUrl(candidate);
+  if (firstUrl) {
+    const normalized = sanitizeHttpUrl(firstUrl);
     if (normalized) {
       const parsed = new URL(normalized);
       const host = parsed.hostname.toLowerCase();
@@ -70,28 +71,35 @@ function processMessageContent(content: string) {
 }
 
 function renderTextWithLinks(text: string) {
-  const parts = text.split(/(https?:\/\/[^\s"'<>]+)/g);
+  const parts = text.split(PLAIN_URL_REGEX);
+  const matches = text.match(PLAIN_URL_REGEX) ?? [];
 
-  return parts.map((part, idx) => {
-    if (/^https?:\/\//i.test(part)) {
-      const safeHref = sanitizeHttpUrl(part);
-      if (!safeHref) return <span key={idx}>{part}</span>;
+  const nodes: ReactNode[] = [];
 
-      return (
-        <a
-          key={idx}
-          href={safeHref}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="underline text-blue-600 hover:text-blue-700 break-all"
-        >
-          {safeHref}
-        </a>
-      );
+  for (let i = 0; i < parts.length; i += 1) {
+    if (parts[i]) nodes.push(<span key={`t-${i}`}>{parts[i]}</span>);
+
+    if (i < matches.length) {
+      const safeHref = sanitizeHttpUrl(matches[i]);
+      if (safeHref) {
+        nodes.push(
+          <a
+            key={`u-${i}`}
+            href={safeHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline text-blue-600 hover:text-blue-700 break-all"
+          >
+            {safeHref}
+          </a>
+        );
+      } else {
+        nodes.push(<span key={`x-${i}`}>{matches[i]}</span>);
+      }
     }
+  }
 
-    return <span key={idx}>{part}</span>;
-  });
+  return nodes;
 }
 
 export default function ChatWidget({
@@ -103,7 +111,7 @@ export default function ChatWidget({
   const [userInput, setUserInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [botCategory, setBotCategory] = useState("Booking");
-  const [open, setOpen] = useState(isEmbed ? true : false);
+  const [open, setOpen] = useState(isEmbed);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const activeBotId = chatbotId || "9ff1f58c-d09d-4449-97cc-a5860b640e2c";
@@ -128,12 +136,7 @@ export default function ChatWidget({
         ]);
       } catch (err) {
         console.error("Load error:", err);
-        setMessages([
-          {
-            role: "assistant",
-            content: "Hello! How can I help you today?",
-          },
-        ]);
+        setMessages([{ role: "assistant", content: "Hello! How can I help you today?" }]);
       }
     };
 
@@ -155,8 +158,7 @@ export default function ChatWidget({
       const array = new Uint32Array(1);
       window.crypto.getRandomValues(array);
       const secureRandom = array[0].toString(36);
-
-      uniqueSessionId = "session_" + secureRandom + "_" + Date.now();
+      uniqueSessionId = `session_${secureRandom}_${Date.now()}`;
       localStorage.setItem(`chat_session_${activeBotId}`, uniqueSessionId);
     }
 
@@ -169,7 +171,6 @@ export default function ChatWidget({
     };
 
     const newMessages: Message[] = [...messages, { role: "user", content: currentInput }];
-
     setMessages(newMessages);
     setUserInput("");
     setIsLoading(true);
