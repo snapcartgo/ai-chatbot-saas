@@ -110,7 +110,7 @@ export default function ChatWidget({
   const [messages, setMessages] = useState<Message[]>([]);
   const [userInput, setUserInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [botCategory, setBotCategory] = useState("Booking");
+  const [botCategory, setBotCategory] = useState("booking");
   const [open, setOpen] = useState(isEmbed);
 
   const scrollRef = useRef<HTMLDivElement>(null);
