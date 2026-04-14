@@ -6,17 +6,6 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-function sanitizeHttpUrl(raw: unknown): string | null {
-  if (typeof raw !== "string") return null;
-  try {
-    const url = new URL(raw);
-    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
-    return url.toString();
-  } catch {
-    return null;
-  }
-}
-
 async function saveMessage({
   bot_id,
   conversation_id,
@@ -107,46 +96,25 @@ export async function POST(req: Request) {
       if (parsedOutput.intent) intent = String(parsedOutput.intent).toLowerCase();
       if (parsedOutput.message) botReply = String(parsedOutput.message);
       if (parsedOutput.payment_link) paymentLink = String(parsedOutput.payment_link);
-
-      // Bot-specific redirect from webhook/AI output (preferred)
-      if (!redirectUrl && parsedOutput.redirect_url) {
-        redirectUrl = sanitizeHttpUrl(parsedOutput.redirect_url);
-      }
-      if (!redirectUrl && parsedOutput.action_url) {
-        redirectUrl = sanitizeHttpUrl(parsedOutput.action_url);
-      }
     }
 
-    // Bot-specific redirect from top-level webhook response
-    if (!redirectUrl && data.redirect_url) {
-      redirectUrl = sanitizeHttpUrl(data.redirect_url);
-    }
-    if (!redirectUrl && data.action_url) {
-      redirectUrl = sanitizeHttpUrl(data.action_url);
-    }
-
-    // Optional legacy fallback (OFF by default)
-    // Set ENABLE_GLOBAL_KEYWORD_REDIRECTS=true only if you explicitly want old behavior.
     const userMsg = String(message).toLowerCase();
     const baseUrl =
       process.env.NEXT_PUBLIC_BASE_URL || "https://ai-chatbot-saas-five.vercel.app";
-    const enableLegacyKeywordRedirects =
-      process.env.ENABLE_GLOBAL_KEYWORD_REDIRECTS === "true";
 
-    if (!redirectUrl && enableLegacyKeywordRedirects) {
-      if (
-        intent === "billing" ||
-        intent === "plan" ||
-        /plan|pricing|price|billing|subscription/.test(userMsg)
-      ) {
-        redirectUrl = `${baseUrl}/dashboard/Billing`;
-      } else if (
-        intent === "contact" ||
-        intent === "support" ||
-        /contact|support|help team|customer care/.test(userMsg)
-      ) {
-        redirectUrl = `${baseUrl}/contact`;
-      }
+    // Intent-first + keyword fallback
+    if (
+      intent === "billing" ||
+      intent === "plan" ||
+      /plan|pricing|price|billing|subscription/.test(userMsg)
+    ) {
+      redirectUrl = `${baseUrl}/dashboard/Billing`;
+    } else if (
+      intent === "contact" ||
+      intent === "support" ||
+      /contact|support|help team|customer care/.test(userMsg)
+    ) {
+      redirectUrl = `${baseUrl}/contact`;
     }
 
     await saveMessage({
@@ -204,3 +172,4 @@ export async function OPTIONS() {
     },
   });
 }
+
