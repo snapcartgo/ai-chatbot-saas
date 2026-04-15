@@ -7,7 +7,7 @@ const supabase = createClient(
 );
 
 const PLAN_CONFIG: Record<string, { amount: number; chatbot_limit: number; message_limit: number }> = {
-  starter: { amount: 999, chatbot_limit: 1, message_limit: 100 },
+  starter: { amount: 999, chatbot_limit: 1, message_limit: 1000 },
   pro: { amount: 1999, chatbot_limit: 2, message_limit: 3000 },
   growth: { amount: 4999, chatbot_limit: 5, message_limit: 12000 },
 };
@@ -38,7 +38,6 @@ export async function POST(req: Request) {
 
     const plan = detectPlan(productinfo);
 
-    // Mark pending orders paid for this email
     if (email) {
       await supabase
         .from("orders")
