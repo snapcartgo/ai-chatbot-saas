@@ -37,31 +37,31 @@ export default function OrdersPage() {
   };
 
   const handleApprove = async (orderId: string) => {
-    const confirmApprove = confirm("Confirm this manual payment has been received?");
-    if (!confirmApprove) return;
+  const confirmApprove = confirm("Mark this order as Paid?");
+  if (!confirmApprove) return;
 
-    setUpdatingId(orderId);
+  setUpdatingId(orderId);
 
-    // ✅ FIX: Using the 'id' column as seen in your Supabase screenshot
-    const { error } = await supabase
-      .from("orders")
-      .update({ 
-        payment_status: "Paid" 
-      })
-      .eq("id", orderId); 
+  // 1. UPDATE SUPABASE
+  const { error } = await supabase
+    .from("orders")
+    .update({ 
+      payment_status: "Paid" 
+    })
+    .eq("id", orderId); // ✅ FIXED: Changed from 'order_id' to 'id'
 
-    if (error) {
-      alert(`Update failed: ${error.message}`);
-      console.error("Supabase Error:", error);
-    } else {
-      // ✅ Update state locally so the change is permanent after refresh
-      setOrders((prev) => 
-        prev.map((o) => (o.id === orderId ? { ...o, payment_status: "Paid" } : o))
-      );
-      alert("Order updated to Paid!");
-    }
-    setUpdatingId(null);
-  };
+  if (error) {
+    alert(`Supabase Error: ${error.message}`);
+    console.error(error);
+  } else {
+    // 2. UPDATE LOCAL STATE (Only if DB update succeeded)
+    setOrders((prev) => 
+      prev.map((o) => (o.id === orderId ? { ...o, payment_status: "Paid" } : o))
+    );
+    alert("Database updated successfully!");
+  }
+  setUpdatingId(null);
+};
 
   if (loading) return <p className="p-6">Loading orders...</p>;
 
