@@ -87,40 +87,35 @@ export default function PaymentSettingsPage() {
   }, []);
 
   const handleSave = async () => {
-    if (!user) return;
-    setSaving(true);
+  if (!user || !activeBotId) {
+    alert("Missing User or Bot ID. Cannot save.");
+    return;
+  }
 
-    try {
-      // Save PayU/PayPal to profiles
-      await supabase.from("profiles").upsert({
-        id: user.id,
-        payu_merchant_key: merchantKey,
-        payu_merchant_salt: merchantSalt,
-        payu_is_active: payuActive,
-        paypal_client_id: paypalClientId,
-        paypal_secret: paypalSecret,
-        paypal_is_active: paypalActive,
+  setSaving(true);
+
+  // We use .upsert() which means: "Update if exists, otherwise Insert"
+  const { error } = await supabase
+      .from("bot_payment_settings")
+      .upsert({
+        bot_id: activeBotId, // This MUST match the Primary Key in your screenshot
+        user_id: user.id,
+        upi_vpa: upiVpa,
+        merchant_name: merchantName,
+        bank_name: bankName,
+        bank_account_number: bankAccNo,
+        bank_ifsc: bankIfsc,
+        is_upi_enabled: upiActive,
+        updated_at: new Date().toISOString(),
       });
 
-      // Save UPI/Bank to bot_payment_settings
-      if (activeBotId) {
-        await supabase.from("bot_payment_settings").upsert({
-          bot_id: activeBotId,
-          upi_vpa: upiVpa,
-          merchant_name: merchantName,
-          bank_name: bankName,
-          bank_account_number: bankAccNo,
-          bank_ifsc: bankIfsc,
-          is_upi_enabled: upiActive,
-        });
-      }
+    setSaving(false);
 
-      alert("Saved successfully!");
-    } catch (error: any) {
-      console.error("ERROR:", error);
-      alert(error.message);
-    } finally {
-      setSaving(false);
+    if (error) {
+      console.error("Supabase Error:", error);
+      alert(`Failed to save: ${error.message}`);
+    } else {
+      alert("Saved to Database Successfully!");
     }
   };
 
