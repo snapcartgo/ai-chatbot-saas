@@ -88,38 +88,37 @@ export default function PaymentSettingsPage() {
 
   const handleSave = async () => {
   if (!user || !activeBotId) {
-    alert("Missing User or Bot ID. Cannot save.");
+    alert("Missing User or Bot ID.");
     return;
   }
 
   setSaving(true);
 
-  // We use .upsert() which means: "Update if exists, otherwise Insert"
   const { error } = await supabase
-      .from("bot_payment_settings")
-      .upsert({
-        bot_id: activeBotId, // This MUST match the Primary Key in your screenshot
-        user_id: user.id,
-        upi_vpa: upiVpa,
-        merchant_name: merchantName,
-        bank_name: bankName,
-        bank_account_number: bankAccNo,
-        bank_ifsc: bankIfsc,
-        is_upi_enabled: upiActive,
-        updated_at: new Date().toISOString(),
-      });
+    .from("bot_payment_settings")
+    .upsert({
+      bot_id: activeBotId,
+      user_id: user.id, // CRITICAL: This must match the policy USING (auth.uid() = user_id)
+      upi_vpa: upiVpa,
+      merchant_name: merchantName,
+      bank_name: bankName,
+      bank_account_number: bankAccNo,
+      bank_ifsc: bankIfsc,
+      is_upi_enabled: upiActive,
+      updated_at: new Date().toISOString(),
+    });
 
-    setSaving(false);
+  setSaving(false);
 
-    if (error) {
-      console.error("Supabase Error:", error);
-      alert(`Failed to save: ${error.message}`);
-    } else {
-      alert("Saved to Database Successfully!");
-    }
-  };
+  if (error) {
+    console.error("Supabase Error:", error);
+    alert(`Failed to save: ${error.message}`);
+  } else {
+    alert("Saved successfully!");
+  }
+};
 
-  if (loading) return <p style={{ padding: 20 }}>Loading...</p>;
+  
 
   return (
     <div style={{ padding: "30px 50px", maxWidth: 800, paddingBottom: 100 }}>
