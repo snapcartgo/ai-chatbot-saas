@@ -38,31 +38,33 @@ export default function OrdersPage() {
 
   // ✅ New function to verify manual payments
   const handleApprove = async (orderId: string) => {
-    const confirmApprove = confirm("Have you verified this payment in your bank/UPI app?");
-    if (!confirmApprove) return;
+  const confirmApprove = confirm("Have you verified this payment in your bank/UPI app?");
+  if (!confirmApprove) return;
 
-    setUpdatingId(orderId);
+  setUpdatingId(orderId);
 
-    const { error } = await supabase
-      .from("orders")
-      .update({ 
-        payment_status: "Paid", 
-        status: "Completed" 
-      })
-      .eq("id", orderId); // Matches the internal ID or order_id column
+  // ✅ FIX: Removed 'status' because it doesn't exist in your Supabase table
+  const { error } = await supabase
+    .from("orders")
+    .update({ 
+      payment_status: "Paid" 
+    })
+    .eq("id", orderId); 
 
-    if (error) {
-      alert(`Error: ${error.message}`);
-    } else {
-      // Update local state so the UI refreshes immediately
-      setOrders(orders.map(order => 
-        order.id === orderId 
-          ? { ...order, payment_status: "Paid", status: "Completed" } 
-          : order
-      ));
-    }
-    setUpdatingId(null);
-  };
+  if (error) {
+    alert(`Error: ${error.message}`);
+    console.error("Supabase Error:", error);
+  } else {
+    // Update local state so the UI refreshes immediately
+    setOrders(orders.map(order => 
+      order.id === orderId 
+        ? { ...order, payment_status: "Paid" } 
+        : order
+    ));
+    alert("Payment verified successfully!");
+  }
+  setUpdatingId(null);
+};
 
   if (loading) {
     return <p className="p-6 text-gray-500">Loading your orders...</p>;
