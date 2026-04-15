@@ -1,216 +1,252 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 
-export default function PaymentSettingsPage() {
-  const [user, setUser] = useState<any>(null);
-  const [activeBotId, setActiveBotId] = useState<string | null>(null);
-
-  // PayU
-  const [merchantKey, setMerchantKey] = useState("");
-  const [merchantSalt, setMerchantSalt] = useState("");
-  const [payuActive, setPayuActive] = useState(false);
-
-  // PayPal
-  const [paypalClientId, setPaypalClientId] = useState("");
-  const [paypalSecret, setPaypalSecret] = useState("");
-  const [paypalActive, setPaypalActive] = useState(false);
-
-  // 🔹 Manual Payment (UPI/Bank)
-  const [upiVpa, setUpiVpa] = useState("");
-  const [merchantName, setMerchantName] = useState("");
-  const [whatsappNumber, setWhatsappNumber] = useState(""); // ✅ New WhatsApp State
-  const [bankName, setBankName] = useState("");
-  const [bankAccNo, setBankAccNo] = useState("");
-  const [bankIfsc, setBankIfsc] = useState("");
-  const [upiActive, setUpiActive] = useState(false);
-
+export default function DashboardPage() {
+  const [stats, setStats] = useState({
+    leads: 0,
+    conversations: 0,
+    bookings: 0,
+  });
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+
+  const [calendarId, setCalendarId] = useState("");
+  const [clientName, setClientName] = useState("");
+  const [activeCalendar, setActiveCalendar] = useState<string | null>(null);
+  const [syncLoading, setSyncLoading] = useState(false);
+  const [syncMessage, setSyncMessage] = useState({ text: "", type: "" });
 
   useEffect(() => {
-    const loadData = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        setLoading(false);
-        return;
-      }
-      setUser(user);
-
-      // 1. Load Profile Data (Includes PayU, PayPal, and now WhatsApp)
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("id", user.id)
-        .single();
-
-      if (profile) {
-        setMerchantKey(profile.payu_merchant_key || "");
-        setMerchantSalt(profile.payu_merchant_salt || "");
-        setPayuActive(profile.payu_is_active || false);
-        setPaypalClientId(profile.paypal_client_id || "");
-        setPaypalSecret(profile.paypal_secret || "");
-        setPaypalActive(profile.paypal_is_active || false);
-        
-        // Load manual details from profile
-        setUpiVpa(profile.upi_vpa || "");
-        setMerchantName(profile.merchant_name || "");
-        setWhatsappNumber(profile.whatsapp_number || ""); // ✅ Load WhatsApp
-        setBankName(profile.bank_name || "");
-        setBankAccNo(profile.bank_account_number || "");
-        setBankIfsc(profile.bank_ifsc || "");
-        setUpiActive(profile.is_manual_enabled || false);
-      }
-
-      setLoading(false);
-    };
-
-    loadData();
+    initDashboard();
   }, []);
 
-  const handleSave = async () => {
-    if (!user) return;
-    setSaving(true);
+  async function attachReferralFromStorage(user: any) {
+    const params = new URLSearchParams(window.location.search);
+    const refFromUrl = params.get("ref");
+    const refFromStorage = localStorage.getItem("referral");
+    const ref = refFromUrl || refFromStorage;
 
-    const { error } = await supabase
-      .from("profiles")
-      .upsert({
-        id: user.id,
-        // PayU & PayPal
-        payu_merchant_key: merchantKey,
-        payu_merchant_salt: merchantSalt,
-        payu_is_active: payuActive,
-        paypal_client_id: paypalClientId,
-        paypal_secret: paypalSecret,
-        paypal_is_active: paypalActive,
-        
-        // UPI, Bank & WhatsApp
-        merchant_name: merchantName,
-        upi_vpa: upiVpa,
-        whatsapp_number: whatsappNumber, // ✅ Save WhatsApp
-        bank_name: bankName,
-        bank_account_number: bankAccNo,
-        bank_ifsc: bankIfsc,
-        is_manual_enabled: upiActive,
-      });
+    if (!ref || !user?.id || !user?.email) return;
 
-    setSaving(false);
+    const res = await fetch("/api/referrals/attach", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        ref,
+        userId: user.id,
+        email: user.email.toLowerCase(),
+      }),
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      console.error("Referral attach failed:", data);
+      return;
+    }
+
+    localStorage.removeItem("referral");
+    if (refFromUrl) {
+      window.history.replaceState({}, "", "/dashboard");
+    }
+  }
+
+  async function initDashboard() {
+    setLoading(true);
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+
+    await supabase.from("profiles").upsert({
+      id: user.id,
+      email: user.email?.toLowerCase(),
+    });
+
+    await attachReferralFromStorage(user);
+
+    const { data: calData } = await supabase
+      .from("client_calendars")
+      .select("calendar_id")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (calData) {
+      setActiveCalendar(calData.calendar_id);
+    }
+
+    const { data: bots } = await supabase
+      .from("chatbots")
+      .select("id")
+      .eq("user_id", user.id);
+
+    const botIds = bots?.map((b: any) => b.id) || [];
+
+    const leadsPromise = supabase
+      .from("leads")
+      .select("*", { count: "exact", head: true });
+
+    const bookingsPromise = supabase
+      .from("orders")
+      .select("*", { count: "exact", head: true })
+      .eq("user_id", user.id)
+      .eq("payment_status", "paid");
+
+    const conversationsPromise =
+      botIds.length > 0
+        ? supabase
+            .from("messages")
+            .select("*", { count: "exact", head: true })
+            .in("bot_id", botIds)
+        : Promise.resolve({ count: 0 } as any);
+
+    const [leadsRes, bookingsRes, convosRes] = await Promise.all([
+      leadsPromise,
+      bookingsPromise,
+      conversationsPromise,
+    ]);
+
+    setStats({
+      leads: leadsRes.count || 0,
+      conversations: convosRes.count || 0,
+      bookings: bookingsRes.count || 0,
+    });
+
+    setLoading(false);
+  }
+
+  async function handleCalendarSync(e: React.FormEvent) {
+    e.preventDefault();
+    setSyncLoading(true);
+    setSyncMessage({ text: "", type: "" });
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      setSyncMessage({ text: "Please log in first.", type: "error" });
+      setSyncLoading(false);
+      return;
+    }
+
+    const { error } = await supabase.from("client_calendars").upsert(
+      {
+        calendar_id: calendarId,
+        client_name: clientName,
+        user_id: user.id,
+        status: "pending",
+      },
+      { onConflict: "user_id" }
+    );
 
     if (error) {
-      alert(`Error: ${error.message}`);
+      setSyncMessage({ text: `Error: ${error.message}`, type: "error" });
     } else {
-      alert("All Payment settings updated successfully!");
+      setSyncMessage({ text: "Success! Calendar synced.", type: "success" });
+      setActiveCalendar(calendarId);
+      setCalendarId("");
+      setClientName("");
     }
-  };
 
-  if (loading) return <div style={{ padding: 50 }}>Loading settings...</div>;
+    setSyncLoading(false);
+  }
+
+  const conversionRate =
+    stats.leads > 0 ? ((stats.bookings / stats.leads) * 100).toFixed(1) : "0.0";
 
   return (
-    <div style={{ padding: "30px 50px", maxWidth: 800, paddingBottom: 100 }}>
-      
-      {/* PayU Section */}
-      <h2 style={sectionTitle}>PayU Settings</h2>
-      <div style={gridRow}>
-        <div style={flex1}>
-          <label style={labelStyle}>Merchant Key</label>
-          <input type="text" value={merchantKey} onChange={(e) => setMerchantKey(e.target.value)} placeholder="Enter Key" style={inputStyle} />
-        </div>
-        <div style={flex1}>
-          <label style={labelStyle}>Merchant Salt</label>
-          <input type="text" value={merchantSalt} onChange={(e) => setMerchantSalt(e.target.value)} placeholder="Enter Salt" style={inputStyle} />
+    <main className="min-h-screen bg-gray-50 p-4 md:p-8 text-gray-900">
+      <div className="max-w-7xl mx-auto">
+        <h1 className="text-3xl font-bold text-gray-800 mb-8">Agency Dashboard</h1>
+
+        {loading ? (
+          <p className="text-gray-500 text-lg animate-pulse">Updating stats...</p>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
+            <StatCard title="Total Leads" value={stats.leads} color="bg-blue-600" href="/dashboard/leads" />
+            <StatCard title="Conversations" value={stats.conversations} color="bg-purple-600" href="/dashboard/conversations" />
+            <StatCard title="Orders" value={stats.bookings} color="bg-green-600" href="/dashboard/orders" />
+            <StatCard title="Conversion Rate" value={`${conversionRate}%`} color="bg-orange-600" href="/dashboard/pipeline" />
+          </div>
+        )}
+
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+          <h2 className="text-xl font-bold mb-4">Calendar Sync</h2>
+
+          {activeCalendar ? (
+            <p className="text-green-700 mb-4">
+              Active calendar: <b>{activeCalendar}</b>
+            </p>
+          ) : (
+            <p className="text-gray-600 mb-4">No calendar synced yet.</p>
+          )}
+
+          <form onSubmit={handleCalendarSync} className="grid gap-3 md:grid-cols-3">
+            <input
+              value={clientName}
+              onChange={(e) => setClientName(e.target.value)}
+              placeholder="Client Name"
+              className="border rounded-lg p-3"
+              required
+            />
+            <input
+              value={calendarId}
+              onChange={(e) => setCalendarId(e.target.value)}
+              placeholder="Calendar ID"
+              className="border rounded-lg p-3"
+              required
+            />
+            <button
+              type="submit"
+              disabled={syncLoading}
+              className="bg-blue-600 text-white rounded-lg p-3 font-semibold disabled:opacity-60"
+            >
+              {syncLoading ? "Syncing..." : "Sync Calendar"}
+            </button>
+          </form>
+
+          {syncMessage.text ? (
+            <p
+              className={`mt-3 text-sm ${
+                syncMessage.type === "error" ? "text-red-600" : "text-green-600"
+              }`}
+            >
+              {syncMessage.text}
+            </p>
+          ) : null}
         </div>
       </div>
-      <label style={checkboxContainer}>
-        <input type="checkbox" checked={payuActive} onChange={(e) => setPayuActive(e.target.checked)} /> Enable PayU
-      </label>
-
-      <hr style={divider} />
-
-      {/* PayPal Section */}
-      <h2 style={sectionTitle}>PayPal Settings</h2>
-      <div style={gridRow}>
-        <div style={flex1}>
-          <label style={labelStyle}>Client ID</label>
-          <input type="text" value={paypalClientId} onChange={(e) => setPaypalClientId(e.target.value)} placeholder="Enter Client ID" style={inputStyle} />
-        </div>
-        <div style={flex1}>
-          <label style={labelStyle}>Client Secret</label>
-          <input type="text" value={paypalSecret} onChange={(e) => setPaypalSecret(e.target.value)} placeholder="Enter Secret" style={inputStyle} />
-        </div>
-      </div>
-      <label style={checkboxContainer}>
-        <input type="checkbox" checked={paypalActive} onChange={(e) => setPaypalActive(e.target.checked)} /> Enable PayPal
-      </label>
-
-      <hr style={divider} />
-
-      {/* UPI & Bank Section */}
-      <h2 style={sectionTitle}>UPI & Bank Transfer (Fallback)</h2>
-      <p style={{ color: "#666", fontSize: 14, marginBottom: 15 }}>
-        These details will be shown to customers for manual payment and verification.
-      </p>
-      
-      <div style={gridRow}>
-        <div style={flex1}>
-          <label style={labelStyle}>UPI VPA ID</label>
-          <input type="text" value={upiVpa} onChange={(e) => setUpiVpa(e.target.value)} placeholder="e.g. name@upi" style={inputStyle} />
-        </div>
-        <div style={flex1}>
-          <label style={labelStyle}>Merchant Name</label>
-          <input type="text" value={merchantName} onChange={(e) => setMerchantName(e.target.value)} placeholder="Business Name" style={inputStyle} />
-        </div>
-      </div>
-
-      {/* 🔹 NEW: WhatsApp Field ✅ */}
-      <div style={{ ...gridRow, marginTop: 15 }}>
-        <div style={flex1}>
-          <label style={labelStyle}>Business WhatsApp Number (With Country Code)</label>
-          <input 
-            type="text" 
-            value={whatsappNumber} 
-            onChange={(e) => setWhatsappNumber(e.target.value)} 
-            placeholder="e.g. 919876543210" 
-            style={inputStyle} 
-          />
-          <small style={{ color: "#888" }}>Used for receiving payment screenshots.</small>
-        </div>
-      </div>
-
-      <div style={{ ...gridRow, marginTop: 15 }}>
-        <div style={{ flex: 2 }}>
-          <label style={labelStyle}>Bank Name</label>
-          <input type="text" value={bankName} onChange={(e) => setBankName(e.target.value)} placeholder="e.g. HDFC Bank" style={inputStyle} />
-        </div>
-        <div style={{ flex: 2 }}>
-          <label style={labelStyle}>Account Number</label>
-          <input type="text" value={bankAccNo} onChange={(e) => setBankAccNo(e.target.value)} placeholder="Account No" style={inputStyle} />
-        </div>
-        <div style={{ flex: 1 }}>
-          <label style={labelStyle}>IFSC Code</label>
-          <input type="text" value={bankIfsc} onChange={(e) => setBankIfsc(e.target.value)} placeholder="IFSC" style={inputStyle} />
-        </div>
-      </div>
-
-      <label style={checkboxContainer}>
-        <input type="checkbox" checked={upiActive} onChange={(e) => setUpiActive(e.target.checked)} /> Enable Manual Fallback
-      </label>
-
-      <div style={{ marginTop: 40 }}>
-        <button onClick={handleSave} disabled={saving} style={btnStyle}>
-          {saving ? "Saving Changes..." : "Save All Settings"}
-        </button>
-      </div>
-    </div>
+    </main>
   );
 }
 
-// Styles
-const sectionTitle = { fontSize: 20, fontWeight: "600", marginBottom: 15, color: "#111" };
-const labelStyle = { display: "block", fontSize: 13, fontWeight: "500", color: "#444", marginBottom: 5 };
-const inputStyle = { width: "100%", padding: "10px", borderRadius: 6, border: "1px solid #ddd", fontSize: 14 };
-const gridRow = { display: "flex", gap: 20, marginBottom: 10 };
-const flex1 = { flex: 1 };
-const checkboxContainer = { display: "flex", alignItems: "center", gap: 8, fontSize: 14, cursor: "pointer", marginTop: 10 };
-const divider = { border: "none", borderTop: "1px solid #eee", margin: "30px 0" };
-const btnStyle = { padding: "12px 24px", background: "#2563eb", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", fontWeight: "600" };
+function StatCard({
+  title,
+  value,
+  color,
+  href,
+}: {
+  title: string;
+  value: React.ReactNode;
+  color: string;
+  href: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className={`block p-6 rounded-2xl text-white shadow-sm transition-transform hover:scale-[1.02] ${color}`}
+    >
+      <div className="text-xs font-bold uppercase opacity-70 tracking-wider">{title}</div>
+      <div className="text-4xl font-extrabold mt-2 tracking-tight">{value}</div>
+    </Link>
+  );
+}
