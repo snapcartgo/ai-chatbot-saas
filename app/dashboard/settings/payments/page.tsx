@@ -87,34 +87,36 @@ export default function PaymentSettingsPage() {
   }, []);
 
   const handleSave = async () => {
-  if (!user || !activeBotId) {
-    alert("Missing User or Bot ID.");
-    return;
-  }
-
+  if (!user) return;
   setSaving(true);
 
   const { error } = await supabase
-    .from("bot_payment_settings")
+    .from("profiles")
     .upsert({
-      bot_id: activeBotId,
-      user_id: user.id, // CRITICAL: This must match the policy USING (auth.uid() = user_id)
-      upi_vpa: upiVpa,
+      id: user.id,
+      // PayU & PayPal
+      payu_merchant_key: merchantKey,
+      payu_merchant_salt: merchantSalt,
+      payu_is_active: payuActive,
+      paypal_client_id: paypalClientId,
+      paypal_secret: paypalSecret,
+      paypal_is_active: paypalActive,
+      
+      // UPI & Bank (Now in the same table!)
       merchant_name: merchantName,
+      upi_vpa: upiVpa,
       bank_name: bankName,
       bank_account_number: bankAccNo,
       bank_ifsc: bankIfsc,
-      is_upi_enabled: upiActive,
-      updated_at: new Date().toISOString(),
+      is_manual_enabled: upiActive,
     });
 
   setSaving(false);
 
   if (error) {
-    console.error("Supabase Error:", error);
-    alert(`Failed to save: ${error.message}`);
+    alert(`Error: ${error.message}`);
   } else {
-    alert("Saved successfully!");
+    alert("Profile and Payment settings updated successfully!");
   }
 };
 
