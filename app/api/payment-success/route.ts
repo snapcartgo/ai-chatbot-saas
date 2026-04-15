@@ -13,7 +13,7 @@ const PLAN_CONFIG: Record<
   "starter" | "pro" | "growth",
   { amount: number; chatbot_limit: number; message_limit: number }
 > = {
-  starter: { amount: 999, chatbot_limit: 1, message_limit: 100 },
+  starter: { amount: 999, chatbot_limit: 1, message_limit: 1000 },
   pro: { amount: 1999, chatbot_limit: 2, message_limit: 3000 },
   growth: { amount: 4999, chatbot_limit: 5, message_limit: 12000 },
 };
@@ -109,7 +109,7 @@ async function updatePlanAndReferral(
     .update({
       amount,
       commission_amount: commission,
-      payment_status: "paid", // customer paid
+      payment_status: "paid",
       status: "completed",
       purchased_plan: plan,
     })
@@ -126,7 +126,7 @@ async function updatePlanAndReferral(
           partner_id: partnerUuid,
           referral_id: ref.id,
           amount: commission,
-          status: "pending", // payout still pending
+          status: "pending",
           payout_date: null,
         },
         { onConflict: "referral_id" }
@@ -142,7 +142,6 @@ async function updatePlanAndReferral(
   }
 }
 
-// GET return URL flow
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
 
@@ -161,7 +160,6 @@ export async function GET(req: Request) {
   return NextResponse.redirect(`${saasUrl}/dashboard/payment-success`, { status: 303 });
 }
 
-// POST webhook/form flow
 export async function POST(req: Request) {
   try {
     const formData = await req.formData();

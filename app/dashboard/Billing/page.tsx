@@ -32,7 +32,7 @@ export default function BillingPage() {
         name: "Starter",
         price: 999,
         description: "Perfect for getting started",
-        messages: "100 AI Messages / month",
+        messages: "1000 AI Messages / month",
         bots: "1 AI Chatbot",
         knowledgeBase: "10 MB",
         features: [
