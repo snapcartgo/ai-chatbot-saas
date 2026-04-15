@@ -37,31 +37,36 @@ export default function OrdersPage() {
   };
 
   // ✅ New function to verify manual payments
-  const handleApprove = async (orderId: string) => {
-  const confirmApprove = confirm("Have you verified this payment in your bank/UPI app?");
+  const handleApprove = async (orderId: string, isOrderIdString: boolean = true) => {
+  const confirmApprove = confirm("Verify this manual payment?");
   if (!confirmApprove) return;
 
   setUpdatingId(orderId);
 
-  // ✅ FIX: Removed 'status' because it doesn't exist in your Supabase table
+  // We determine which column to target based on the ID format
+  // If it's the "ORD_..." string, we must use the "order_id" column
+  const targetColumn = orderId.startsWith("ORD_") ? "order_id" : "id";
+
   const { error } = await supabase
     .from("orders")
     .update({ 
       payment_status: "Paid" 
     })
-    .eq("id", orderId); 
+    .eq(targetColumn, orderId); 
 
   if (error) {
-    alert(`Error: ${error.message}`);
+    alert(`Update failed: ${error.message}`);
     console.error("Supabase Error:", error);
   } else {
-    // Update local state so the UI refreshes immediately
-    setOrders(orders.map(order => 
-      order.id === orderId 
-        ? { ...order, payment_status: "Paid" } 
-        : order
-    ));
-    alert("Payment verified successfully!");
+    // ✅ Update local state so it stays "Paid" in the UI
+    setOrders(currentOrders => 
+      currentOrders.map(order => 
+        (order.id === orderId || order.order_id === orderId)
+          ? { ...order, payment_status: "Paid" } 
+          : order
+      )
+    );
+    alert("Payment confirmed in database!");
   }
   setUpdatingId(null);
 };
