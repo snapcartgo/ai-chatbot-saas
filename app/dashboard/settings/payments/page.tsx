@@ -17,9 +17,10 @@ export default function PaymentSettingsPage() {
   const [paypalSecret, setPaypalSecret] = useState("");
   const [paypalActive, setPaypalActive] = useState(false);
 
-  // 🔹 Manual Payment (UPI/Bank) ✅ NEW
+  // 🔹 Manual Payment (UPI/Bank)
   const [upiVpa, setUpiVpa] = useState("");
   const [merchantName, setMerchantName] = useState("");
+  const [whatsappNumber, setWhatsappNumber] = useState(""); // ✅ New WhatsApp State
   const [bankName, setBankName] = useState("");
   const [bankAccNo, setBankAccNo] = useState("");
   const [bankIfsc, setBankIfsc] = useState("");
@@ -37,7 +38,7 @@ export default function PaymentSettingsPage() {
       }
       setUser(user);
 
-      // 1. Load Profile (PayU/PayPal)
+      // 1. Load Profile Data (Includes PayU, PayPal, and now WhatsApp)
       const { data: profile } = await supabase
         .from("profiles")
         .select("*")
@@ -51,33 +52,15 @@ export default function PaymentSettingsPage() {
         setPaypalClientId(profile.paypal_client_id || "");
         setPaypalSecret(profile.paypal_secret || "");
         setPaypalActive(profile.paypal_is_active || false);
-      }
-
-      // 2. Load Bot Payment Settings (UPI/Bank)
-      // Assuming you have at least one bot; we fetch the first one for this settings page
-      const { data: bot } = await supabase
-        .from("chatbots")
-        .select("id")
-        .eq("user_id", user.id)
-        .limit(1)
-        .single();
-
-      if (bot) {
-        setActiveBotId(bot.id);
-        const { data: settings } = await supabase
-          .from("bot_payment_settings")
-          .select("*")
-          .eq("bot_id", bot.id)
-          .single();
-
-        if (settings) {
-          setUpiVpa(settings.upi_vpa || "");
-          setMerchantName(settings.merchant_name || "");
-          setBankName(settings.bank_name || "");
-          setBankAccNo(settings.bank_account_number || "");
-          setBankIfsc(settings.bank_ifsc || "");
-          setUpiActive(settings.is_upi_enabled || false);
-        }
+        
+        // Load manual details from profile
+        setUpiVpa(profile.upi_vpa || "");
+        setMerchantName(profile.merchant_name || "");
+        setWhatsappNumber(profile.whatsapp_number || ""); // ✅ Load WhatsApp
+        setBankName(profile.bank_name || "");
+        setBankAccNo(profile.bank_account_number || "");
+        setBankIfsc(profile.bank_ifsc || "");
+        setUpiActive(profile.is_manual_enabled || false);
       }
 
       setLoading(false);
@@ -87,40 +70,41 @@ export default function PaymentSettingsPage() {
   }, []);
 
   const handleSave = async () => {
-  if (!user) return;
-  setSaving(true);
+    if (!user) return;
+    setSaving(true);
 
-  const { error } = await supabase
-    .from("profiles")
-    .upsert({
-      id: user.id,
-      // PayU & PayPal
-      payu_merchant_key: merchantKey,
-      payu_merchant_salt: merchantSalt,
-      payu_is_active: payuActive,
-      paypal_client_id: paypalClientId,
-      paypal_secret: paypalSecret,
-      paypal_is_active: paypalActive,
-      
-      // UPI & Bank (Now in the same table!)
-      merchant_name: merchantName,
-      upi_vpa: upiVpa,
-      bank_name: bankName,
-      bank_account_number: bankAccNo,
-      bank_ifsc: bankIfsc,
-      is_manual_enabled: upiActive,
-    });
+    const { error } = await supabase
+      .from("profiles")
+      .upsert({
+        id: user.id,
+        // PayU & PayPal
+        payu_merchant_key: merchantKey,
+        payu_merchant_salt: merchantSalt,
+        payu_is_active: payuActive,
+        paypal_client_id: paypalClientId,
+        paypal_secret: paypalSecret,
+        paypal_is_active: paypalActive,
+        
+        // UPI, Bank & WhatsApp
+        merchant_name: merchantName,
+        upi_vpa: upiVpa,
+        whatsapp_number: whatsappNumber, // ✅ Save WhatsApp
+        bank_name: bankName,
+        bank_account_number: bankAccNo,
+        bank_ifsc: bankIfsc,
+        is_manual_enabled: upiActive,
+      });
 
-  setSaving(false);
+    setSaving(false);
 
-  if (error) {
-    alert(`Error: ${error.message}`);
-  } else {
-    alert("Profile and Payment settings updated successfully!");
-  }
-};
+    if (error) {
+      alert(`Error: ${error.message}`);
+    } else {
+      alert("All Payment settings updated successfully!");
+    }
+  };
 
-  
+  if (loading) return <div style={{ padding: 50 }}>Loading settings...</div>;
 
   return (
     <div style={{ padding: "30px 50px", maxWidth: 800, paddingBottom: 100 }}>
@@ -161,10 +145,10 @@ export default function PaymentSettingsPage() {
 
       <hr style={divider} />
 
-      {/* UPI & Bank Section ✅ NEW */}
+      {/* UPI & Bank Section */}
       <h2 style={sectionTitle}>UPI & Bank Transfer (Fallback)</h2>
       <p style={{ color: "#666", fontSize: 14, marginBottom: 15 }}>
-        These details will be shown to customers if automated gateways fail.
+        These details will be shown to customers for manual payment and verification.
       </p>
       
       <div style={gridRow}>
@@ -175,6 +159,21 @@ export default function PaymentSettingsPage() {
         <div style={flex1}>
           <label style={labelStyle}>Merchant Name</label>
           <input type="text" value={merchantName} onChange={(e) => setMerchantName(e.target.value)} placeholder="Business Name" style={inputStyle} />
+        </div>
+      </div>
+
+      {/* 🔹 NEW: WhatsApp Field ✅ */}
+      <div style={{ ...gridRow, marginTop: 15 }}>
+        <div style={flex1}>
+          <label style={labelStyle}>Business WhatsApp Number (With Country Code)</label>
+          <input 
+            type="text" 
+            value={whatsappNumber} 
+            onChange={(e) => setWhatsappNumber(e.target.value)} 
+            placeholder="e.g. 919876543210" 
+            style={inputStyle} 
+          />
+          <small style={{ color: "#888" }}>Used for receiving payment screenshots.</small>
         </div>
       </div>
 
