@@ -55,73 +55,83 @@ export default function DashboardPage() {
   }
 
   async function initDashboard() {
-    setLoading(true);
+  setLoading(true);
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+  // 1️⃣ Get user first (required, can't parallelize)
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
-    if (!user) {
-      setLoading(false);
-      return;
-    }
+  if (!user) {
+    setLoading(false);
+    return;
+  }
 
-    await supabase.from("profiles").upsert({
+  // 2️⃣ Run independent things in parallel
+  await Promise.all([
+    supabase.from("profiles").upsert({
       id: user.id,
       email: user.email?.toLowerCase(),
-    });
+    }),
+    attachReferralFromStorage(user),
+  ]);
 
-    await attachReferralFromStorage(user);
-
-    const { data: calData } = await supabase
+  // 3️⃣ Run these in parallel
+  const [calRes, botsRes] = await Promise.all([
+    supabase
       .from("client_calendars")
       .select("calendar_id")
       .eq("user_id", user.id)
-      .maybeSingle();
+      .maybeSingle(),
 
-    if (calData) {
-      setActiveCalendar(calData.calendar_id);
-    }
-
-    const { data: bots } = await supabase
+    supabase
       .from("chatbots")
       .select("id")
-      .eq("user_id", user.id);
+      .eq("user_id", user.id),
+  ]);
 
-    const botIds = bots?.map((b: any) => b.id) || [];
+  const calData = calRes.data;
+  const bots = botsRes.data;
 
-    const leadsPromise = supabase
-      .from("leads")
-      .select("*", { count: "exact", head: true });
-
-    const bookingsPromise = supabase
-      .from("orders")
-      .select("*", { count: "exact", head: true })
-      .eq("user_id", user.id)
-      .eq("payment_status", "paid");
-
-    const conversationsPromise =
-      botIds.length > 0
-        ? supabase
-            .from("messages")
-            .select("*", { count: "exact", head: true })
-            .in("bot_id", botIds)
-        : Promise.resolve({ count: 0 } as any);
-
-    const [leadsRes, bookingsRes, convosRes] = await Promise.all([
-      leadsPromise,
-      bookingsPromise,
-      conversationsPromise,
-    ]);
-
-    setStats({
-      leads: leadsRes.count || 0,
-      conversations: convosRes.count || 0,
-      bookings: bookingsRes.count || 0,
-    });
-
-    setLoading(false);
+  if (calData) {
+    setActiveCalendar(calData.calendar_id);
   }
+
+  const botIds = bots?.map((b: any) => b.id) || [];
+
+  // 4️⃣ Your existing parallel part (already good 👍)
+  const leadsPromise = supabase
+    .from("leads")
+    .select("*", { count: "exact", head: true });
+
+  const bookingsPromise = supabase
+    .from("orders")
+    .select("*", { count: "exact", head: true })
+    .eq("user_id", user.id)
+    .eq("payment_status", "paid");
+
+  const conversationsPromise =
+    botIds.length > 0
+      ? supabase
+          .from("messages")
+          .select("*", { count: "exact", head: true })
+          .in("bot_id", botIds)
+      : Promise.resolve({ count: 0 } as any);
+
+  const [leadsRes, bookingsRes, convosRes] = await Promise.all([
+    leadsPromise,
+    bookingsPromise,
+    conversationsPromise,
+  ]);
+
+  setStats({
+    leads: leadsRes.count || 0,
+    conversations: convosRes.count || 0,
+    bookings: bookingsRes.count || 0,
+  });
+
+  setLoading(false);
+}
 
   async function handleCalendarSync(e: React.FormEvent) {
     e.preventDefault();
