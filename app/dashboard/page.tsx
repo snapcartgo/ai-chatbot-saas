@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import * as Sentry from "@sentry/nextjs";
 
 export default function DashboardPage() {
   const [stats, setStats] = useState({
@@ -22,7 +23,10 @@ export default function DashboardPage() {
     initDashboard();
   }, []);
 
-  async function attachReferralFromStorage(user: any) {
+ 
+
+async function attachReferralFromStorage(user: any) {
+  try {
     const params = new URLSearchParams(window.location.search);
     const refFromUrl = params.get("ref");
     const refFromStorage = localStorage.getItem("referral");
@@ -36,23 +40,44 @@ export default function DashboardPage() {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        ref,
         userId: user.id,
         email: user.email.toLowerCase(),
+        referralCode: ref,
       }),
     });
 
     const data = await res.json();
+
     if (!res.ok) {
+      // 🚨 Send to Sentry
+      const error = new Error(data.error || "Referral attach failed");
+
+      Sentry.captureException(error, {
+        extra: {
+          endpoint: "/api/referrals/attach",
+          payload: {
+            userId: user.id,
+            email: user.email,
+            referralCode: ref,
+          },
+          response: data,
+        },
+      });
+
       console.error("Referral attach failed:", data);
       return;
     }
 
+    // ✅ success
     localStorage.removeItem("referral");
-    if (refFromUrl) {
-      window.history.replaceState({}, "", "/dashboard");
-    }
+
+  } catch (error) {
+    // 🚨 Network / unexpected errors
+    Sentry.captureException(error);
+
+    console.error("Unexpected error:", error);
   }
+}
 
   async function initDashboard() {
   setLoading(true);
@@ -222,6 +247,7 @@ export default function DashboardPage() {
             >
               {syncLoading ? "Syncing..." : "Sync Calendar"}
             </button>
+            
           </form>
 
           {syncMessage.text ? (
@@ -260,3 +286,5 @@ function StatCard({
     </Link>
   );
 }
+
+
