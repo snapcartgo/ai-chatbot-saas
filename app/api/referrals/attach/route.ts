@@ -45,10 +45,18 @@ export async function POST(req: Request) {
       );
     }
 
-    // ✅ 3. Prevent duplicate referral (IMPORTANT)
+    // 🔴 3. 🚫 BLOCK SELF-REFERRAL (MAIN FIX)
+    if (partner.id === userId) {
+      return NextResponse.json(
+        { error: "You cannot refer yourself" },
+        { status: 400 }
+      );
+    }
+
+    // ✅ 4. Prevent duplicate referral
     const { data: existing, error: existingError } = await supabase
       .from("referrals")
-      .select("id, partner_id")
+      .select("id")
       .eq("referred_user_id", userId)
       .maybeSingle();
 
@@ -67,7 +75,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // ✅ 4. Insert referral
+    // ✅ 5. Insert referral
     const { error: insertError } = await supabase
       .from("referrals")
       .insert([
@@ -90,7 +98,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // ✅ 5. Success (optional Sentry log)
+    // ✅ 6. Success log
     Sentry.captureMessage("Referral attached successfully", {
       extra: {
         userId,
