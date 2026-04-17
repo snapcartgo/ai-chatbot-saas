@@ -32,12 +32,23 @@ async function attachReferralFromStorage(user: any) {
     const refFromStorage = localStorage.getItem("referral");
     const ref = refFromUrl || refFromStorage;
 
-    if (!ref || !user?.id || !user?.email) return;
-   console.log("FINAL PAYLOAD:", {
-  ref,
-  userId: user?.id,
-  email: user?.email,
-});
+    // ✅ Debug
+    console.log("FINAL PAYLOAD:", {
+      ref,
+      userId: user?.id,
+      email: user?.email,
+    });
+
+    // ✅ Safety check
+    if (!ref || !user?.id || !user?.email) {
+      console.warn("Missing data, skipping referral", {
+        ref,
+        userId: user?.id,
+        email: user?.email,
+      });
+      return;
+    }
+
     const res = await fetch("/api/referrals/attach", {
       method: "POST",
       headers: {
@@ -46,23 +57,23 @@ async function attachReferralFromStorage(user: any) {
       body: JSON.stringify({
         userId: user.id,
         email: user.email.toLowerCase(),
-        referralCode: ref,
+        ref: ref, // ✅ FIXED (VERY IMPORTANT)
       }),
     });
 
     const data = await res.json();
 
     if (!res.ok) {
-      // 🚨 Send to Sentry
       const error = new Error(data.error || "Referral attach failed");
 
+      // ✅ Send to Sentry
       Sentry.captureException(error, {
         extra: {
           endpoint: "/api/referrals/attach",
           payload: {
             userId: user.id,
             email: user.email,
-            referralCode: ref,
+            ref,
           },
           response: data,
         },
@@ -72,13 +83,13 @@ async function attachReferralFromStorage(user: any) {
       return;
     }
 
-    // ✅ success
+    // ✅ Success
     localStorage.removeItem("referral");
+    console.log("Referral attached successfully");
 
   } catch (error) {
-    // 🚨 Network / unexpected errors
+    // ✅ Network / unexpected errors
     Sentry.captureException(error);
-
     console.error("Unexpected error:", error);
   }
 }
@@ -88,13 +99,14 @@ async function attachReferralFromStorage(user: any) {
 
   // 1️⃣ Get user first (required, can't parallelize)
   const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  data: { user },
+} = await supabase.auth.getUser();
 
-  if (!user) {
-    setLoading(false);
-    return;
-  }
+if (!user?.id || !user?.email) {
+  console.warn("User not ready yet, skipping referral");
+  setLoading(false);
+  return;
+}
 
   // 2️⃣ Run independent things in parallel
   await Promise.all([
