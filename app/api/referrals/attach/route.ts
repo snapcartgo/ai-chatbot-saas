@@ -7,15 +7,20 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+const BLOCKED_REFERRAL_EMAILS = new Set(["iamshubhambukam@gmail.com"]);
+
+function normalizeEmail(value: string) {
+  return value.toLowerCase().trim();
+}
+
 export async function POST(req: Request) {
   try {
     const body = await req.json();
 
     const ref = String(body.ref || "").trim();
     const userId = String(body.userId || "").trim();
-    const email = String(body.email || "").toLowerCase().trim();
+    const email = normalizeEmail(String(body.email || ""));
 
-    // ✅ 1. Validate input
     if (!ref || !userId || !email) {
       return NextResponse.json(
         { error: "Missing ref, userId or email" },
@@ -23,10 +28,9 @@ export async function POST(req: Request) {
       );
     }
 
-    // ✅ 2. Check if referral code exists
     const { data: partner, error: partnerError } = await supabase
       .from("partners")
-      .select("id, referral_code")
+      .select("id, referral_code, user_id")
       .eq("referral_code", ref)
       .maybeSingle();
 
@@ -45,19 +49,42 @@ export async function POST(req: Request) {
       );
     }
 
-    // 🔴 3. 🚫 BLOCK SELF-REFERRAL (MAIN FIX)
-    if (partner.id === userId) {
+    // Block this specific email completely
+    if (BLOCKED_REFERRAL_EMAILS.has(email)) {
+      return NextResponse.json(
+        { error: "This email is blocked for referral signup" },
+        { status: 403 }
+      );
+    }
+
+    // Block self-referral by account id
+    if (partner.user_id === userId) {
       return NextResponse.json(
         { error: "You cannot refer yourself" },
         { status: 400 }
       );
     }
 
-    // ✅ 4. Prevent duplicate referral
+    // Block self-referral by email match
+    const { data: partnerProfile } = await supabase
+      .from("profiles")
+      .select("email")
+      .eq("id", partner.user_id)
+      .maybeSingle();
+
+    const partnerEmail = normalizeEmail(String(partnerProfile?.email || ""));
+    if (partnerEmail && partnerEmail === email) {
+      return NextResponse.json(
+        { error: "You cannot use your own referral link with same email" },
+        { status: 400 }
+      );
+    }
+
+    // Prevent duplicates by user OR email
     const { data: existing, error: existingError } = await supabase
       .from("referrals")
       .select("id")
-      .eq("referred_user_id", userId)
+      .or(`referred_user_id.eq.${userId},referred_email.eq.${email}`)
       .maybeSingle();
 
     if (existingError) {
@@ -75,7 +102,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // ✅ 5. Insert referral
     const { error: insertError } = await supabase
       .from("referrals")
       .insert([
@@ -91,28 +117,12 @@ export async function POST(req: Request) {
 
     if (insertError) {
       Sentry.captureException(insertError);
-
-      return NextResponse.json(
-        { error: insertError.message },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: insertError.message }, { status: 500 });
     }
 
-    // ✅ 6. Success log
-    Sentry.captureMessage("Referral attached successfully", {
-      extra: {
-        userId,
-        email,
-        ref,
-        partnerId: partner.id,
-      },
-    });
-
     return NextResponse.json({ ok: true });
-
   } catch (err: any) {
     Sentry.captureException(err);
-
     return NextResponse.json(
       { error: err.message || "Server error" },
       { status: 500 }
