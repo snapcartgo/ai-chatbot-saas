@@ -33,7 +33,11 @@ async function attachReferralFromStorage(user: any) {
     const ref = refFromUrl || refFromStorage;
 
     if (!ref || !user?.id || !user?.email) return;
-
+   console.log("FINAL PAYLOAD:", {
+  ref,
+  userId: user?.id,
+  email: user?.email,
+});
     const res = await fetch("/api/referrals/attach", {
       method: "POST",
       headers: {
