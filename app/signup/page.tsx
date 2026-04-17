@@ -26,40 +26,35 @@ export default function Signup() {
   }, []);
 
   const attachReferral = async (userId: string, userEmail: string) => {
-    const finalRef = referralCode || localStorage.getItem("referral");
-    if (!finalRef) return;
+  const finalRef = referralCode || localStorage.getItem("referral");
+  if (!finalRef) return;
 
-    // map referral code -> partner UUID
-    const { data: partner } = await supabase
-      .from("partners")
-      .select("id, referral_code")
-      .eq("referral_code", finalRef)
-      .maybeSingle();
+  try {
+    const res = await fetch("/api/referral", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        ref: finalRef,
+        userId,
+        email: userEmail,
+      }),
+    });
 
-    if (!partner?.id) return;
+    const data = await res.json();
 
-    // upsert-like behavior (manual because onConflict may differ)
-    const { data: existing } = await supabase
-      .from("referrals")
-      .select("id")
-      .eq("referred_user_id", userId)
-      .maybeSingle();
-
-    if (!existing) {
-      await supabase.from("referrals").insert([
-        {
-          partner_id: partner.id, // UUID (as text column)
-          source_referral_code: partner.referral_code,
-          referred_email: userEmail.toLowerCase(),
-          referred_user_id: userId,
-          status: "pending",
-          payment_status: "pending",
-        },
-      ]);
+    if (!res.ok) {
+      console.log("Referral skipped:", data.error);
+      return;
     }
 
+    console.log("Referral applied");
     localStorage.removeItem("referral");
-  };
+  } catch (err) {
+    console.error("Referral error", err);
+  }
+};
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -73,6 +68,14 @@ export default function Signup() {
       if (userId) {
         await attachReferral(userId, email);
       }
+
+      // 🚫 BLOCK if already logged in (extra safety)
+const { data: currentUser } = await supabase.auth.getUser();
+
+if (currentUser?.user) {
+  console.log("User already logged in → skip referral");
+  return;
+}
 
       alert("Signup successful");
       router.push("/dashboard");
