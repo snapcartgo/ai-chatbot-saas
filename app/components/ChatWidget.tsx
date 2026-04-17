@@ -150,6 +150,9 @@ export default function ChatWidget({
   }, [messages, isLoading]);
 
   const handleSendMessage = async () => {
+
+    if (isLoading) return;
+
     if (!userInput.trim()) return;
 
     let uniqueSessionId = localStorage.getItem(`chat_session_${activeBotId}`);
