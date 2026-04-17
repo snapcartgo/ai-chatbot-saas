@@ -176,45 +176,71 @@ export default function ChatWidget({
     setIsLoading(true);
 
     try {
-      const response = await fetch("https://ai-chatbot-saas-five.vercel.app/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+  const response = await fetch("https://ai-chatbot-saas-five.vercel.app/api/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
 
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.reply || "Server Error");
+  // ✅ HANDLE RATE LIMIT FIRST
+  if (response.status === 429) {
+    setMessages([
+      ...newMessages,
+      {
+        role: "assistant",
+        content: "⚠️ Too many messages. Please wait a few seconds before trying again.",
+      },
+    ]);
+    return;
+  }
 
-      const safeActionUrl =
-        typeof data.redirect_url === "string" ? sanitizeHttpUrl(data.redirect_url) : null;
+  // ✅ SAFE JSON PARSE
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    throw new Error("Invalid server response");
+  }
 
-      let actionLabel: string | undefined;
-      if (safeActionUrl) {
-        const lower = safeActionUrl.toLowerCase();
-        if (lower.includes("/contact")) actionLabel = "Open Contact Us";
-        else if (lower.includes("/dashboard/billing")) actionLabel = "Open Billing";
-        else actionLabel = "Open Page";
-      }
+  // ✅ HANDLE OTHER ERRORS
+  if (!response.ok) {
+    throw new Error(data?.reply || "Server Error");
+  }
 
-      setMessages([
-        ...newMessages,
-        {
-          role: "assistant",
-          content: data.reply || "I received your message but have no response.",
-          actionUrl: safeActionUrl || undefined,
-          actionLabel,
-        },
-      ]);
-    } catch (error) {
-      console.error("Chat Error:", error);
-      setMessages([
-        ...newMessages,
-        {
-          role: "assistant",
-          content: "I am having trouble connecting right now. Could you try again in a moment?",
-        },
-      ]);
-    } finally {
+  // ✅ NORMAL FLOW
+  const safeActionUrl =
+    typeof data.redirect_url === "string"
+      ? sanitizeHttpUrl(data.redirect_url)
+      : null;
+
+  let actionLabel: string | undefined;
+  if (safeActionUrl) {
+    const lower = safeActionUrl.toLowerCase();
+    if (lower.includes("/contact")) actionLabel = "Open Contact Us";
+    else if (lower.includes("/dashboard/billing")) actionLabel = "Open Billing";
+    else actionLabel = "Open Page";
+  }
+
+  setMessages([
+    ...newMessages,
+    {
+      role: "assistant",
+      content: data.reply || "I received your message but have no response.",
+      actionUrl: safeActionUrl || undefined,
+      actionLabel,
+    },
+  ]);
+} catch (error) {
+  console.error("Chat Error:", error);
+
+  setMessages([
+    ...newMessages,
+    {
+      role: "assistant",
+      content: "I am having trouble connecting right now. Please try again.",
+    },
+  ]);
+} finally {
       setIsLoading(false);
     }
   };
