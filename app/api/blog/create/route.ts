@@ -24,7 +24,9 @@ export async function POST(req: Request) {
         {
           title,
           content,
-          slug: title.toLowerCase().replace(/\s+/g, "-"),
+          slug: title
+  .toLowerCase()
+  .replace(/\s+/g, "-") + "-" + Date.now(),
         },
       ])
       .select();
