@@ -3,17 +3,9 @@ import { createClient } from "@supabase/supabase-js";
 
 export const revalidate = 60;
 
-type BlogDetail = {
-  id: string;
-  title: string | null;
-  content: string | null;
-  slug: string | null;
-  created_at: string | null;
-};
-
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
 export default async function BlogDetailPage({
@@ -21,26 +13,28 @@ export default async function BlogDetailPage({
 }: {
   params: { slug: string };
 }) {
-  // Change "blog" to your real table name if different (e.g. "block")
+  const slug = decodeURIComponent(params.slug);
+
   const { data, error } = await supabase
-    .from("blog")
+    .from("blogs")
     .select("id,title,content,slug,created_at")
-    .eq("slug", params.slug)
-    .single();
+    .eq("slug", slug)
+    .maybeSingle();
 
-  if (error || !data) return notFound();
+  if (error) {
+    return <main className="p-6">Error: {error.message}</main>;
+  }
 
-  const post = data as BlogDetail;
+  if (!data) return notFound();
 
   return (
     <main className="max-w-3xl mx-auto p-6">
-      <h1 className="text-3xl font-bold">{post.title ?? "Untitled"}</h1>
+      <h1 className="text-3xl font-bold">{data.title}</h1>
       <p className="text-sm opacity-70 mt-2">
-        {post.created_at ? new Date(post.created_at).toLocaleString() : ""}
+        {data.created_at ? new Date(data.created_at).toLocaleString() : ""}
       </p>
-
       <article className="mt-8 whitespace-pre-wrap leading-7">
-        {post.content ?? ""}
+        {data.content}
       </article>
     </main>
   );
