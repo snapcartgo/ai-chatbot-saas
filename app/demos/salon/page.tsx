@@ -50,11 +50,15 @@ export default function SalonDemo() {
 
       {/* CHATBOT */}
       <section className="p-10 bg-gray-100 text-center">
-        <h2 className="text-2xl font-bold mb-3">
+        <h2 className="text-2xl font-bold mb-2">
           Book Appointment Instantly 💇
         </h2>
 
-        <p className="text-gray-600 mb-6">
+        <p className="text-gray-700 mb-3 max-w-xl mx-auto">
+          Turn every client message into a confirmed booking — capture service preferences, preferred time, and auto-schedule appointments while tracking every conversation in your dashboard.
+        </p>
+
+        <p className="text-gray-500 mb-6">
           Chat with AI and book your slot in seconds
         </p>
 

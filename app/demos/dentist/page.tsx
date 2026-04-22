@@ -32,15 +32,20 @@ export default function DentistDemo() {
           <h1 className="text-5xl font-extrabold mb-6 leading-tight">
             The Smartest Way to Manage Your Dental Practice
           </h1>
-          <p className="text-cyan-100 text-xl mb-8 leading-relaxed">
-            Stop losing patients to busy phone lines. Our AI handles bookings, 
-            emergency triage, and FAQ instantly.
+          <p className="text-lg text-white mt-3 max-w-2xl mx-auto">
+            Stop losing patients to busy phone lines. Our AI handles bookings, emergency triage, and FAQ instantly.
           </p>
-          <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <a href="#demo" className="bg-white text-cyan-900 px-8 py-4 rounded-xl font-bold shadow-lg hover:bg-cyan-50 transition-all">
-              Try the Live Demo
-            </a>
-          </div>
+
+          <p className="text-md text-blue-100 mt-2 max-w-2xl mx-auto">
+            Turn every patient inquiry into a confirmed appointment — capture symptoms, preferred time, and book visits automatically while tracking every conversation in your dashboard.
+          </p>
+
+          <button
+            onClick={() => router.push("/signup")}
+            className="mt-6 bg-white text-blue-600 px-6 py-3 rounded-xl font-semibold hover:bg-blue-50 transition"
+          >
+            Start Free Trial
+          </button>
         </div>
       </section>
 
