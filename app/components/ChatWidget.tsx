@@ -3,10 +3,12 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { supabase } from "@/lib/supabase";
 
+// 1. Updated Interface to include 'niche'
 interface ChatWidgetProps {
   chatbotId?: string;
   isEmbed?: boolean;
   plan?: string;
+  niche?: string; // New prop for demo categorization
 }
 
 type Message = {
@@ -38,9 +40,7 @@ function sanitizeHttpUrl(raw: string): string | null {
 }
 
 function processMessageContent(content: string) {
-  // Only parse plain text URLs, never HTML href fragments.
   const firstUrl = content.match(PLAIN_URL_REGEX)?.[0] ?? null;
-
   let safeUrl: string | null = null;
   let cleanText = content;
 
@@ -73,12 +73,10 @@ function processMessageContent(content: string) {
 function renderTextWithLinks(text: string) {
   const parts = text.split(PLAIN_URL_REGEX);
   const matches = text.match(PLAIN_URL_REGEX) ?? [];
-
   const nodes: ReactNode[] = [];
 
   for (let i = 0; i < parts.length; i += 1) {
     if (parts[i]) nodes.push(<span key={`t-${i}`}>{parts[i]}</span>);
-
     if (i < matches.length) {
       const safeHref = sanitizeHttpUrl(matches[i]);
       if (safeHref) {
@@ -98,7 +96,6 @@ function renderTextWithLinks(text: string) {
       }
     }
   }
-
   return nodes;
 }
 
@@ -106,6 +103,7 @@ export default function ChatWidget({
   chatbotId,
   isEmbed = false,
   plan = "free",
+  niche = "general", // Default to general if not provided
 }: ChatWidgetProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [userInput, setUserInput] = useState("");
@@ -150,13 +148,9 @@ export default function ChatWidget({
   }, [messages, isLoading]);
 
   const handleSendMessage = async () => {
-
-    if (isLoading) return;
-
-    if (!userInput.trim()) return;
+    if (isLoading || !userInput.trim()) return;
 
     let uniqueSessionId = localStorage.getItem(`chat_session_${activeBotId}`);
-
     if (!uniqueSessionId) {
       const array = new Uint32Array(1);
       window.crypto.getRandomValues(array);
@@ -166,11 +160,14 @@ export default function ChatWidget({
     }
 
     const currentInput = userInput.trim();
+    
+    // 2. Updated Payload to include niche context
     const payload = {
       message: currentInput,
       bot_id: activeBotId,
       conversation_id: uniqueSessionId,
       category: botCategory,
+      niche: niche, // n8n can now branch logic based on this
     };
 
     const newMessages: Message[] = [...messages, { role: "user", content: currentInput }];
@@ -179,71 +176,66 @@ export default function ChatWidget({
     setIsLoading(true);
 
     try {
-  const response = await fetch("https://ai-chatbot-saas-five.vercel.app/api/chat", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
+      const response = await fetch("https://ai-chatbot-saas-five.vercel.app/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
 
-  // ✅ HANDLE RATE LIMIT FIRST
-  if (response.status === 429) {
-    setMessages([
-      ...newMessages,
-      {
-        role: "assistant",
-        content: "⚠️ Too many messages. Please wait a few seconds before trying again.",
-      },
-    ]);
-    return;
-  }
+      if (response.status === 429) {
+        setMessages([
+          ...newMessages,
+          {
+            role: "assistant",
+            content: "⚠️ Too many messages. Please wait a few seconds before trying again.",
+          },
+        ]);
+        return;
+      }
 
-  // ✅ SAFE JSON PARSE
-  let data;
-  try {
-    data = await response.json();
-  } catch {
-    throw new Error("Invalid server response");
-  }
+      let data;
+      try {
+        data = await response.json();
+      } catch {
+        throw new Error("Invalid server response");
+      }
 
-  // ✅ HANDLE OTHER ERRORS
-  if (!response.ok) {
-    throw new Error(data?.reply || "Server Error");
-  }
+      if (!response.ok) {
+        throw new Error(data?.reply || "Server Error");
+      }
 
-  // ✅ NORMAL FLOW
-  const safeActionUrl =
-    typeof data.redirect_url === "string"
-      ? sanitizeHttpUrl(data.redirect_url)
-      : null;
+      const safeActionUrl =
+        typeof data.redirect_url === "string"
+          ? sanitizeHttpUrl(data.redirect_url)
+          : null;
 
-  let actionLabel: string | undefined;
-  if (safeActionUrl) {
-    const lower = safeActionUrl.toLowerCase();
-    if (lower.includes("/contact")) actionLabel = "Open Contact Us";
-    else if (lower.includes("/dashboard/billing")) actionLabel = "Open Billing";
-    else actionLabel = "Open Page";
-  }
+      let actionLabel: string | undefined;
+      if (safeActionUrl) {
+        const lower = safeActionUrl.toLowerCase();
+        if (lower.includes("/contact")) actionLabel = "Open Contact Us";
+        else if (lower.includes("/dashboard/billing")) actionLabel = "Open Billing";
+        else actionLabel = "Open Page";
+      }
 
-  setMessages([
-    ...newMessages,
-    {
-      role: "assistant",
-      content: data.reply || "I received your message but have no response.",
-      actionUrl: safeActionUrl || undefined,
-      actionLabel,
-    },
-  ]);
-} catch (error) {
-  console.error("Chat Error:", error);
-
-  setMessages([
-    ...newMessages,
-    {
-      role: "assistant",
-      content: "I am having trouble connecting right now. Please try again after 5 minutes.",
-    },
-  ]);
-} finally {
+      setMessages([
+        ...newMessages,
+        {
+          role: "assistant",
+          content: data.reply || "I received your message but have no response.",
+          actionUrl: safeActionUrl || undefined,
+          actionLabel,
+        },
+      ]);
+    } catch (error) {
+      console.error("Chat Error:", error);
+      setMessages([
+        ...newMessages,
+        {
+          role: "assistant",
+          content: "I am having trouble connecting right now. Please try again after 5 minutes.",
+        },
+      ]);
+    } finally {
       setIsLoading(false);
     }
   };
@@ -259,7 +251,7 @@ export default function ChatWidget({
       className={`flex flex-col overflow-hidden border bg-white shadow-2xl transition-all duration-300 ${
         isEmbed ? "h-full w-full rounded-2xl" : "h-[450px] w-[92vw] sm:w-[350px] rounded-2xl"
       }`}
-      style={isEmbed ? { height: "100dvh" } : {}}
+      style={isEmbed ? { height: "100%" } : {}}
     >
       <div className="flex shrink-0 items-center justify-between bg-blue-600 px-4 py-3 text-white">
         <span className="text-sm font-semibold md:text-base">AI Assistant</span>
@@ -346,11 +338,7 @@ export default function ChatWidget({
   );
 
   if (isEmbed) {
-    return (
-      <div className="fixed inset-0 flex h-full w-full items-end justify-end bg-transparent p-0">
-        {chatPanel}
-      </div>
-    );
+    return <div className="h-full w-full">{chatPanel}</div>;
   }
 
   return (
