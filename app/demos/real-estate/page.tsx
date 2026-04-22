@@ -50,11 +50,15 @@ export default function RealEstateDemo() {
 
       {/* CHATBOT */}
       <section className="p-10 bg-gray-100 text-center">
-        <h2 className="text-2xl font-bold mb-3">
+        <h2 className="text-2xl font-bold mb-2">
           Find Properties Instantly 🏠
         </h2>
 
-        <p className="text-gray-600 mb-6">
+        <p className="text-gray-600 mb-3 max-w-xl mx-auto">
+          Turn every property inquiry into a qualified buyer — capture budget, preferences, and schedule site visits automatically, while tracking every conversation in your dashboard.
+        </p>
+
+        <p className="text-gray-500 mb-6">
           Chat with AI to get matching properties & schedule visits
         </p>
 
