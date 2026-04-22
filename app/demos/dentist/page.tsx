@@ -74,7 +74,7 @@ export default function DentistDemo() {
               ChatWidget knows which system prompt to use.
             */}
             <ChatWidget 
-              chatbotId="dentist-demo-v1" 
+              chatbotId="086dbfda-26d0-40a6-a7db-604ca1228728" 
               niche="dentist" 
               isEmbed 
             />
