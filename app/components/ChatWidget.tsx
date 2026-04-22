@@ -3,12 +3,11 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { supabase } from "@/lib/supabase";
 
-// 1. Updated Interface to include 'niche'
 interface ChatWidgetProps {
   chatbotId?: string;
   isEmbed?: boolean;
   plan?: string;
-  niche?: string; // New prop for demo categorization
+  niche?: string; // Prop to determine AI personality
 }
 
 type Message = {
@@ -16,6 +15,15 @@ type Message = {
   content: string;
   actionUrl?: string;
   actionLabel?: string;
+};
+
+// --- CONFIGURATION ---
+
+const PROMPTS: Record<string, string> = {
+  dentist: "You are a professional dental assistant for SmileCare. Your goal is to triage dental pain and book cleanings. Be clinical, clean, and reassuring.",
+  salon: "You are a beauty concierge for Luxe & Gloss. Help clients choose between styling services or simple trims. Use friendly, upbeat language.",
+  'real-estate': "You are a high-end property consultant. Focus on qualifying leads by asking for their budget and locations before booking a viewing.",
+  general: "You are a helpful AI assistant. Answer questions clearly and professionally."
 };
 
 const EXTERNAL_PAYMENT_HOSTS = new Set([
@@ -28,6 +36,8 @@ const EXTERNAL_PAYMENT_HOSTS = new Set([
 ]);
 
 const PLAIN_URL_REGEX = /\bhttps?:\/\/[^\s<>"']+/gi;
+
+// --- UTILS ---
 
 function sanitizeHttpUrl(raw: string): string | null {
   try {
@@ -99,11 +109,13 @@ function renderTextWithLinks(text: string) {
   return nodes;
 }
 
+// --- COMPONENT ---
+
 export default function ChatWidget({
   chatbotId,
   isEmbed = false,
   plan = "free",
-  niche = "general", // Default to general if not provided
+  niche = "general",
 }: ChatWidgetProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [userInput, setUserInput] = useState("");
@@ -161,13 +173,14 @@ export default function ChatWidget({
 
     const currentInput = userInput.trim();
     
-    // 2. Updated Payload to include niche context
+    // Dynamic instruction selection based on niche prop
     const payload = {
       message: currentInput,
       bot_id: activeBotId,
       conversation_id: uniqueSessionId,
       category: botCategory,
-      niche: niche, // n8n can now branch logic based on this
+      niche: niche,
+      system_instructions: PROMPTS[niche] || PROMPTS.general, 
     };
 
     const newMessages: Message[] = [...messages, { role: "user", content: currentInput }];
