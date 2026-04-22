@@ -1,45 +1,42 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import ChatWidget from "@/app/components/ChatWidget";
 
 export default function RealEstateDemo() {
-  const router = useRouter();
-
   return (
-    <div className="min-h-screen bg-black text-white p-6 md:p-10">
+    <div className="min-h-screen bg-black text-white">
 
-      {/* TITLE */}
-      <h1 className="text-2xl md:text-4xl font-bold mb-3">
-        Real Estate AI Chatbot Demo
-      </h1>
+      {/* HERO */}
+      <section className="p-10 max-w-6xl mx-auto">
+        <h1 className="text-4xl font-bold mb-4">
+          AI Chatbot for Real Estate
+        </h1>
 
-      <p className="text-gray-400 mb-6">
-        Capture buyer leads and schedule property visits automatically.
-      </p>
+        <p className="text-gray-400 mb-6">
+          Capture buyer leads, qualify prospects, and schedule site visits automatically.
+        </p>
 
-      {/* VIDEO */}
-      <div className="mb-8">
-        <iframe
-          width="100%"
-          height="350"
-          src="https://www.youtube.com/embed/YOUR_VIDEO_ID"
-          title="Real Estate Demo"
-          allowFullScreen
-          className="rounded-xl"
-        />
-      </div>
+        <button
+          onClick={() => (window.location.href = "/signup")}
+          className="bg-blue-600 px-6 py-3 rounded-lg font-semibold"
+        >
+          Start Free Trial
+        </button>
+      </section>
 
-      {/* CTA */}
-      <button
-        onClick={() => router.push("/signup")}
-        className="bg-blue-600 px-6 py-3 rounded-xl font-bold hover:bg-blue-700"
-      >
-        Start Free Trial for Real Estate
-      </button>
+      {/* CHAT DEMO */}
+      <section className="max-w-4xl mx-auto p-6">
+        <div className="bg-gray-900 rounded-xl p-4">
+          <ChatWidget chatbotId="real-estate-demo" isEmbed />
+        </div>
+      </section>
 
-      <p className="text-gray-500 mt-3 text-sm">
-        No credit card required • Setup in 2 minutes
-      </p>
+      {/* FEATURES */}
+      <section className="max-w-6xl mx-auto p-10 grid md:grid-cols-3 gap-6">
+        <div>🏡 Capture buyer leads</div>
+        <div>📅 Schedule property visits</div>
+        <div>📊 Pre-qualify prospects</div>
+      </section>
 
     </div>
   );
