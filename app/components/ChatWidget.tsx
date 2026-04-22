@@ -240,7 +240,7 @@ export default function ChatWidget({
     ...newMessages,
     {
       role: "assistant",
-      content: "I am having trouble connecting right now. Please try again.",
+      content: "I am having trouble connecting right now. Please try again after 5 minutes.",
     },
   ]);
 } finally {
