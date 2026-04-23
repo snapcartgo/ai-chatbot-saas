@@ -135,7 +135,7 @@ export async function POST(req: Request) {
     let redirectUrl = null;
 
     // 🧠 Intent logic
-    if (/plan|pricing|price|billing/.test(userMsg)) {
+    if (/plan|billing/.test(userMsg)) {
       intent = "billing";
       redirectUrl = `${baseUrl}/dashboard/Billing`;
     } else if (/contact|support|help/.test(userMsg)) {

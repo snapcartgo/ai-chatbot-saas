@@ -237,10 +237,7 @@ if (safeActionUrl) {
   if (niche === "ecommerce") {
     actionLabel = "Buy Now";
   } 
-  // 2. Only show Billing for the SaaS/Admin side
-  else if (lowerUrl.includes("/billing") || lowerReply.includes("plan")) {
-    actionLabel = "Open Billing";
-  } 
+   
   else if (lowerUrl.includes("/contact")) {
     actionLabel = "Contact Us";
   } 
