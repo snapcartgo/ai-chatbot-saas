@@ -216,41 +216,45 @@ export default function ChatWidget({
         throw new Error(data?.reply || "Server Error");
       }
 
-      const safeActionUrl =
-        typeof data.redirect_url === "string"
-          ? sanitizeHttpUrl(data.redirect_url)
-          : null;
+      // Find this section inside handleSendMessage and replace it:
 
-      // FIX: Improved Logic for the Button Label
-      let actionLabel: string | undefined;
-      if (safeActionUrl) {
-        const lower = safeActionUrl.toLowerCase();
-        
-        // If the niche is eCommerce, ALWAYS show Buy Now
-        if (niche === "ecommerce") {
-          actionLabel = "Buy Now";
-        } 
-        // Only show Open Billing for the SaaS/Admin niche
-        else if (niche === "saas" || lower.includes("/dashboard/billing")) {
-          actionLabel = "Open Billing";
-        }
-        else if (lower.includes("/contact")) {
-          actionLabel = "Open Contact Us";
-        }
-        else {
-          actionLabel = "Open Page";
-        }
-      }
+const safeActionUrl =
+  typeof data.redirect_url === "string"
+    ? sanitizeHttpUrl(data.redirect_url)
+    : null;
 
-      setMessages([
-        ...newMessages,
-        {
-          role: "assistant",
-          content: data.reply || "I received your message but have no response.",
-          actionUrl: safeActionUrl || undefined,
-          actionLabel,
-        },
-      ]);
+let actionLabel: string | undefined;
+
+if (safeActionUrl) {
+  const lowerUrl = safeActionUrl.toLowerCase();
+  const lowerReply = (data.reply || "").toLowerCase();
+
+  // 1. If we are in the eCommerce niche, ALWAYS show "Buy Now"
+  if (niche === "ecommerce") {
+    actionLabel = "Buy Now";
+  } 
+  // 2. Only show "Open Billing" if we are in the SaaS niche AND it's a billing link
+  else if (niche === "saas" && (lowerUrl.includes("/billing") || lowerReply.includes("plan"))) {
+    actionLabel = "Open Billing";
+  } 
+  // 3. Fallbacks for other demos
+  else if (lowerUrl.includes("/contact")) {
+    actionLabel = "Contact Us";
+  } 
+  else {
+    actionLabel = "Open Page";
+  }
+}
+
+setMessages([
+  ...newMessages,
+  {
+    role: "assistant",
+    content: data.reply || "I received your message but have no response.",
+    actionUrl: safeActionUrl || undefined,
+    actionLabel, // This now uses our smart logic above
+  },
+]);
     } catch (error) {
       console.error("Chat Error:", error);
       setMessages([
