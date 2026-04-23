@@ -219,6 +219,8 @@ export default function ChatWidget({
       // Find this section inside handleSendMessage and replace it:
 
 // 1. Get the URL from n8n
+// Inside handleSendMessage, after const data = await response.json();
+
 const safeActionUrl =
   typeof data.redirect_url === "string"
     ? sanitizeHttpUrl(data.redirect_url)
@@ -226,35 +228,34 @@ const safeActionUrl =
 
 let actionLabel: string | undefined;
 
-// 2. Apply Smart Labeling based on Niche
 if (safeActionUrl) {
   const lowerUrl = safeActionUrl.toLowerCase();
-  
-  // FORCE "Buy Now" for eCommerce demo
+  const lowerReply = (data.reply || "").toLowerCase();
+
+  // 1. STRICT OVERRIDE: If the niche is eCommerce, force the label to "Buy Now"
+  // This prevents the code from checking for "billing" keywords.
   if (niche === "ecommerce") {
     actionLabel = "Buy Now";
   } 
-  // Keep "Open Billing" only for your SaaS admin side
-  else if (niche === "saas" || lowerUrl.includes("/billing")) {
+  // 2. Only show Billing for the SaaS/Admin side
+  else if (lowerUrl.includes("/billing") || lowerReply.includes("plan")) {
     actionLabel = "Open Billing";
   } 
   else if (lowerUrl.includes("/contact")) {
     actionLabel = "Contact Us";
   } 
-  // Default for everything else
   else {
-    actionLabel = "View Product"; 
+    actionLabel = "Open Page";
   }
 }
 
-// 3. Update the message state
 setMessages([
   ...newMessages,
   {
     role: "assistant",
     content: data.reply || "I received your message but have no response.",
     actionUrl: safeActionUrl || undefined,
-    actionLabel, 
+    actionLabel: actionLabel, // Now using the niche-aware label
   },
 ]);
     } catch (error) {
