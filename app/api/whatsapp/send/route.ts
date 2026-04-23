@@ -1,5 +1,6 @@
-import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+// app/api/whatsapp/send/route.ts
+import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -8,44 +9,42 @@ const supabase = createClient(
 
 export async function POST(req: Request) {
   try {
-    const { chatbot_id, message, recipient_phone } = await req.json();
+    const { user_id, message, recipient_phone } = await req.json();
 
-    // 1. Safety Check
-    if (!chatbot_id || !message || !recipient_phone) {
-      return NextResponse.json({ error: "Missing fields" }, { status: 400 });
+    // Ensure we have the user_id from the session/request
+    if (!user_id || !message || !recipient_phone) {
+      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
 
-    // 2. Get the WhatsApp Config for this specific chatbot
-    const { data: config, error: configErr } = await supabase
-      .from('whatsapp_configs')
-      .select('whatsapp_access_token, whatsapp_phone_id')
-      .eq('chatbot_id', chatbot_id)
+    // Lookup config based ONLY on User ID
+    const { data: config, error } = await supabase
+      .from("whatsapp_configs")
+      .select("whatsapp_access_token, whatsapp_phone_id")
+      .eq("user_id", user_id)
       .single();
 
-    if (configErr || !config) {
-      return NextResponse.json({ error: "WhatsApp not configured for this bot" }, { status: 404 });
+    if (error || !config) {
+      return NextResponse.json({ error: "WhatsApp not configured for this user" }, { status: 404 });
     }
 
-    // 3. Trigger your n8n "Outbound" workflow
-    const response = await fetch(process.env.N8N_WHATSAPP_WEBHOOK_URL!, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    // Push to Meta API
+    const res = await fetch(`https://graph.facebook.com/v18.0/${config.whatsapp_phone_id}/messages`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${config.whatsapp_access_token}`,
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({
-        token: config.whatsapp_access_token,
-        phoneId: config.whatsapp_phone_id,
-        recipient: recipient_phone,
-        message: message
+        messaging_product: "whatsapp",
+        to: recipient_phone,
+        type: "text",
+        text: { body: message },
       }),
     });
 
-    if (!response.ok) {
-      throw new Error('Failed to trigger n8n');
-    }
-
-    return NextResponse.json({ status: 'Message sent successfully' });
-
-  } catch (error: any) {
-    console.error('Send Error:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    const result = await res.json();
+    return NextResponse.json({ success: res.ok, result });
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
