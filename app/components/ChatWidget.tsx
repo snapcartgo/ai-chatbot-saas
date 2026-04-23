@@ -7,7 +7,7 @@ interface ChatWidgetProps {
   chatbotId?: string;
   isEmbed?: boolean;
   plan?: string;
-  niche?: string; // Prop to determine AI personality
+  niche?: string; 
 }
 
 type Message = {
@@ -20,6 +20,8 @@ type Message = {
 // --- CONFIGURATION ---
 
 const PROMPTS: Record<string, string> = {
+  // FIX: Added eCommerce prompt to stop the AI from thinking it's a SaaS bot
+  ecommerce: "You are a Retail Assistant for an eCommerce store. You only sell physical products like T-shirts. If you see a price of ₹2, it is a promotional product price. DO NOT mention SaaS billing, plans, or subscriptions.",
   dentist: "You are a professional dental assistant for SmileCare. Your goal is to triage dental pain and book cleanings. Be clinical, clean, and reassuring.",
   salon: "You are a beauty concierge for Luxe & Gloss. Help clients choose between styling services or simple trims. Use friendly, upbeat language.",
   'real-estate': "You are a high-end property consultant. Focus on qualifying leads by asking for their budget and locations before booking a viewing.",
@@ -109,8 +111,6 @@ function renderTextWithLinks(text: string) {
   return nodes;
 }
 
-// --- COMPONENT ---
-
 export default function ChatWidget({
   chatbotId,
   isEmbed = false,
@@ -173,7 +173,6 @@ export default function ChatWidget({
 
     const currentInput = userInput.trim();
     
-    // Dynamic instruction selection based on niche prop
     const payload = {
       message: currentInput,
       bot_id: activeBotId,
@@ -222,12 +221,25 @@ export default function ChatWidget({
           ? sanitizeHttpUrl(data.redirect_url)
           : null;
 
+      // FIX: Improved Logic for the Button Label
       let actionLabel: string | undefined;
       if (safeActionUrl) {
         const lower = safeActionUrl.toLowerCase();
-        if (lower.includes("/contact")) actionLabel = "Open Contact Us";
-        else if (lower.includes("/dashboard/billing")) actionLabel = "Open Billing";
-        else actionLabel = "Open Page";
+        
+        // If the niche is eCommerce, ALWAYS show Buy Now
+        if (niche === "ecommerce") {
+          actionLabel = "Buy Now";
+        } 
+        // Only show Open Billing for the SaaS/Admin niche
+        else if (niche === "saas" || lower.includes("/dashboard/billing")) {
+          actionLabel = "Open Billing";
+        }
+        else if (lower.includes("/contact")) {
+          actionLabel = "Open Contact Us";
+        }
+        else {
+          actionLabel = "Open Page";
+        }
       }
 
       setMessages([
@@ -245,7 +257,7 @@ export default function ChatWidget({
         ...newMessages,
         {
           role: "assistant",
-          content: "I am having trouble connecting right now. Please try again after 5 minutes.",
+          content: "I am having trouble connecting right now. Please try again later.",
         },
       ]);
     } finally {
@@ -283,7 +295,8 @@ export default function ChatWidget({
         {messages.map((m, i) => {
           const { safeUrl, cleanText } = processMessageContent(m.content);
           const actionUrl = m.actionUrl || safeUrl;
-          const actionLabel = m.actionLabel || (safeUrl ? "Pay Now" : "Open Page");
+          // FIX: Default to "Buy Now" for eCommerce here too
+          const actionLabel = m.actionLabel || (niche === "ecommerce" ? "Buy Now" : "Open Page");
 
           return (
             <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
@@ -293,7 +306,7 @@ export default function ChatWidget({
                 }`}
               >
                 <div>
-                  {safeUrl ? "Click below to complete your payment:" : renderTextWithLinks(cleanText)}
+                  {safeUrl ? "Click below to complete your order:" : renderTextWithLinks(cleanText)}
                 </div>
 
                 {actionUrl && (
