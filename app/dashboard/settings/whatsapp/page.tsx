@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
-import { createClient } from "@/utils/supabase/client";// Adjust based on your auth setup
+import { createClient } from "@/utils/supabase/client";
 
 export default function WhatsAppSettings() {
   const supabase = createClient();
@@ -8,15 +8,28 @@ export default function WhatsAppSettings() {
   const [config, setConfig] = useState({
     twilio_sid: "",
     twilio_auth_token: "",
-    phone_number: "",
-    chatbot_id: ""
+    phone_number: ""
   });
 
   // 1. Load existing settings on page load
   useEffect(() => {
     async function loadSettings() {
-      const { data } = await supabase.from("whatsapp_configs").select("*").single();
-      if (data) setConfig(data);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data } = await supabase
+        .from("whatsapp_configs")
+        .select("twilio_sid, twilio_auth_token, phone_number")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      if (data) {
+        setConfig({
+          twilio_sid: data.twilio_sid ?? "",
+          twilio_auth_token: data.twilio_auth_token ?? "",
+          phone_number: data.phone_number ?? ""
+        });
+      }
     }
     loadSettings();
   }, []);
@@ -40,8 +53,7 @@ export default function WhatsAppSettings() {
       user_id: user.id, // This provides the UUID the database requires
       twilio_sid: config.twilio_sid,
       twilio_auth_token: config.twilio_auth_token,
-      phone_number: config.phone_number,
-      chatbot_id: config.chatbot_id
+      phone_number: config.phone_number
     }, { onConflict: 'user_id' }); // Ensures it updates if a record exists
 
   if (error) {
