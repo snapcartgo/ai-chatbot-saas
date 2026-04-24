@@ -8,40 +8,43 @@ const supabase = createClient(
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
-    const entry = body.entry?.[0]?.changes?.[0]?.value;
-    const message = entry?.messages?.[0];
-    const metadata = entry?.metadata;
+    // 1. Twilio sends data as application/x-www-form-urlencoded
+    const rawData = await req.text();
+    const params = new URLSearchParams(rawData);
+    
+    // Extracting fields sent by Twilio
+    const userMessage = params.get('Body');
+    const customerPhone = params.get('From'); // Format: whatsapp:+91XXXXXXXXXX
+    const twilioAccountSid = params.get('AccountSid');
 
-    if (!message?.text?.body) return NextResponse.json({ status: 'ignored' });
+    if (!userMessage) return new Response('<Response></Response>', { headers: { 'Content-Type': 'text/xml' } });
 
-    const customerPhone = message.from; // This defines the missing variable
-    const phoneId = metadata.phone_number_id;
-
-    // 1. Find Config in your NEW bridge table
+    // 2. Find Config in your bridge table using the Twilio Account SID
+    // Ensure your 'whatsapp_configs' table has a column for 'twilio_sid'
     const { data: config, error: configErr } = await supabase
       .from('whatsapp_configs')
-      .select('chatbot_id, whatsapp_access_token')
-      .eq('whatsapp_phone_id', phoneId)
+      .select('chatbot_id, twilio_auth_token')
+      .eq('twilio_sid', twilioAccountSid)
       .single();
 
-    if (configErr || !config) return NextResponse.json({ error: 'Not Found' }, { status: 404 });
+    if (configErr || !config) return NextResponse.json({ error: 'Config Not Found' }, { status: 404 });
 
-    // 2. Get AI settings from the UNTOUCHED chatbots table
+    // 3. Get AI settings from the chatbots table
     const { data: bot } = await supabase
       .from('chatbots')
       .select('id, name, prompt')
       .eq('id', config.chatbot_id)
       .single();
 
-    // 3. Check for existing Lead/Booking
+    // 4. Check for existing Lead (strip "whatsapp:" prefix for matching digits if necessary)
+    const purePhone = customerPhone?.replace('whatsapp:', '');
     const { data: lead } = await supabase
       .from('leads')
       .select('*')
-      .eq('phone', customerPhone)
+      .eq('phone', purePhone)
       .single();
 
-    // 4. Generate AI Response logic (Replaces the missing yourAiBrain error)
+    // 5. Generate AI Response logic
     const aiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -52,35 +55,38 @@ export async function POST(req: Request) {
             model: "gpt-4o-mini",
             messages: [
                 { role: "system", content: bot?.prompt || "You are a helpful assistant." },
-                { role: "user", content: `Customer Context: ${JSON.stringify(lead || "New Customer")}\n\nMessage: ${message.text.body}` }
+                { role: "user", content: `Customer Context: ${JSON.stringify(lead || "New Customer")}\n\nMessage: ${userMessage}` }
             ]
         })
     }).then(res => res.json()).then(data => data.choices[0].message.content);
 
-    // 5. Trigger n8n
-    await fetch(process.env.N8N_WHATSAPP_WEBHOOK_URL!, {
+    // 6. Trigger n8n or send via Twilio API
+    // Twilio requires "Basic Auth" using AccountSID:AuthToken
+    const twilioMessageUrl = `https://api.twilio.com/2010-04-01/Accounts/${twilioAccountSid}/Messages.json`;
+    
+    await fetch(twilioMessageUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        token: config.whatsapp_access_token,
-        phoneId: phoneId,
-        recipient: customerPhone,
-        message: aiResponse
-      }),
+      headers: {
+        'Authorization': 'Basic ' + Buffer.from(`${twilioAccountSid}:${config.twilio_auth_token}`).toString('base64'),
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: new URLSearchParams({
+        To: customerPhone!, // e.g., whatsapp:+919878498214
+        From: 'whatsapp:+14155238886', // Your Twilio Sandbox number
+        Body: aiResponse
+      })
     });
 
-    return NextResponse.json({ status: 'ok' });
+    // 7. Twilio expects a TwiML XML response (even if empty)
+    return new Response('<Response></Response>', {
+      headers: { 'Content-Type': 'text/xml' },
+    });
+
   } catch (error) {
-    console.error(error);
-    return NextResponse.json({ error: 'Internal Error' }, { status: 500 });
+    console.error('Webhook Error:', error);
+    return new Response('<Response></Response>', { headers: { 'Content-Type': 'text/xml' } });
   }
 }
 
-// Keep the GET handler for Meta Verification as well
-export async function GET(req: Request) {
-    const { searchParams } = new URL(req.url);
-    if (searchParams.get('hub.verify_token') === process.env.WHATSAPP_VERIFY_TOKEN) {
-        return new Response(searchParams.get('hub.challenge'));
-    }
-    return new Response('Error', { status: 403 });
-}
+// DELETE the GET handler if you are no longer using Meta. 
+// Twilio does not require a verification challenge for sandboxes.
