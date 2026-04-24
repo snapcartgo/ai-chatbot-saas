@@ -22,16 +22,34 @@ export default function WhatsAppSettings() {
   }, []);
 
   const handleSave = async () => {
-    setLoading(true);
-    // 2. Upsert the data into Supabase
-    const { error } = await supabase.from("whatsapp_configs").upsert({
-      ...config,
-      // Ensure the user_id is set to the current logged-in user
-    });
-    
-    if (!error) alert("Settings saved!");
-    setLoading(false);
-  };
+  setLoading(true);
+  
+  // Get the current user's ID from Supabase Auth
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) {
+    alert("You must be logged in to save settings.");
+    return;
+  }
+
+  const { error } = await supabase
+    .from("whatsapp_configs")
+    .upsert({
+      user_id: user.id, // Target the user_id
+      twilio_sid: config.twilio_sid,
+      twilio_auth_token: config.twilio_auth_token,
+      phone_number: config.phone_number,
+      chatbot_id: config.chatbot_id
+    }, { onConflict: 'user_id' }); // Use user_id as the conflict target
+
+  if (error) {
+    console.error("400 Error details:", error);
+    alert("Save failed: " + error.message);
+  } else {
+    alert("Settings saved for user: " + user.id);
+  }
+  setLoading(false);
+};
 
   return (
     <div className="p-6 max-w-2xl bg-white rounded-xl shadow">
