@@ -12,31 +12,37 @@ export async function POST(req: Request) {
     const rawData = await req.text();
     const params = new URLSearchParams(rawData);
     
-    // Extracting fields sent by Twilio
     const userMessage = params.get('Body');
     const customerPhone = params.get('From'); // Format: whatsapp:+91XXXXXXXXXX
     const twilioAccountSid = params.get('AccountSid');
 
+    // 2. Security Validation: Prevent SSRF by validating the Account SID format
+    if (!twilioAccountSid || !/^AC[a-fA-F0-9]{32}$/.test(twilioAccountSid)) {
+      return new Response('<Response></Response>', { 
+        headers: { 'Content-Type': 'text/xml' } 
+      });
+    }
+
     if (!userMessage) return new Response('<Response></Response>', { headers: { 'Content-Type': 'text/xml' } });
 
-    // 2. Find Config in your bridge table using the Twilio Account SID
-    // Ensure your 'whatsapp_configs' table has a column for 'twilio_sid'
-    const { data: config, error: configErr } = await supabase
-      .from('whatsapp_configs')
-      .select('chatbot_id, twilio_auth_token')
-      .eq('twilio_sid', twilioAccountSid)
-      .single();
+    // 3. Find Config in Supabase using the validated Twilio Account SID
+    // Make sure you select 'phone_number' here!
+const { data: config, error: configErr } = await supabase
+  .from('whatsapp_configs')
+  .select('chatbot_id, twilio_auth_token, twilio_sid, phone_number') // ADD THIS
+  .eq('twilio_sid', twilioAccountSid)
+  .single();
 
-    if (configErr || !config) return NextResponse.json({ error: 'Config Not Found' }, { status: 404 });
+    if (configErr || !config) return new Response('<Response></Response>', { headers: { 'Content-Type': 'text/xml' } });
 
-    // 3. Get AI settings from the chatbots table
+    // 4. Get AI settings from the chatbots table
     const { data: bot } = await supabase
       .from('chatbots')
       .select('id, name, prompt')
       .eq('id', config.chatbot_id)
       .single();
 
-    // 4. Check for existing Lead (strip "whatsapp:" prefix for matching digits if necessary)
+    // 5. Check for existing Lead (stripping prefix for matching database numbers)
     const purePhone = customerPhone?.replace('whatsapp:', '');
     const { data: lead } = await supabase
       .from('leads')
@@ -44,7 +50,7 @@ export async function POST(req: Request) {
       .eq('phone', purePhone)
       .single();
 
-    // 5. Generate AI Response logic
+    // 6. Generate AI Response
     const aiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -60,24 +66,25 @@ export async function POST(req: Request) {
         })
     }).then(res => res.json()).then(data => data.choices[0].message.content);
 
-    // 6. Trigger n8n or send via Twilio API
-    // Twilio requires "Basic Auth" using AccountSID:AuthToken
-    const twilioMessageUrl = `https://api.twilio.com/2010-04-01/Accounts/${twilioAccountSid}/Messages.json`;
+    // 7. Send reply via Twilio API
+    // Sanitize the SID in the URL to pass security checks
+    const twilioMessageUrl = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(config.twilio_sid)}/Messages.json`;
     
     await fetch(twilioMessageUrl, {
       method: 'POST',
       headers: {
-        'Authorization': 'Basic ' + Buffer.from(`${twilioAccountSid}:${config.twilio_auth_token}`).toString('base64'),
+        // Twilio uses Basic Auth (SID:Token)
+        'Authorization': 'Basic ' + Buffer.from(`${config.twilio_sid}:${config.twilio_auth_token}`).toString('base64'),
         'Content-Type': 'application/x-www-form-urlencoded'
       },
       body: new URLSearchParams({
-        To: customerPhone!, // e.g., whatsapp:+919878498214
-        From: 'whatsapp:+14155238886', // Your Twilio Sandbox number
+        To: customerPhone!,
+        From: config.phone_number || 'whatsapp:+14155238886', 
         Body: aiResponse
       })
     });
 
-    // 7. Twilio expects a TwiML XML response (even if empty)
+    // 8. Return TwiML XML to Twilio
     return new Response('<Response></Response>', {
       headers: { 'Content-Type': 'text/xml' },
     });
@@ -87,6 +94,3 @@ export async function POST(req: Request) {
     return new Response('<Response></Response>', { headers: { 'Content-Type': 'text/xml' } });
   }
 }
-
-// DELETE the GET handler if you are no longer using Meta. 
-// Twilio does not require a verification challenge for sandboxes.
