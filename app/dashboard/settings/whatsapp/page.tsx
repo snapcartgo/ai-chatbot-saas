@@ -24,25 +24,25 @@ export default function WhatsAppSettings() {
   const handleSave = async () => {
   setLoading(true);
   
-  // 1. Get the current user session
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  // 1. Fetch the user's actual UUID from the session
+  const { data: { user }, error: userError } = await supabase.auth.getUser();
 
-  if (authError || !user) {
-    alert("Please log in again. Session not found.");
+  if (userError || !user) {
+    alert("User session not found. Please log in again.");
     setLoading(false);
     return;
   }
 
-  // 2. Perform the save using the actual user.id (UUID)
+  // 2. Perform the save using the user.id
   const { error } = await supabase
     .from("whatsapp_configs")
     .upsert({
-      user_id: user.id, // This provides the valid UUID needed
+      user_id: user.id, // This provides the UUID the database requires
       twilio_sid: config.twilio_sid,
       twilio_auth_token: config.twilio_auth_token,
       phone_number: config.phone_number,
       chatbot_id: config.chatbot_id
-    }, { onConflict: 'user_id' }); // Ensures it updates the correct user row
+    }, { onConflict: 'user_id' }); // Ensures it updates if a record exists
 
   if (error) {
     console.error("Save Error:", error.message);
