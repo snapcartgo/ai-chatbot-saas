@@ -14,9 +14,9 @@ export default function KnowledgeBasePage() {
   const [items, setItems] = useState<any[]>([]);
   const [chatbots, setChatbots] = useState<any[]>([]);
   const [selectedBot, setSelectedBot] = useState("");
+  const [loading, setLoading] = useState(true);
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
-  const [loading, setLoading] = useState(true);
 
   const [userPlan, setUserPlan] = useState("starter");
   const [totalUsageMB, setTotalUsageMB] = useState(0);
@@ -36,81 +36,60 @@ export default function KnowledgeBasePage() {
       const size = item.file_size || (item.file_size_kb ? item.file_size_kb * 1024 : 0);
       return acc + size;
     }, 0);
-
     setTotalUsageMB(totalBytes / (1024 * 1024));
   }, [items]);
 
-  // =========================
-  // ✅ LOAD BOTH BOTS
-  // =========================
   const loadInitialData = async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-    // 🌐 Website bots
-    const { data: webBots } = await supabase
-      .from("chatbots")
-      .select("id,name")
-      .eq("user_id", user.id);
+    // 1. Fetch Website Bots, WhatsApp Bots, and Subscription in parallel
+    const [webRes, waRes, subRes] = await Promise.all([
+      supabase.from("chatbots").select("id, name").eq("user_id", user.id),
+      supabase.from("whatsapp_configs").select("id, bot_name").eq("user_id", user.id),
+      supabase.from("subscriptions").select("plan").eq("user_id", user.id).single()
+    ]);
 
-    // 📱 WhatsApp bots
-    const { data: waBots } = await supabase
-      .from("whatsapp_configs")
-      .select("id, phone_number")
-      .eq("user_id", user.id);
-
-    const formattedWebBots = (webBots || []).map((bot: any) => ({
+    // 2. Format Website Bots
+    const websiteBots = (webRes.data || []).map(bot => ({
       id: bot.id,
       name: `🌐 ${bot.name}`,
-      type: "web",
+      source: 'website'
     }));
 
-    const formattedWaBots = (waBots || []).map((bot: any) => ({
-      id: `wa_${bot.id}`, // 🔥 IMPORTANT PREFIX
-      name: `📱 WhatsApp (${bot.phone_number})`,
-      type: "whatsapp",
+    // 3. Format WhatsApp Bots
+    const whatsappBots = (waRes.data || []).map(bot => ({
+      id: bot.id,
+      name: `💬 ${bot.bot_name || 'WhatsApp Bot'}`,
+      source: 'whatsapp'
     }));
 
-    const allBots = [...formattedWebBots, ...formattedWaBots];
+    // 4. Merge into single list
+    const combinedBots = [...websiteBots, ...whatsappBots];
+    setChatbots(combinedBots);
 
-    setChatbots(allBots);
-
-    if (allBots.length > 0) {
-      setSelectedBot(allBots[0].id);
+    if (combinedBots.length > 0) {
+      setSelectedBot(combinedBots[0].id);
     }
 
-    // Load Plan
-    const { data: sub } = await supabase
-      .from("subscriptions")
-      .select("plan")
-      .eq("user_id", user.id)
-      .single();
-
-    if (sub) setUserPlan(sub.plan.toLowerCase());
+    if (subRes.data) {
+      setUserPlan(subRes.data.plan.toLowerCase());
+    }
 
     setLoading(false);
   };
 
-  // =========================
-  // LOAD KNOWLEDGE
-  // =========================
   const loadKnowledge = async () => {
-    const isWhatsApp = selectedBot.startsWith("wa_");
-    const realId = isWhatsApp ? selectedBot.replace("wa_", "") : selectedBot;
-
     const { data, error } = await supabase
       .from("knowledge_base")
       .select("*")
-      .eq("chatbot_id", realId)
+      .eq("chatbot_id", selectedBot)
       .order("created_at", { ascending: false });
 
     if (error) console.error(error);
     setItems(data || []);
   };
 
-  // =========================
-  // ADD KNOWLEDGE
-  // =========================
   const addKnowledge = async () => {
     if (!question || !answer) {
       alert("Please fill question and answer");
@@ -122,20 +101,19 @@ export default function KnowledgeBasePage() {
       return;
     }
 
-    const isWhatsApp = selectedBot.startsWith("wa_");
-    const realId = isWhatsApp ? selectedBot.replace("wa_", "") : selectedBot;
-
     const byteSize = new TextEncoder().encode(question + answer).length;
 
-    const { error } = await supabase.from("knowledge_base").insert({
-      chatbot_id: realId,
-      question,
-      answer,
-      content: question + " " + answer,
-      source: isWhatsApp ? "whatsapp_manual" : "manual",
-      file_size: byteSize,
-      file_size_kb: Math.round(byteSize / 1024),
-    });
+    const { error } = await supabase
+      .from("knowledge_base")
+      .insert({
+        chatbot_id: selectedBot,
+        question,
+        answer,
+        content: question + " " + answer,
+        source: "manual",
+        file_size: byteSize,
+        file_size_kb: Math.round(byteSize / 1024)
+      });
 
     if (error) {
       alert("Error saving knowledge");
@@ -147,81 +125,136 @@ export default function KnowledgeBasePage() {
     loadKnowledge();
   };
 
-  // =========================
-  // FILE UPLOAD
-  // =========================
+  const deleteKnowledge = async (id: string) => {
+    const { error } = await supabase.from("knowledge_base").delete().eq("id", id);
+    if (error) alert("Error deleting knowledge");
+    loadKnowledge();
+  };
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const isWhatsApp = selectedBot.startsWith("wa_");
-    const realId = isWhatsApp ? selectedBot.replace("wa_", "") : selectedBot;
-
     const fileSizeMB = file.size / (1024 * 1024);
 
     if (totalUsageMB + fileSizeMB > PLAN_LIMITS[userPlan]) {
-      alert("Storage limit exceeded");
+      alert(`Exceeds ${userPlan} plan limit.`);
+      e.target.value = ""; 
       return;
     }
 
     const formData = new FormData();
     formData.append("file", file);
-    formData.append("chatbotId", realId);
+    formData.append("chatbotId", selectedBot);
     formData.append("fileSize", file.size.toString());
 
-    await fetch("/api/upload-pdf", {
-      method: "POST",
-      body: formData,
-    });
+    try {
+      const res = await fetch("/api/upload-pdf", {
+        method: "POST",
+        body: formData
+      });
 
-    setTimeout(() => loadKnowledge(), 1000);
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        alert(data.error || "Upload failed");
+      } else {
+        alert("Document uploaded successfully");
+        setTimeout(() => loadKnowledge(), 1000);
+      }
+    } catch (err) {
+      alert("Upload error");
+    }
   };
 
-  // =========================
   if (loading) return <div style={{ padding: 30, color: '#fff', background: '#000' }}>Loading...</div>;
 
+  const currentLimit = PLAN_LIMITS[userPlan] || 10;
+  const usagePercentage = Math.min((totalUsageMB / currentLimit) * 100, 100);
+
   return (
-    <div style={{ padding: 30, color: '#fff', background: '#000', minHeight: '100vh' }}>
-      <h1>Knowledge Base</h1>
+    <div style={{ padding: 30, maxWidth: 900, color: '#fff', background: '#000', minHeight: '100vh', fontFamily: 'sans-serif' }}>
+      <h1 style={{ fontSize: 28, marginBottom: 10 }}>Knowledge Base</h1>
+      <p style={{ color: '#888', marginBottom: 20 }}>Manage training data for Website and WhatsApp bots</p>
 
-      {/* BOT SELECT */}
-      <select
-        value={selectedBot}
-        onChange={(e) => setSelectedBot(e.target.value)}
-        style={{ width: "100%", padding: 10, marginBottom: 20 }}
-      >
-        {chatbots.map((bot: any) => (
-          <option key={bot.id} value={bot.id}>
-            {bot.name}
-          </option>
-        ))}
-      </select>
-
-      {/* FILE UPLOAD */}
-      <input type="file" onChange={handleFileUpload} />
-
-      {/* Q&A */}
-      <input
-        placeholder="Question"
-        value={question}
-        onChange={(e) => setQuestion(e.target.value)}
-      />
-
-      <textarea
-        placeholder="Answer"
-        value={answer}
-        onChange={(e) => setAnswer(e.target.value)}
-      />
-
-      <button onClick={addKnowledge}>Add</button>
-
-      {/* LIST */}
-      {items.map((item) => (
-        <div key={item.id}>
-          <p>{item.question}</p>
-          <p>{item.answer}</p>
+      {/* STORAGE USAGE BAR */}
+      <div style={{ marginBottom: 30, padding: 15, background: '#111', borderRadius: 8, border: '1px solid #333' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+          <span>Plan: <b>{userPlan.toUpperCase()}</b></span>
+          <span>{totalUsageMB.toFixed(2)} MB / {currentLimit} MB</span>
         </div>
-      ))}
+        <div style={{ width: '100%', height: 10, background: '#333', borderRadius: 5, overflow: 'hidden' }}>
+          <div style={{ 
+            width: `${usagePercentage}%`, 
+            height: '100%', 
+            background: usagePercentage > 90 ? '#ef4444' : '#2563eb',
+            transition: 'width 0.5s ease-in-out'
+          }} />
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 20 }}>
+        <label style={{ display: 'block', marginBottom: 5 }}>Select Source (Website or WhatsApp)</label>
+        <select
+          value={selectedBot}
+          onChange={(e) => setSelectedBot(e.target.value)}
+          style={{ width: "100%", padding: 12, border: "1px solid #333", borderRadius: 6, background: '#111', color: '#fff' }}
+        >
+          {chatbots.map((bot: any) => (
+            <option key={bot.id} value={bot.id}>{bot.name}</option>
+          ))}
+        </select>
+      </div>
+
+      <div style={{ marginBottom: 20, padding: 20, border: "2px dashed #333", borderRadius: 8, textAlign: 'center' }}>
+        <p style={{ marginBottom: 15 }}>Upload PDF or DOCX</p>
+        <input type="file" accept=".pdf,.docx" onChange={handleFileUpload} style={{ color: '#888' }} />
+      </div>
+
+      <div style={{ marginBottom: 30, padding: 20, background: '#111', borderRadius: 8 }}>
+        <h3 style={{ marginBottom: 15 }}>Manual Q&A</h3>
+        <input
+          placeholder="Question"
+          value={question}
+          onChange={(e) => setQuestion(e.target.value)}
+          style={{ width: "100%", padding: 12, marginBottom: 12, border: "1px solid #333", borderRadius: 6, background: '#000', color: '#fff' }}
+        />
+        <textarea
+          placeholder="Answer"
+          value={answer}
+          onChange={(e) => setAnswer(e.target.value)}
+          style={{ width: "100%", padding: 12, marginBottom: 12, border: "1px solid #333", borderRadius: 6, background: '#000', color: '#fff', minHeight: 100 }}
+        />
+        <button
+          onClick={addKnowledge}
+          style={{ width: '100%', padding: "12px", background: "#2563eb", color: "#fff", border: "none", borderRadius: 6, cursor: 'pointer', fontWeight: 'bold' }}
+        >
+          Add Knowledge
+        </button>
+      </div>
+
+      <h3 style={{ marginBottom: 15 }}>Stored Knowledge</h3>
+      {items.length === 0 ? <p style={{ color: '#666' }}>No knowledge added yet.</p> : (
+        items.map((item) => (
+          <div key={item.id} style={{ border: "1px solid #333", padding: 15, marginBottom: 12, borderRadius: 8, background: "#0a0a0a" }}>
+            {item.question && <p style={{ marginBottom: 5 }}><b>Q:</b> {item.question}</p>}
+            {item.answer && <p style={{ color: '#ccc' }}><b>A:</b> {item.answer}</p>}
+            {!item.question && (
+              <div>
+                <p><b>📄 Document:</b> {item.source}</p>
+                <small style={{ color: '#666' }}>
+                   Size: {item.file_size ? (item.file_size / 1024).toFixed(1) : (item.file_size_kb || 0)} KB
+                </small>
+              </div>
+            )}
+            <button
+              onClick={() => deleteKnowledge(item.id)}
+              style={{ background: "transparent", color: "#ef4444", border: "1px solid #ef4444", padding: "5px 10px", marginTop: 10, borderRadius: 4, cursor: 'pointer', fontSize: 12 }}
+            >
+              Delete
+            </button>
+          </div>
+        ))
+      )}
     </div>
   );
 }
