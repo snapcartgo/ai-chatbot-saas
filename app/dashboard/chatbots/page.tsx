@@ -11,6 +11,7 @@ type BotRow = {
   model: string;
   temperature: number;
   active: boolean;
+  category?: string | null;
   channel?: string | null;
 };
 
@@ -22,8 +23,7 @@ type WhatsAppConfigRow = {
 };
 
 export default function ChatbotsPage() {
-  const [allBots, setAllBots] = useState<BotRow[]>([]);
-  const [websiteBots, setWebsiteBots] = useState<BotRow[]>([]);
+  const [bots, setBots] = useState<BotRow[]>([]);
   const [whatsappConfig, setWhatsappConfig] = useState<WhatsAppConfigRow | null>(null);
   const [chatbotLimit, setChatbotLimit] = useState<number>(0);
   const [loading, setLoading] = useState(true);
@@ -48,7 +48,6 @@ export default function ChatbotsPage() {
 
     const user = session.user;
 
-    // Load all chatbots, do NOT filter by channel here
     const { data: botData, error: botError } = await supabase
       .from("chatbots")
       .select("*")
@@ -56,7 +55,7 @@ export default function ChatbotsPage() {
       .order("created_at", { ascending: true });
 
     if (botError) {
-      console.error(botError);
+      console.error("Load bots error:", botError);
     }
 
     const normalizedBots = (botData || []).map((bot: BotRow) => ({
@@ -64,8 +63,7 @@ export default function ChatbotsPage() {
       channel: bot.channel || "website",
     }));
 
-    setAllBots(normalizedBots);
-    setWebsiteBots(normalizedBots.filter((bot) => bot.channel === "website"));
+    setBots(normalizedBots);
 
     const { data: whatsappData, error: whatsappError } = await supabase
       .from("whatsapp_configs")
@@ -74,7 +72,7 @@ export default function ChatbotsPage() {
       .maybeSingle();
 
     if (whatsappError) {
-      console.error(whatsappError);
+      console.error("Load WhatsApp config error:", whatsappError);
     }
 
     setWhatsappConfig((whatsappData || null) as WhatsAppConfigRow | null);
@@ -86,7 +84,7 @@ export default function ChatbotsPage() {
       .single();
 
     if (subError) {
-      console.error(subError);
+      console.error("Subscription error:", subError);
     }
 
     if (subscription) {
@@ -103,34 +101,49 @@ export default function ChatbotsPage() {
 
     if (!user) return;
 
-    if (websiteBots.length >= chatbotLimit) {
-      alert(`Limit reached: Your plan allows ${chatbotLimit} chatbots.`);
+    const websiteBots = bots.filter((bot) => (bot.channel || "website") === "website");
+    const limit = chatbotLimit || 2;
+
+    if (websiteBots.length >= limit) {
+      alert(`Limit reached: Your plan allows ${limit} chatbots.`);
       return;
     }
 
-    const { data, error } = await supabase
-      .from("chatbots")
-      .insert({
-        name: "New Chatbot",
-        welcome_message: "Hello! How can I help?",
-        model: "gpt-4o-mini",
-        temperature: 0.7,
-        user_id: user.id,
-        active: true,
-        channel: "website",
-      })
-      .select()
-      .single();
+    const { error } = await supabase.from("chatbots").insert({
+      name: "New Chatbot",
+      welcome_message: "Hello! How can I help?",
+      model: "gpt-4o-mini",
+      temperature: 0.7,
+      user_id: user.id,
+      active: true,
+      category: "booking",
+      channel: "website",
+    });
 
     if (error) {
-      console.error(error);
-      alert("Error creating chatbot");
+      console.error("Create bot error:", error);
+      alert(error.message || "Error creating chatbot");
       return;
     }
 
-    router.push(`/dashboard/chatbots/${data.id}`);
+    const { data: latestBot } = await supabase
+      .from("chatbots")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("channel", "website")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (latestBot?.id) {
+      router.push(`/dashboard/chatbots/${latestBot.id}`);
+      return;
+    }
+
+    await loadData();
   };
 
+  const websiteBots = bots.filter((bot) => (bot.channel || "website") === "website");
   const whatsappEnabled = !!whatsappConfig?.automation_enabled;
 
   return (
@@ -153,7 +166,7 @@ export default function ChatbotsPage() {
 
         <div>
           <p>
-            Website Chatbots: {websiteBots.length} / {chatbotLimit}
+            Website Chatbots: {websiteBots.length} / {chatbotLimit || 2}
           </p>
         </div>
       </div>
