@@ -15,23 +15,21 @@ export default function BillingPage() {
 
       setUserEmail(user.email ?? null);
 
-      // ✅ Get country from DB
       const { data } = await supabase
         .from("users")
         .select("country")
         .eq("id", user.id)
         .single();
 
-      if (data?.country === "India") {
-        setIsIndia(true);
-      } else {
-        setIsIndia(false);
-      }
+      setIsIndia(data?.country === "India");
     };
 
     getUserData();
   }, []);
 
+  // =========================
+  // EXISTING PAYMENT (UNCHANGED)
+  // =========================
   const handlePayment = (
     planId: string,
     price: number,
@@ -42,7 +40,6 @@ export default function BillingPage() {
       return;
     }
 
-    // 🔒 Block PayU for non-India users
     if (!isIndia && gateway === "payu") {
       alert("PayU is only available in India");
       return;
@@ -51,7 +48,28 @@ export default function BillingPage() {
     window.location.href = `/api/${gateway}?plan=${planId}&email=${userEmail}&amount=${price}`;
   };
 
-  // ✅ Dynamic pricing
+  // =========================
+  // 🆕 WHATSAPP PAYMENT
+  // =========================
+  const handleWhatsAppPayment = (gateway: "payu" | "paypal") => {
+    if (!userEmail) {
+      alert("User not logged in ❌");
+      return;
+    }
+
+    if (!isIndia && gateway === "payu") {
+      alert("PayU is only available in India");
+      return;
+    }
+
+    window.location.href = `/api/${gateway}?plan=whatsapp&email=${userEmail}&amount=${
+      isIndia ? 999 : 29
+    }`;
+  };
+
+  // =========================
+  // PLANS (UNCHANGED)
+  // =========================
   const plans = [
     {
       name: "Starter",
@@ -117,7 +135,10 @@ export default function BillingPage() {
         Choose the plan that fits your business needs.
       </p>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
+      {/* =========================
+          WEBSITE PLANS (UNCHANGED)
+      ========================= */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6 mb-10">
 
         {plans.map((plan) => (
           <div
@@ -128,7 +149,6 @@ export default function BillingPage() {
               {plan.name}
             </h2>
 
-            {/* ✅ Dynamic price */}
             <p className="text-blue-500 font-bold text-lg md:text-xl mb-3">
               {plan.currency}{plan.price}
             </p>
@@ -147,30 +167,68 @@ export default function BillingPage() {
               ))}
             </div>
 
-            {/* ✅ PayU only for India */}
             {isIndia && (
               <button
                 onClick={() =>
                   handlePayment(plan.planId, plan.price, "payu")
                 }
-                className="w-full bg-blue-600 py-2 md:py-3 rounded-xl font-bold mb-2 hover:bg-blue-700 transition text-sm md:text-base"
+                className="w-full bg-blue-600 py-2 md:py-3 rounded-xl font-bold mb-2 hover:bg-blue-700"
               >
                 Pay with PayU
               </button>
             )}
 
-            {/* ✅ PayPal for all */}
             <button
               onClick={() =>
                 handlePayment(plan.planId, plan.price, "paypal")
               }
-              className="w-full border border-gray-700 py-2 md:py-3 rounded-xl font-bold hover:bg-gray-800 transition text-sm md:text-base"
+              className="w-full border border-gray-700 py-2 md:py-3 rounded-xl font-bold hover:bg-gray-800"
             >
               Pay with PayPal
             </button>
-
           </div>
         ))}
+      </div>
+
+      {/* =========================
+          🆕 WHATSAPP ADD-ON
+      ========================= */}
+      <div className="max-w-xl mx-auto border border-green-700 rounded-2xl p-6 bg-gray-900">
+
+        <h2 className="text-2xl font-bold mb-2 text-green-400">
+          WhatsApp Automation
+        </h2>
+
+        <p className="text-green-400 font-bold text-xl mb-3">
+          {isIndia ? "₹999" : "$29"}
+        </p>
+
+        <p className="text-gray-400 mb-4 text-sm">
+          Add WhatsApp chatbot automation to capture leads and automate conversations.
+        </p>
+
+        <div className="space-y-2 text-sm text-gray-300 mb-6">
+          <p>✅ WhatsApp Chatbot Integration</p>
+          <p>✅ Auto Lead Capture</p>
+          <p>✅ Auto Replies & Follow-ups</p>
+          <p>✅ Conversation Tracking</p>
+        </div>
+
+        {isIndia && (
+          <button
+            onClick={() => handleWhatsAppPayment("payu")}
+            className="w-full bg-green-600 py-3 rounded-xl font-bold mb-2 hover:bg-green-700"
+          >
+            Enable via PayU
+          </button>
+        )}
+
+        <button
+          onClick={() => handleWhatsAppPayment("paypal")}
+          className="w-full border border-gray-700 py-3 rounded-xl font-bold hover:bg-gray-800"
+        >
+          Enable via PayPal
+        </button>
 
       </div>
     </div>
