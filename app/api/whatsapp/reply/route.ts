@@ -44,14 +44,13 @@ async function saveMessage(data: {
 async function upsertLead(data: {
   user_id: string;
   conversation_id: string;
+  source_conversation_id?: string | null;
   phone: string;
-  channel: "whatsapp";
 }) {
   const { data: existing } = await supabase
     .from("leads")
     .select("id")
-    .eq("user_id", data.user_id)
-    .eq("phone", data.phone)
+    .or(`phone.eq.${data.phone},phone_number.eq.${data.phone}`)
     .maybeSingle();
 
   if (existing?.id) {
@@ -60,6 +59,8 @@ async function upsertLead(data: {
       .update({
         channel: "whatsapp",
         conversation_id: data.conversation_id,
+        source_conversation_id: data.source_conversation_id || null,
+        phone: data.phone,
         phone_number: data.phone,
       })
       .eq("id", existing.id);
@@ -72,9 +73,35 @@ async function upsertLead(data: {
     phone: data.phone,
     phone_number: data.phone,
     conversation_id: data.conversation_id,
+    source_conversation_id: data.source_conversation_id || null,
     lead_status: "new",
     channel: "whatsapp",
   });
+}
+
+async function createConversationRow(params: {
+  chatbot_id: string | null;
+  phone: string;
+  visitor_id: string;
+}) {
+  const { data, error } = await supabase
+    .from("conversations")
+    .insert({
+      chatbot_id: params.chatbot_id,
+      visitor_id: params.visitor_id,
+      name: params.phone || "WhatsApp Lead",
+      phone: params.phone || null,
+      channel: "whatsapp",
+    })
+    .select("id")
+    .single();
+
+  if (error) {
+    console.error("Conversation insert error:", error);
+    return null;
+  }
+
+  return data || null;
 }
 
 export async function POST(req: Request) {
@@ -105,7 +132,7 @@ export async function POST(req: Request) {
 
     const { data: config, error: configError } = await supabase
       .from("whatsapp_configs")
-      .select("automation_enabled, default_prompt")
+      .select("automation_enabled, default_prompt, chatbot_id")
       .eq("user_id", user_id)
       .maybeSingle();
 
@@ -130,9 +157,15 @@ export async function POST(req: Request) {
     const normalizedFrom = normalizeWhatsAppNumber(from_phone);
     const customerPhone = stripWhatsAppPrefix(normalizedFrom);
 
+    const conversationRow = await createConversationRow({
+      chatbot_id: config.chatbot_id || null,
+      phone: customerPhone,
+      visitor_id: normalizedFrom || conversation_id,
+    });
+
     await saveMessage({
       user_id,
-      bot_id: null,
+      bot_id: config.chatbot_id || null,
       conversation_id,
       role: "user",
       content: message,
@@ -145,11 +178,20 @@ export async function POST(req: Request) {
     await upsertLead({
       user_id,
       conversation_id,
+      source_conversation_id: conversationRow?.id || null,
       phone: customerPhone,
-      channel: "whatsapp",
     });
 
+    const { data: bot } = config.chatbot_id
+      ? await supabase
+          .from("chatbots")
+          .select("id, name, prompt, welcome_message, category")
+          .eq("id", config.chatbot_id)
+          .maybeSingle()
+      : { data: null };
+
     const systemPrompt =
+      bot?.prompt ||
       config.default_prompt ||
       "You are a helpful WhatsApp assistant for this business. Keep replies short, clear, and friendly. Ask only the minimum needed follow-up questions.";
 
@@ -176,7 +218,7 @@ export async function POST(req: Request) {
 
     await saveMessage({
       user_id,
-      bot_id: null,
+      bot_id: config.chatbot_id || null,
       conversation_id,
       role: "assistant",
       content: reply,

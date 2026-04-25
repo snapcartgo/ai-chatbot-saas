@@ -10,8 +10,10 @@ type MessageRow = {
   content: string;
   created_at: string;
   bot_id: string | null;
+  user_id: string | null;
   channel?: string | null;
   phone_number?: string | null;
+  external_user_id?: string | null;
 };
 
 export default function ConversationsPage() {
@@ -32,50 +34,59 @@ export default function ConversationsPage() {
         return;
       }
 
-      const pageSize = 1000;
-      let from = 0;
+      const { data: bots } = await supabase
+        .from("chatbots")
+        .select("id")
+        .eq("user_id", user.id);
+
+      const botIds = (bots || []).map((b: any) => b.id);
+
+      const websiteQuery = botIds.length
+        ? supabase
+            .from("messages")
+            .select("id, conversation_id, role, content, created_at, bot_id, user_id, channel, phone_number, external_user_id")
+            .in("bot_id", botIds)
+            .order("created_at", { ascending: true })
+        : null;
+
+      const whatsappQuery = supabase
+        .from("messages")
+        .select("id, conversation_id, role, content, created_at, bot_id, user_id, channel, phone_number, external_user_id")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: true });
+
+      const [websiteRes, whatsappRes] = await Promise.all([
+        websiteQuery ? websiteQuery : Promise.resolve({ data: [], error: null } as any),
+        whatsappQuery,
+      ]);
+
       const allMessages: MessageRow[] = [];
+      if (!websiteRes.error && websiteRes.data) allMessages.push(...(websiteRes.data as MessageRow[]));
+      if (!whatsappRes.error && whatsappRes.data) allMessages.push(...(whatsappRes.data as MessageRow[]));
 
-      while (true) {
-        const { data, error } = await supabase
-          .from("messages")
-          .select("id, conversation_id, role, content, created_at, bot_id, channel, phone_number")
-          .eq("user_id", user.id)
-          .order("created_at", { ascending: true })
-          .range(from, from + pageSize - 1);
+      const unique = new Map<string, MessageRow>();
+      allMessages.forEach((msg) => {
+        unique.set(msg.id, msg);
+      });
 
-        if (error) {
-          console.error("Failed to load messages:", error);
-          break;
-        }
+      const merged = Array.from(unique.values()).sort(
+        (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+      );
 
-        if (!data || data.length === 0) break;
+      const groups = merged.reduce((acc: Record<string, MessageRow[]>, msg) => {
+        const id = msg.conversation_id || "unknown_session";
+        if (!acc[id]) acc[id] = [];
+        acc[id].push(msg);
+        return acc;
+      }, {});
 
-        allMessages.push(...(data as MessageRow[]));
+      const sortedEntries = Object.entries(groups).sort((a, b) => {
+        const lastTimeA = new Date(a[1][a[1].length - 1].created_at).getTime();
+        const lastTimeB = new Date(b[1][b[1].length - 1].created_at).getTime();
+        return lastTimeB - lastTimeA;
+      });
 
-        if (data.length < pageSize) break;
-        from += pageSize;
-      }
-
-      if (allMessages.length > 0) {
-        const groups = allMessages.reduce((acc: Record<string, MessageRow[]>, msg) => {
-          const id = msg.conversation_id || "unknown_session";
-          if (!acc[id]) acc[id] = [];
-          acc[id].push(msg);
-          return acc;
-        }, {});
-
-        const sortedEntries = Object.entries(groups).sort((a, b) => {
-          const lastTimeA = new Date(a[1][a[1].length - 1].created_at).getTime();
-          const lastTimeB = new Date(b[1][b[1].length - 1].created_at).getTime();
-          return lastTimeB - lastTimeA;
-        });
-
-        setGroupedMessages(Object.fromEntries(sortedEntries));
-      } else {
-        setGroupedMessages({});
-      }
-
+      setGroupedMessages(Object.fromEntries(sortedEntries));
       setLoading(false);
     };
 
@@ -119,8 +130,13 @@ export default function ConversationsPage() {
                 {sessionId}
               </span>
               <span style={{ fontSize: "11px", color: "#999" }}>
-                Channel: {msgs[0]?.channel || "website"}
+                Channel: {msgs[0]?.channel || (msgs[0]?.user_id ? "whatsapp" : "website")}
               </span>
+              {msgs[0]?.phone_number && (
+                <span style={{ fontSize: "11px", color: "#999" }}>
+                  Phone: {msgs[0]?.phone_number}
+                </span>
+              )}
             </div>
             <span style={{ fontSize: "12px", color: "#007bff" }}>
               {expandedSession === sessionId ? "Close" : "View Conversation"}
