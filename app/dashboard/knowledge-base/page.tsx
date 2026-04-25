@@ -43,40 +43,50 @@ export default function KnowledgeBasePage() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-    // 1. Fetch Website Bots, WhatsApp Bots, and Subscription in parallel
-    const [webRes, waRes, subRes] = await Promise.all([
-      supabase.from("chatbots").select("id, name").eq("user_id", user.id),
-      supabase.from("whatsapp_configs").select("id, bot_name").eq("user_id", user.id),
-      supabase.from("subscriptions").select("plan").eq("user_id", user.id).single()
-    ]);
+    try {
+      // 1. Fetch Website Bots, WhatsApp Bots, and Subscription
+      const [webRes, waRes, subRes] = await Promise.all([
+        supabase.from("chatbots").select("id, name").eq("user_id", user.id),
+        supabase.from("whatsapp_configs").select("*").eq("user_id", user.id), // Changed to * to see all columns
+        supabase.from("subscriptions").select("plan").eq("user_id", user.id).maybeSingle()
+      ]);
 
-    // 2. Format Website Bots
-    const websiteBots = (webRes.data || []).map(bot => ({
-      id: bot.id,
-      name: `🌐 ${bot.name}`,
-      source: 'website'
-    }));
+      // DEBUG: Check console to see if WhatsApp data is actually arriving
+      console.log("Website Bots:", webRes.data);
+      console.log("WhatsApp Bots:", waRes.data);
 
-    // 3. Format WhatsApp Bots
-    const whatsappBots = (waRes.data || []).map(bot => ({
-      id: bot.id,
-      name: `💬 ${bot.bot_name || 'WhatsApp Bot'}`,
-      source: 'whatsapp'
-    }));
+      // 2. Format Website Bots
+      const websiteBots = (webRes.data || []).map(bot => ({
+        id: bot.id,
+        name: `🌐 ${bot.name}`,
+        source: 'website'
+      }));
 
-    // 4. Merge into single list
-    const combinedBots = [...websiteBots, ...whatsappBots];
-    setChatbots(combinedBots);
+      // 3. Format WhatsApp Bots 
+      // NOTE: Using 'bot_name' or 'whatsapp_number' as a fallback if name is null
+      const whatsappBots = (waRes.data || []).map(bot => ({
+        id: bot.id,
+        name: `💬 ${bot.bot_name || bot.whatsapp_number || 'WhatsApp Channel'}`, 
+        source: 'whatsapp'
+      }));
 
-    if (combinedBots.length > 0) {
-      setSelectedBot(combinedBots[0].id);
+      // 4. Merge into single list
+      const combinedBots = [...websiteBots, ...whatsappBots];
+      setChatbots(combinedBots);
+
+      if (combinedBots.length > 0) {
+        setSelectedBot(combinedBots[0].id);
+      }
+
+      if (subRes.data) {
+        setUserPlan(subRes.data.plan.toLowerCase());
+      }
+
+    } catch (err) {
+      console.error("Error loading initial data:", err);
+    } finally {
+      setLoading(false);
     }
-
-    if (subRes.data) {
-      setUserPlan(subRes.data.plan.toLowerCase());
-    }
-
-    setLoading(false);
   };
 
   const loadKnowledge = async () => {
