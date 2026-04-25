@@ -13,7 +13,7 @@ type BotRow = {
   welcome_message: string;
   category: string;
   active?: boolean;
-  channel?: "website" | "whatsapp";
+  channel?: "website" | "whatsapp" | null;
 };
 
 export default function ChatbotSettings() {
@@ -76,32 +76,31 @@ export default function ChatbotSettings() {
       return;
     }
 
-    const { data, error } = await supabase
+    const payload = {
+      name: bot.name,
+      model: bot.model,
+      temperature: bot.temperature,
+      welcome_message: bot.welcome_message,
+      category: bot.category,
+    };
+
+    const { error } = await supabase
       .from("chatbots")
-      .update({
-        name: bot.name,
-        model: bot.model,
-        temperature: bot.temperature,
-        welcome_message: bot.welcome_message,
-        category: bot.category,
-        channel: bot.channel || "website",
-      })
+      .update(payload)
       .eq("id", id)
-      .eq("user_id", user.id)
-      .select()
-      .single();
+      .eq("user_id", user.id);
 
     setSaving(false);
 
     if (error) {
       console.error("Update error:", error);
-      alert("Error saving changes");
+      alert(error.message || "Error saving changes");
       return;
     }
 
     setBot({
-      ...data,
-      channel: data?.channel || "website",
+      ...bot,
+      ...payload,
     });
 
     alert("Chatbot updated successfully!");
@@ -150,19 +149,12 @@ export default function ChatbotSettings() {
 
       <div style={{ marginTop: 20 }}>
         <label>Channel</label>
-        <select
+        <input
+          type="text"
           value={bot.channel || "website"}
-          onChange={(e) =>
-            setBot({
-              ...bot,
-              channel: e.target.value as "website" | "whatsapp",
-            })
-          }
-          style={{ width: "100%", padding: 8, marginTop: 5 }}
-        >
-          <option value="website">Website Chatbot</option>
-          <option value="whatsapp">WhatsApp Chatbot</option>
-        </select>
+          readOnly
+          style={{ width: "100%", padding: 8, marginTop: 5, background: "#f3f4f6" }}
+        />
       </div>
 
       <div style={{ marginTop: 20 }}>
@@ -280,24 +272,20 @@ export default function ChatbotSettings() {
         </Link>
       </div>
 
-      <div style={{ marginTop: 24, padding: 16, background: "#f3f4f6", borderRadius: 10 }}>
-        <h3 style={{ marginBottom: 8 }}>Channel Info</h3>
-        <p style={{ marginBottom: 6 }}>
-          Current channel: <strong>{bot.channel || "website"}</strong>
-        </p>
-        {bot.channel === "whatsapp" ? (
-          <p>
-            WhatsApp automation is configured in{" "}
-            <Link href="/dashboard/settings/whatsapp" style={{ color: "#2563eb" }}>
-              WhatsApp Settings
-            </Link>
-            .
-          </p>
-        ) : (
-          <p>
-            This bot is used for the website widget.
-          </p>
-        )}
+      <div style={{ marginTop: 20 }}>
+        <Link
+          href="/dashboard/settings/whatsapp"
+          style={{
+            padding: "10px 20px",
+            background: "#111827",
+            color: "white",
+            borderRadius: 6,
+            textDecoration: "none",
+            display: "inline-block",
+          }}
+        >
+          WhatsApp Settings
+        </Link>
       </div>
 
       <div style={{ marginTop: 40 }}>
