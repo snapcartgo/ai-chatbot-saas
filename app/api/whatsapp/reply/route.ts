@@ -18,6 +18,65 @@ function normalizeWhatsAppNumber(value: string | null | undefined) {
   return `whatsapp:+${value}`;
 }
 
+function stripWhatsAppPrefix(value: string | null | undefined) {
+  if (!value) return "";
+  return value.replace(/^whatsapp:/, "");
+}
+
+async function saveMessage(data: {
+  user_id: string;
+  bot_id: string | null;
+  conversation_id: string;
+  role: "user" | "assistant";
+  content: string;
+  channel: "whatsapp";
+  phone_number: string;
+  external_user_id: string;
+  whatsapp_message_sid?: string | null;
+}) {
+  const { error } = await supabase.from("messages").insert(data);
+
+  if (error) {
+    console.error("WhatsApp message save error:", error);
+  }
+}
+
+async function upsertLead(data: {
+  user_id: string;
+  conversation_id: string;
+  phone: string;
+  channel: "whatsapp";
+}) {
+  const { data: existing } = await supabase
+    .from("leads")
+    .select("id")
+    .eq("user_id", data.user_id)
+    .eq("phone", data.phone)
+    .maybeSingle();
+
+  if (existing?.id) {
+    await supabase
+      .from("leads")
+      .update({
+        channel: "whatsapp",
+        conversation_id: data.conversation_id,
+        phone_number: data.phone,
+      })
+      .eq("id", existing.id);
+    return;
+  }
+
+  await supabase.from("leads").insert({
+    user_id: data.user_id,
+    name: data.phone,
+    phone: data.phone,
+    phone_number: data.phone,
+    conversation_id: data.conversation_id,
+    lead_status: "new",
+    channel: "whatsapp",
+  });
+}
+
 export async function POST(req: Request) {
   try {
     const expectedSecret = process.env.N8N_BOT_SECRET;
@@ -28,10 +87,14 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
+
     const user_id = body.user_id || body.userId;
     const from_phone = body.from_phone || body.fromPhone || "";
     const message = body.message;
-    const conversation_id = body.conversation_id || body.conversationId || crypto.randomUUID();
+    const conversation_id =
+      body.conversation_id || body.conversationId || crypto.randomUUID();
+    const whatsapp_message_sid =
+      body.whatsapp_message_sid || body.messageSid || body.SmsMessageSid || null;
 
     if (!message || !user_id) {
       return NextResponse.json(
@@ -64,6 +127,28 @@ export async function POST(req: Request) {
       );
     }
 
+    const normalizedFrom = normalizeWhatsAppNumber(from_phone);
+    const customerPhone = stripWhatsAppPrefix(normalizedFrom);
+
+    await saveMessage({
+      user_id,
+      bot_id: null,
+      conversation_id,
+      role: "user",
+      content: message,
+      channel: "whatsapp",
+      phone_number: customerPhone,
+      external_user_id: normalizedFrom,
+      whatsapp_message_sid,
+    });
+
+    await upsertLead({
+      user_id,
+      conversation_id,
+      phone: customerPhone,
+      channel: "whatsapp",
+    });
+
     const systemPrompt =
       config.default_prompt ||
       "You are a helpful WhatsApp assistant for this business. Keep replies short, clear, and friendly. Ask only the minimum needed follow-up questions.";
@@ -76,7 +161,7 @@ export async function POST(req: Request) {
           role: "user",
           content: [
             `Conversation ID: ${conversation_id}`,
-            from_phone ? `Customer Phone: ${normalizeWhatsAppNumber(from_phone)}` : null,
+            normalizedFrom ? `Customer Phone: ${normalizedFrom}` : null,
             `Message: ${message}`,
           ]
             .filter(Boolean)
@@ -89,10 +174,23 @@ export async function POST(req: Request) {
       chatResponse.choices[0]?.message?.content?.trim() ||
       "Sorry, I could not generate a reply right now.";
 
+    await saveMessage({
+      user_id,
+      bot_id: null,
+      conversation_id,
+      role: "assistant",
+      content: reply,
+      channel: "whatsapp",
+      phone_number: customerPhone,
+      external_user_id: normalizedFrom,
+      whatsapp_message_sid: null,
+    });
+
     return NextResponse.json({
       reply,
       conversation_id,
       user_id,
+      channel: "whatsapp",
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unexpected error";

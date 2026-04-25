@@ -5,13 +5,24 @@ import { supabase } from "@/lib/supabase";
 import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
 
+type BotRow = {
+  id: string;
+  name: string;
+  model: string;
+  temperature: number;
+  welcome_message: string;
+  category: string;
+  active?: boolean;
+  channel?: "website" | "whatsapp";
+};
+
 export default function ChatbotSettings() {
   const router = useRouter();
   const params = useParams();
   const id = params.id as string;
 
   const [loading, setLoading] = useState(true);
-  const [bot, setBot] = useState<any>(null);
+  const [bot, setBot] = useState<BotRow | null>(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -34,12 +45,14 @@ export default function ChatbotSettings() {
 
       if (error) {
         console.error("Load bot error:", error);
+        setLoading(false);
         return;
       }
 
       setBot({
         ...data,
         category: data?.category || "booking",
+        channel: data?.channel || "website",
       });
 
       setLoading(false);
@@ -49,6 +62,8 @@ export default function ChatbotSettings() {
   }, [id, router]);
 
   const handleSave = async () => {
+    if (!bot) return;
+
     setSaving(true);
 
     const {
@@ -57,6 +72,7 @@ export default function ChatbotSettings() {
 
     if (!user) {
       alert("User not logged in");
+      setSaving(false);
       return;
     }
 
@@ -68,6 +84,7 @@ export default function ChatbotSettings() {
         temperature: bot.temperature,
         welcome_message: bot.welcome_message,
         category: bot.category,
+        channel: bot.channel || "website",
       })
       .eq("id", id)
       .eq("user_id", user.id)
@@ -82,15 +99,16 @@ export default function ChatbotSettings() {
       return;
     }
 
-    setBot(data);
+    setBot({
+      ...data,
+      channel: data?.channel || "website",
+    });
+
     alert("Chatbot updated successfully!");
   };
 
   const handleDelete = async () => {
-    const confirmDelete = confirm(
-      "Are you sure you want to delete this chatbot?"
-    );
-
+    const confirmDelete = confirm("Are you sure you want to delete this chatbot?");
     if (!confirmDelete) return;
 
     const {
@@ -117,7 +135,6 @@ export default function ChatbotSettings() {
     }
 
     alert("Chatbot deleted successfully");
-
     router.push("/dashboard/chatbots");
     router.refresh();
   };
@@ -131,7 +148,23 @@ export default function ChatbotSettings() {
     <div style={{ padding: 40, maxWidth: 700 }}>
       <h1>Edit Chatbot</h1>
 
-      {/* NAME */}
+      <div style={{ marginTop: 20 }}>
+        <label>Channel</label>
+        <select
+          value={bot.channel || "website"}
+          onChange={(e) =>
+            setBot({
+              ...bot,
+              channel: e.target.value as "website" | "whatsapp",
+            })
+          }
+          style={{ width: "100%", padding: 8, marginTop: 5 }}
+        >
+          <option value="website">Website Chatbot</option>
+          <option value="whatsapp">WhatsApp Chatbot</option>
+        </select>
+      </div>
+
       <div style={{ marginTop: 20 }}>
         <label>Name</label>
         <input
@@ -142,7 +175,6 @@ export default function ChatbotSettings() {
         />
       </div>
 
-      {/* CATEGORY */}
       <div style={{ marginTop: 20 }}>
         <label>Business Category</label>
         <select
@@ -155,7 +187,6 @@ export default function ChatbotSettings() {
         </select>
       </div>
 
-      {/* MODEL */}
       <div style={{ marginTop: 20 }}>
         <label>Model</label>
         <select
@@ -168,7 +199,6 @@ export default function ChatbotSettings() {
         </select>
       </div>
 
-      {/* TEMPERATURE */}
       <div style={{ marginTop: 20 }}>
         <label>Temperature</label>
         <input
@@ -187,7 +217,6 @@ export default function ChatbotSettings() {
         />
       </div>
 
-      {/* WELCOME MESSAGE */}
       <div style={{ marginTop: 20 }}>
         <label>Welcome Message</label>
         <textarea
@@ -207,7 +236,6 @@ export default function ChatbotSettings() {
         />
       </div>
 
-      {/* BUTTONS */}
       <button
         onClick={handleSave}
         disabled={saving}
@@ -236,7 +264,6 @@ export default function ChatbotSettings() {
         Delete Chatbot
       </button>
 
-      {/* MANAGE DOMAINS */}
       <div style={{ marginTop: 20 }}>
         <Link
           href={`/dashboard/chatbots/${id}/domains`}
@@ -253,7 +280,26 @@ export default function ChatbotSettings() {
         </Link>
       </div>
 
-      {/* EMBED SCRIPT */}
+      <div style={{ marginTop: 24, padding: 16, background: "#f3f4f6", borderRadius: 10 }}>
+        <h3 style={{ marginBottom: 8 }}>Channel Info</h3>
+        <p style={{ marginBottom: 6 }}>
+          Current channel: <strong>{bot.channel || "website"}</strong>
+        </p>
+        {bot.channel === "whatsapp" ? (
+          <p>
+            WhatsApp automation is configured in{" "}
+            <Link href="/dashboard/settings/whatsapp" style={{ color: "#2563eb" }}>
+              WhatsApp Settings
+            </Link>
+            .
+          </p>
+        ) : (
+          <p>
+            This bot is used for the website widget.
+          </p>
+        )}
+      </div>
+
       <div style={{ marginTop: 40 }}>
         <h3>Embed Script</h3>
         <p>Copy and paste this into your website:</p>
@@ -294,7 +340,6 @@ export default function ChatbotSettings() {
           </button>
         </div>
 
-        {/* INSTRUCTIONS */}
         <div
           style={{
             marginTop: 20,

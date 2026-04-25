@@ -2,10 +2,28 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 
+type BotRow = {
+  id: string;
+  name: string;
+  model: string;
+  temperature: number;
+  active: boolean;
+  channel?: string | null;
+};
+
+type WhatsAppConfigRow = {
+  id: string;
+  phone_number: string;
+  automation_enabled: boolean;
+  default_prompt: string | null;
+};
+
 export default function ChatbotsPage() {
-  const [bots, setBots] = useState<any[]>([]);
+  const [bots, setBots] = useState<BotRow[]>([]);
+  const [whatsappConfig, setWhatsappConfig] = useState<WhatsAppConfigRow | null>(null);
   const [chatbotLimit, setChatbotLimit] = useState<number>(0);
   const [loading, setLoading] = useState(true);
 
@@ -18,10 +36,9 @@ export default function ChatbotsPage() {
   const loadData = async () => {
     setLoading(true);
 
-    // ✅ Get session
-    const { data: { session } } = await supabase.auth.getSession();
-
-    console.log("SESSION:", session); // 👈 ADD THIS LINE
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
 
     if (!session) {
       router.push("/login");
@@ -30,20 +47,27 @@ export default function ChatbotsPage() {
 
     const user = session.user;
 
-    // ✅ Load chatbots
     const { data: botData, error: botError } = await supabase
       .from("chatbots")
       .select("*")
       .eq("user_id", user.id)
+      .eq("channel", "website")
       .order("created_at", { ascending: true });
 
     if (botError) {
       console.error(botError);
     }
 
-    setBots(botData || []);
+    setBots((botData || []) as BotRow[]);
 
-    // ✅ Load subscription
+    const { data: whatsappData } = await supabase
+      .from("whatsapp_configs")
+      .select("id, phone_number, automation_enabled, default_prompt")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    setWhatsappConfig((whatsappData || null) as WhatsAppConfigRow | null);
+
     const { data: subscription, error: subError } = await supabase
       .from("subscriptions")
       .select("chatbot_limit")
@@ -62,7 +86,9 @@ export default function ChatbotsPage() {
   };
 
   const createBot = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
     if (!user) return;
 
     if (bots.length >= chatbotLimit) {
@@ -79,6 +105,7 @@ export default function ChatbotsPage() {
         temperature: 0.7,
         user_id: user.id,
         active: true,
+        channel: "website",
       })
       .select()
       .single();
@@ -94,7 +121,6 @@ export default function ChatbotsPage() {
   return (
     <div style={{ padding: "20px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 30 }}>
-        
         <button
           onClick={createBot}
           style={{
@@ -103,7 +129,7 @@ export default function ChatbotsPage() {
             color: "white",
             borderRadius: 6,
             cursor: bots.length >= chatbotLimit ? "not-allowed" : "pointer",
-            border: "none"
+            border: "none",
           }}
           disabled={bots.length >= chatbotLimit}
         >
@@ -112,16 +138,47 @@ export default function ChatbotsPage() {
 
         <div>
           <p>
-            Chatbots: {bots.length} / {chatbotLimit}
+            Website Chatbots: {bots.length} / {chatbotLimit}
           </p>
         </div>
+      </div>
 
+      <div style={{ display: "grid", gap: "16px", marginBottom: "24px" }}>
+        <div
+          style={{
+            padding: 20,
+            borderRadius: 10,
+            background: "#111827",
+            color: "white",
+          }}
+        >
+          <h3 style={{ marginBottom: 8 }}>WhatsApp Channel</h3>
+          <p>
+            Status: {whatsappConfig?.automation_enabled ? "Enabled" : "Not configured"}
+          </p>
+          <p>Number: {whatsappConfig?.phone_number || "Not set"}</p>
+          <div style={{ marginTop: 12 }}>
+            <Link
+              href="/dashboard/settings/whatsapp"
+              style={{
+                display: "inline-block",
+                padding: "8px 14px",
+                background: "#2563eb",
+                color: "white",
+                borderRadius: 6,
+                textDecoration: "none",
+              }}
+            >
+              Configure WhatsApp
+            </Link>
+          </div>
+        </div>
       </div>
 
       {loading ? (
         <p>Loading...</p>
       ) : bots.length === 0 ? (
-        <p>No chatbots yet</p>
+        <p>No website chatbots yet</p>
       ) : (
         <div style={{ display: "grid", gap: "15px" }}>
           {bots.map((bot) => (
@@ -133,12 +190,13 @@ export default function ChatbotsPage() {
                 borderRadius: 10,
                 background: bot.active ? "#3e368d" : "#1f1d36",
                 color: "white",
-                cursor: "pointer"
+                cursor: "pointer",
               }}
             >
               <h3>{bot.name}</h3>
               <p>Model: {bot.model}</p>
               <p>Temperature: {bot.temperature}</p>
+              <p>Channel: {bot.channel || "website"}</p>
             </div>
           ))}
         </div>

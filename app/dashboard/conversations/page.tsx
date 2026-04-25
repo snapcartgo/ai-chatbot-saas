@@ -3,8 +3,19 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 
+type MessageRow = {
+  id: string;
+  conversation_id: string;
+  role: "user" | "assistant";
+  content: string;
+  created_at: string;
+  bot_id: string | null;
+  channel?: string | null;
+  phone_number?: string | null;
+};
+
 export default function ConversationsPage() {
-  const [groupedMessages, setGroupedMessages] = useState<Record<string, any[]>>({});
+  const [groupedMessages, setGroupedMessages] = useState<Record<string, MessageRow[]>>({});
   const [expandedSession, setExpandedSession] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -12,7 +23,6 @@ export default function ConversationsPage() {
     const loadMessages = async () => {
       setLoading(true);
 
-      // 1. Get logged user
       const {
         data: { user },
       } = await supabase.auth.getUser();
@@ -22,66 +32,49 @@ export default function ConversationsPage() {
         return;
       }
 
-      // 2. Get user chatbots
-      const { data: bots } = await supabase
-        .from("chatbots")
-        .select("id")
-        .eq("user_id", user.id);
+      const pageSize = 1000;
+      let from = 0;
+      const allMessages: MessageRow[] = [];
 
-      const botIds = bots?.map((b) => b.id) || [];
+      while (true) {
+        const { data, error } = await supabase
+          .from("messages")
+          .select("id, conversation_id, role, content, created_at, bot_id, channel, phone_number")
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: true })
+          .range(from, from + pageSize - 1);
 
-      if (botIds.length === 0) {
-        setLoading(false);
-        return;
+        if (error) {
+          console.error("Failed to load messages:", error);
+          break;
+        }
+
+        if (!data || data.length === 0) break;
+
+        allMessages.push(...(data as MessageRow[]));
+
+        if (data.length < pageSize) break;
+        from += pageSize;
       }
 
-      // 3. Get messages in pages (Supabase returns 1000 rows per page by default)
-      // 3. Get messages in pages
-const pageSize = 1000;
-let from = 0;
-const allMessages: any[] = [];
+      if (allMessages.length > 0) {
+        const groups = allMessages.reduce((acc: Record<string, MessageRow[]>, msg) => {
+          const id = msg.conversation_id || "unknown_session";
+          if (!acc[id]) acc[id] = [];
+          acc[id].push(msg);
+          return acc;
+        }, {});
 
-while (true) {
-  const { data, error } = await supabase
-    .from("messages")
-    .select("id, conversation_id, role, content, created_at, bot_id")
-    .in("bot_id", botIds)
-    .order("created_at", { ascending: true })
-    .range(from, from + pageSize - 1); // 0-999, 1000-1999, ...
+        const sortedEntries = Object.entries(groups).sort((a, b) => {
+          const lastTimeA = new Date(a[1][a[1].length - 1].created_at).getTime();
+          const lastTimeB = new Date(b[1][b[1].length - 1].created_at).getTime();
+          return lastTimeB - lastTimeA;
+        });
 
-  if (error) {
-    console.error("Failed to load messages:", error);
-    break;
-  }
-
-  if (!data || data.length === 0) break;
-
-  allMessages.push(...data);
-
-  if (data.length < pageSize) break; // last page reached
-  from += pageSize;
-}
-
-// Group only after all pages are merged
-if (allMessages.length > 0) {
-  const groups = allMessages.reduce((acc: Record<string, any[]>, msg) => {
-    const id = msg.conversation_id || "unknown_session";
-    if (!acc[id]) acc[id] = [];
-    acc[id].push(msg);
-    return acc;
-  }, {});
-
-  const sortedEntries = Object.entries(groups).sort((a: any, b: any) => {
-    const lastTimeA = new Date(a[1][a[1].length - 1].created_at).getTime();
-    const lastTimeB = new Date(b[1][b[1].length - 1].created_at).getTime();
-    return lastTimeB - lastTimeA;
-  });
-
-  setGroupedMessages(Object.fromEntries(sortedEntries) as Record<string, any[]>);
-} else {
-  setGroupedMessages({});
-}
-
+        setGroupedMessages(Object.fromEntries(sortedEntries));
+      } else {
+        setGroupedMessages({});
+      }
 
       setLoading(false);
     };
@@ -94,7 +87,6 @@ if (allMessages.length > 0) {
       <h1 style={{ marginBottom: "20px" }}>Chat Conversations</h1>
 
       {loading && <p>Loading sessions...</p>}
-
       {!loading && Object.keys(groupedMessages).length === 0 && <p>No conversations yet.</p>}
 
       {Object.entries(groupedMessages).map(([sessionId, msgs]) => (
@@ -121,10 +113,13 @@ if (allMessages.length > 0) {
               borderBottom: expandedSession === sessionId ? "1px solid #eee" : "none",
             }}
           >
-            <div style={{ display: "flex", flexDirection: "column" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               <span style={{ fontSize: "14px", color: "#555" }}>Session ID:</span>
               <span style={{ fontSize: "12px", fontWeight: "normal", color: "#888" }}>
                 {sessionId}
+              </span>
+              <span style={{ fontSize: "11px", color: "#999" }}>
+                Channel: {msgs[0]?.channel || "website"}
               </span>
             </div>
             <span style={{ fontSize: "12px", color: "#007bff" }}>

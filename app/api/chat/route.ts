@@ -2,27 +2,30 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { ratelimit } from "@/lib/ratelimit.js";
 
-// ✅ Supabase client
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-// ✅ Extract UTR
 const extractUTR = (text: string) => {
   const match = text.match(/\b\d{12}\b/);
   return match ? match[0] : null;
 };
 
-// ✅ Save message (FIXED TYPE)
 async function saveMessage(data: {
-  bot_id: string;
+  user_id: string | null;
+  bot_id: string | null;
   conversation_id: string;
   role: "user" | "assistant";
   content: string;
+  channel: "website" | "whatsapp";
 }) {
   try {
-    await supabase.from("messages").insert(data);
+    await supabase.from("messages").insert({
+      ...data,
+      phone_number: null,
+      external_user_id: null,
+    });
   } catch (err) {
     console.error("Message save error:", err);
   }
@@ -30,7 +33,6 @@ async function saveMessage(data: {
 
 export async function POST(req: Request) {
   try {
-    // 🔐 RATE LIMIT
     const ip =
       req.headers.get("x-forwarded-for") ||
       req.headers.get("x-real-ip") ||
@@ -52,6 +54,7 @@ export async function POST(req: Request) {
     const conversation_id =
       body.conversation_id || body.sessionId || crypto.randomUUID();
     const category = body.category || "general";
+    const channel = body.channel === "whatsapp" ? "whatsapp" : "website";
 
     const { user_id, product_name, price, email, order_id } = body;
 
@@ -68,7 +71,6 @@ export async function POST(req: Request) {
       process.env.NEXT_PUBLIC_BASE_URL ||
       "https://ai-chatbot-saas-five.vercel.app";
 
-    // 🔥 UTR Detection
     const detectedUTR = extractUTR(message);
 
     if (detectedUTR) {
@@ -78,23 +80,28 @@ export async function POST(req: Request) {
           utr_reference: detectedUTR,
           verification_status: "pending",
           payment_method: "upi",
+          channel,
         })
         .eq("id", order_id);
 
       const confirmReply = `Detected UTR: ${detectedUTR}. Verification started.`;
 
       await saveMessage({
+        user_id: user_id || null,
         bot_id,
         conversation_id,
         role: "user",
         content: message,
+        channel,
       });
 
       await saveMessage({
+        user_id: user_id || null,
         bot_id,
         conversation_id,
         role: "assistant",
         content: confirmReply,
+        channel,
       });
 
       return NextResponse.json({
@@ -103,7 +110,6 @@ export async function POST(req: Request) {
       });
     }
 
-    // 🔗 N8N CALL
     const webhookUrl = process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL;
 
     if (!webhookUrl) {
@@ -124,17 +130,18 @@ export async function POST(req: Request) {
         bot_id,
         conversation_id,
         category,
+        channel,
+        user_id,
       }),
     });
 
     const data = await webhookResponse.json();
 
-    let botReply = data.reply || data.output || "No response";
-    let paymentLink = data.payment_link || null;
+    const botReply = data.reply || data.output || "No response";
+    const paymentLink = data.payment_link || null;
     let intent = null;
     let redirectUrl = null;
 
-    // 🧠 Intent logic
     if (/plan|billing/.test(userMsg)) {
       intent = "billing";
       redirectUrl = `${baseUrl}/dashboard/Billing`;
@@ -144,20 +151,23 @@ export async function POST(req: Request) {
     }
 
     await saveMessage({
+      user_id: user_id || null,
       bot_id,
       conversation_id,
       role: "user",
       content: message,
+      channel,
     });
 
     await saveMessage({
+      user_id: user_id || null,
       bot_id,
       conversation_id,
       role: "assistant",
       content: botReply,
+      channel,
     });
 
-    // 💳 Order creation
     if (paymentLink && product_name && price) {
       await supabase.from("orders").insert({
         user_id,
@@ -166,6 +176,7 @@ export async function POST(req: Request) {
         price,
         payment_status: "pending",
         customer_email: email,
+        channel,
       });
     }
 
@@ -185,7 +196,6 @@ export async function POST(req: Request) {
   }
 }
 
-// ✅ CORS FIX
 export async function OPTIONS() {
   return new NextResponse(null, {
     status: 200,
