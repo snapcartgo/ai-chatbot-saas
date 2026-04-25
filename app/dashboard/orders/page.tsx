@@ -7,6 +7,7 @@ export default function OrdersPage() {
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [channelFilter, setChannelFilter] = useState("all");
 
   useEffect(() => {
     loadOrders();
@@ -37,31 +38,34 @@ export default function OrdersPage() {
   };
 
   const handleApprove = async (orderId: string) => {
-  const confirmApprove = confirm("Mark this order as Paid?");
-  if (!confirmApprove) return;
+    const confirmApprove = confirm("Mark this order as Paid?");
+    if (!confirmApprove) return;
 
-  setUpdatingId(orderId);
+    setUpdatingId(orderId);
 
-  // 1. UPDATE SUPABASE
-  const { error } = await supabase
-    .from("orders")
-    .update({ 
-      payment_status: "Paid" 
-    })
-    .eq("id", orderId); // ✅ FIXED: Changed from 'order_id' to 'id'
+    const { error } = await supabase
+      .from("orders")
+      .update({
+        payment_status: "Paid",
+      })
+      .eq("id", orderId);
 
-  if (error) {
-    alert(`Supabase Error: ${error.message}`);
-    console.error(error);
-  } else {
-    // 2. UPDATE LOCAL STATE (Only if DB update succeeded)
-    setOrders((prev) => 
-      prev.map((o) => (o.id === orderId ? { ...o, payment_status: "Paid" } : o))
-    );
-    alert("Database updated successfully!");
-  }
-  setUpdatingId(null);
-};
+    if (error) {
+      alert(`Supabase Error: ${error.message}`);
+      console.error(error);
+    } else {
+      setOrders((prev) =>
+        prev.map((o) => (o.id === orderId ? { ...o, payment_status: "Paid" } : o))
+      );
+      alert("Database updated successfully!");
+    }
+    setUpdatingId(null);
+  };
+
+  const filteredOrders =
+    channelFilter === "all"
+      ? orders
+      : orders.filter((order) => (order.channel || "website") === channelFilter);
 
   if (loading) return <p className="p-6">Loading orders...</p>;
 
@@ -69,9 +73,20 @@ export default function OrdersPage() {
     <div className="p-4 md:p-6 w-full max-w-7xl mx-auto">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold">Order Management</h1>
-        <button onClick={loadOrders} className="text-sm text-blue-600 hover:underline">
-          Refresh Data
-        </button>
+        <div className="flex gap-3 items-center">
+          <select
+            value={channelFilter}
+            onChange={(e) => setChannelFilter(e.target.value)}
+            className="border rounded px-3 py-2"
+          >
+            <option value="all">All Channels</option>
+            <option value="website">Website</option>
+            <option value="whatsapp">WhatsApp</option>
+          </select>
+          <button onClick={loadOrders} className="text-sm text-blue-600 hover:underline">
+            Refresh Data
+          </button>
+        </div>
       </div>
 
       <div className="overflow-x-auto border rounded-lg">
@@ -83,12 +98,13 @@ export default function OrdersPage() {
               <th className="p-4">Product</th>
               <th className="p-4">Amount</th>
               <th className="p-4">Status</th>
+              <th className="p-4">Channel</th>
               <th className="p-4">Action</th>
               <th className="p-4">Date</th>
             </tr>
           </thead>
           <tbody className="divide-y">
-            {orders.map((order) => (
+            {filteredOrders.map((order) => (
               <tr key={order.id} className="hover:bg-gray-50">
                 <td className="p-4 font-mono text-xs text-blue-600">{order.id}</td>
                 <td className="p-4">
@@ -98,10 +114,19 @@ export default function OrdersPage() {
                 <td className="p-4">{order.product_name}</td>
                 <td className="p-4 font-bold">${order.price}</td>
                 <td className="p-4">
-                  <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${
-                    order.payment_status === "Paid" ? "bg-green-100 text-green-700" : "bg-yellow-100 text-yellow-700"
-                  }`}>
+                  <span
+                    className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${
+                      order.payment_status === "Paid"
+                        ? "bg-green-100 text-green-700"
+                        : "bg-yellow-100 text-yellow-700"
+                    }`}
+                  >
                     {order.payment_status || "Pending"}
+                  </span>
+                </td>
+                <td className="p-4">
+                  <span className="px-2 py-1 rounded bg-gray-100 text-xs">
+                    {order.channel || "website"}
                   </span>
                 </td>
                 <td className="p-4">

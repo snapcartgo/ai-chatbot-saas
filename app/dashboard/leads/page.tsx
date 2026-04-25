@@ -7,6 +7,7 @@ export default function LeadsPage() {
   const [leads, setLeads] = useState<any[]>([]);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
+  const [channelFilter, setChannelFilter] = useState("all");
 
   useEffect(() => {
     loadLeads();
@@ -26,16 +27,20 @@ export default function LeadsPage() {
   const filteredLeads = leads.filter((lead: any) => {
     const matchesSearch =
       lead.name?.toLowerCase().includes(search.toLowerCase()) ||
-      lead.phone?.includes(search);
+      lead.phone?.includes(search) ||
+      lead.phone_number?.includes(search);
 
     const matchesFilter =
       filter === "all" || lead.lead_status === filter;
 
-    return matchesSearch && matchesFilter;
+    const matchesChannel =
+      channelFilter === "all" || (lead.channel || "website") === channelFilter;
+
+    return matchesSearch && matchesFilter && matchesChannel;
   });
 
   function exportCSV() {
-    const headers = ["Name", "Phone", "Service", "Budget", "Status"];
+    const headers = ["Name", "Phone", "Service", "Budget", "Status", "Channel"];
 
     const rows = filteredLeads.map((lead) => [
       lead.name,
@@ -43,6 +48,7 @@ export default function LeadsPage() {
       lead.service,
       lead.budget,
       lead.lead_status,
+      lead.channel || "website",
     ]);
 
     const csvContent =
@@ -57,15 +63,9 @@ export default function LeadsPage() {
 
   return (
     <div className="p-4 md:p-6 w-full">
+      <h1 className="text-xl md:text-2xl font-semibold mb-4">Leads CRM</h1>
 
-      {/* TITLE */}
-      <h1 className="text-xl md:text-2xl font-semibold mb-4">
-        Leads CRM
-      </h1>
-
-      {/* CONTROLS */}
       <div className="flex flex-col md:flex-row gap-3 mb-4">
-
         <input
           placeholder="Search name or phone..."
           value={search}
@@ -85,19 +85,26 @@ export default function LeadsPage() {
           <option value="closed">Closed</option>
         </select>
 
+        <select
+          value={channelFilter}
+          onChange={(e) => setChannelFilter(e.target.value)}
+          className="w-full md:w-[200px] border rounded px-3 py-2"
+        >
+          <option value="all">All Channels</option>
+          <option value="website">Website</option>
+          <option value="whatsapp">WhatsApp</option>
+        </select>
+
         <button
           onClick={exportCSV}
           className="bg-blue-600 text-white px-4 py-2 rounded w-full md:w-auto"
         >
           Export CSV
         </button>
-
       </div>
 
-      {/* TABLE */}
       <div className="overflow-x-auto">
         <table className="min-w-[700px] w-full border">
-
           <thead className="bg-black text-white text-sm">
             <tr>
               <th className="p-3 text-left">Name</th>
@@ -105,6 +112,7 @@ export default function LeadsPage() {
               <th className="p-3 text-left">Service</th>
               <th className="p-3 text-left">Budget</th>
               <th className="p-3 text-left">Status</th>
+              <th className="p-3 text-left">Channel</th>
               <th className="p-3 text-left">Chat</th>
             </tr>
           </thead>
@@ -112,8 +120,6 @@ export default function LeadsPage() {
           <tbody>
             {filteredLeads.map((lead: any) => (
               <tr key={lead.id} className="border-b">
-
-                {/* NAME */}
                 <td className="p-3">
                   <button
                     onClick={() =>
@@ -125,11 +131,10 @@ export default function LeadsPage() {
                   </button>
                 </td>
 
-                <td className="p-3">{lead.phone}</td>
+                <td className="p-3">{lead.phone || lead.phone_number}</td>
                 <td className="p-3">{lead.service}</td>
                 <td className="p-3">{lead.budget}</td>
 
-                {/* STATUS */}
                 <td className="p-3">
                   <select
                     value={lead.lead_status || "new"}
@@ -143,9 +148,7 @@ export default function LeadsPage() {
 
                       setLeads((prev) =>
                         prev.map((l: any) =>
-                          l.id === lead.id
-                            ? { ...l, lead_status: status }
-                            : l
+                          l.id === lead.id ? { ...l, lead_status: status } : l
                         )
                       );
                     }}
@@ -158,7 +161,12 @@ export default function LeadsPage() {
                   </select>
                 </td>
 
-                {/* CHAT */}
+                <td className="p-3">
+                  <span className="text-sm px-2 py-1 rounded bg-gray-100">
+                    {lead.channel || "website"}
+                  </span>
+                </td>
+
                 <td className="p-3">
                   <a
                     href={`/dashboard/conversations?conversation=${lead.conversation_id}`}
@@ -167,14 +175,11 @@ export default function LeadsPage() {
                     View Chat
                   </a>
                 </td>
-
               </tr>
             ))}
           </tbody>
-
         </table>
       </div>
-
     </div>
   );
 }
