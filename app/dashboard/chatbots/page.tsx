@@ -16,13 +16,14 @@ type BotRow = {
 
 type WhatsAppConfigRow = {
   id: string;
-  phone_number: string;
-  automation_enabled: boolean;
+  phone_number: string | null;
+  automation_enabled: boolean | null;
   default_prompt: string | null;
 };
 
 export default function ChatbotsPage() {
-  const [bots, setBots] = useState<BotRow[]>([]);
+  const [allBots, setAllBots] = useState<BotRow[]>([]);
+  const [websiteBots, setWebsiteBots] = useState<BotRow[]>([]);
   const [whatsappConfig, setWhatsappConfig] = useState<WhatsAppConfigRow | null>(null);
   const [chatbotLimit, setChatbotLimit] = useState<number>(0);
   const [loading, setLoading] = useState(true);
@@ -47,24 +48,34 @@ export default function ChatbotsPage() {
 
     const user = session.user;
 
+    // Load all chatbots, do NOT filter by channel here
     const { data: botData, error: botError } = await supabase
       .from("chatbots")
       .select("*")
       .eq("user_id", user.id)
-      .eq("channel", "website")
       .order("created_at", { ascending: true });
 
     if (botError) {
       console.error(botError);
     }
 
-    setBots((botData || []) as BotRow[]);
+    const normalizedBots = (botData || []).map((bot: BotRow) => ({
+      ...bot,
+      channel: bot.channel || "website",
+    }));
 
-    const { data: whatsappData } = await supabase
+    setAllBots(normalizedBots);
+    setWebsiteBots(normalizedBots.filter((bot) => bot.channel === "website"));
+
+    const { data: whatsappData, error: whatsappError } = await supabase
       .from("whatsapp_configs")
       .select("id, phone_number, automation_enabled, default_prompt")
       .eq("user_id", user.id)
       .maybeSingle();
+
+    if (whatsappError) {
+      console.error(whatsappError);
+    }
 
     setWhatsappConfig((whatsappData || null) as WhatsAppConfigRow | null);
 
@@ -89,9 +100,10 @@ export default function ChatbotsPage() {
     const {
       data: { user },
     } = await supabase.auth.getUser();
+
     if (!user) return;
 
-    if (bots.length >= chatbotLimit) {
+    if (websiteBots.length >= chatbotLimit) {
       alert(`Limit reached: Your plan allows ${chatbotLimit} chatbots.`);
       return;
     }
@@ -111,12 +123,15 @@ export default function ChatbotsPage() {
       .single();
 
     if (error) {
+      console.error(error);
       alert("Error creating chatbot");
       return;
     }
 
     router.push(`/dashboard/chatbots/${data.id}`);
   };
+
+  const whatsappEnabled = !!whatsappConfig?.automation_enabled;
 
   return (
     <div style={{ padding: "20px" }}>
@@ -125,20 +140,20 @@ export default function ChatbotsPage() {
           onClick={createBot}
           style={{
             padding: "10px 20px",
-            background: bots.length >= chatbotLimit ? "#6b7280" : "#2563eb",
+            background: websiteBots.length >= chatbotLimit ? "#6b7280" : "#2563eb",
             color: "white",
             borderRadius: 6,
-            cursor: bots.length >= chatbotLimit ? "not-allowed" : "pointer",
+            cursor: websiteBots.length >= chatbotLimit ? "not-allowed" : "pointer",
             border: "none",
           }}
-          disabled={bots.length >= chatbotLimit}
+          disabled={websiteBots.length >= chatbotLimit}
         >
           + Create Chatbot
         </button>
 
         <div>
           <p>
-            Website Chatbots: {bots.length} / {chatbotLimit}
+            Website Chatbots: {websiteBots.length} / {chatbotLimit}
           </p>
         </div>
       </div>
@@ -153,9 +168,7 @@ export default function ChatbotsPage() {
           }}
         >
           <h3 style={{ marginBottom: 8 }}>WhatsApp Channel</h3>
-          <p>
-            Status: {whatsappConfig?.automation_enabled ? "Enabled" : "Not configured"}
-          </p>
+          <p>Status: {whatsappEnabled ? "Enabled" : "Not configured"}</p>
           <p>Number: {whatsappConfig?.phone_number || "Not set"}</p>
           <div style={{ marginTop: 12 }}>
             <Link
@@ -177,11 +190,11 @@ export default function ChatbotsPage() {
 
       {loading ? (
         <p>Loading...</p>
-      ) : bots.length === 0 ? (
+      ) : websiteBots.length === 0 ? (
         <p>No website chatbots yet</p>
       ) : (
         <div style={{ display: "grid", gap: "15px" }}>
-          {bots.map((bot) => (
+          {websiteBots.map((bot) => (
             <div
               key={bot.id}
               onClick={() => router.push(`/dashboard/chatbots/${bot.id}`)}
