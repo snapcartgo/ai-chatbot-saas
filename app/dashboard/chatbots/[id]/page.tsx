@@ -13,7 +13,6 @@ type BotRow = {
   welcome_message: string;
   category: string;
   active?: boolean;
-  channel?: "website" | "whatsapp" | null;
 };
 
 export default function ChatbotSettings() {
@@ -52,7 +51,6 @@ export default function ChatbotSettings() {
       setBot({
         ...data,
         category: data?.category || "booking",
-        channel: data?.channel || "website",
       });
 
       setLoading(false);
@@ -146,16 +144,6 @@ export default function ChatbotSettings() {
   return (
     <div style={{ padding: 40, maxWidth: 700 }}>
       <h1>Edit Chatbot</h1>
-
-      <div style={{ marginTop: 20 }}>
-        <label>Channel</label>
-        <input
-          type="text"
-          value={bot.channel || "website"}
-          readOnly
-          style={{ width: "100%", padding: 8, marginTop: 5, background: "#f3f4f6" }}
-        />
-      </div>
 
       <div style={{ marginTop: 20 }}>
         <label>Name</label>

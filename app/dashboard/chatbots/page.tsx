@@ -12,7 +12,6 @@ type BotRow = {
   temperature: number;
   active: boolean;
   category?: string | null;
-  channel?: string | null;
 };
 
 type WhatsAppConfigRow = {
@@ -58,12 +57,7 @@ export default function ChatbotsPage() {
       console.error("Load bots error:", botError);
     }
 
-    const normalizedBots = (botData || []).map((bot: BotRow) => ({
-      ...bot,
-      channel: bot.channel || "website",
-    }));
-
-    setBots(normalizedBots);
+    setBots((botData || []) as BotRow[]);
 
     const { data: whatsappData, error: whatsappError } = await supabase
       .from("whatsapp_configs")
@@ -101,10 +95,9 @@ export default function ChatbotsPage() {
 
     if (!user) return;
 
-    const websiteBots = bots.filter((bot) => (bot.channel || "website") === "website");
     const limit = chatbotLimit || 2;
 
-    if (websiteBots.length >= limit) {
+    if (bots.length >= limit) {
       alert(`Limit reached: Your plan allows ${limit} chatbots.`);
       return;
     }
@@ -117,7 +110,6 @@ export default function ChatbotsPage() {
       user_id: user.id,
       active: true,
       category: "booking",
-      channel: "website",
     });
 
     if (error) {
@@ -126,14 +118,17 @@ export default function ChatbotsPage() {
       return;
     }
 
-    const { data: latestBot } = await supabase
+    const { data: latestBot, error: latestError } = await supabase
       .from("chatbots")
       .select("id")
       .eq("user_id", user.id)
-      .eq("channel", "website")
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
+
+    if (latestError) {
+      console.error("Latest bot lookup error:", latestError);
+    }
 
     if (latestBot?.id) {
       router.push(`/dashboard/chatbots/${latestBot.id}`);
@@ -143,7 +138,6 @@ export default function ChatbotsPage() {
     await loadData();
   };
 
-  const websiteBots = bots.filter((bot) => (bot.channel || "website") === "website");
   const whatsappEnabled = !!whatsappConfig?.automation_enabled;
 
   return (
@@ -153,20 +147,20 @@ export default function ChatbotsPage() {
           onClick={createBot}
           style={{
             padding: "10px 20px",
-            background: websiteBots.length >= chatbotLimit ? "#6b7280" : "#2563eb",
+            background: bots.length >= chatbotLimit ? "#6b7280" : "#2563eb",
             color: "white",
             borderRadius: 6,
-            cursor: websiteBots.length >= chatbotLimit ? "not-allowed" : "pointer",
+            cursor: bots.length >= chatbotLimit ? "not-allowed" : "pointer",
             border: "none",
           }}
-          disabled={websiteBots.length >= chatbotLimit}
+          disabled={bots.length >= chatbotLimit}
         >
           + Create Chatbot
         </button>
 
         <div>
           <p>
-            Website Chatbots: {websiteBots.length} / {chatbotLimit || 2}
+            Website Chatbots: {bots.length} / {chatbotLimit || 2}
           </p>
         </div>
       </div>
@@ -203,11 +197,11 @@ export default function ChatbotsPage() {
 
       {loading ? (
         <p>Loading...</p>
-      ) : websiteBots.length === 0 ? (
+      ) : bots.length === 0 ? (
         <p>No website chatbots yet</p>
       ) : (
         <div style={{ display: "grid", gap: "15px" }}>
-          {websiteBots.map((bot) => (
+          {bots.map((bot) => (
             <div
               key={bot.id}
               onClick={() => router.push(`/dashboard/chatbots/${bot.id}`)}
@@ -222,7 +216,6 @@ export default function ChatbotsPage() {
               <h3>{bot.name}</h3>
               <p>Model: {bot.model}</p>
               <p>Temperature: {bot.temperature}</p>
-              <p>Channel: {bot.channel || "website"}</p>
             </div>
           ))}
         </div>
