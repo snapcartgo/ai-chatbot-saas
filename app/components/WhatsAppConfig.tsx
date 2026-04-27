@@ -37,3 +37,4 @@ export default function WhatsAppSetup({ userId }: { userId: string }) {
     </div>
   );
 }
+
