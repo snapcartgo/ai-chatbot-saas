@@ -137,13 +137,22 @@ export async function POST(req: Request) {
 
     // ✅ IMPORTANT: Inject Knowledge into system prompt
     const systemPrompt = `
-${config?.default_prompt || "You are a helpful assistant."}
+      You are a smart AI sales assistant.
 
-Use the following knowledge base to answer:
-${knowledge}
+      STRICT RULES:
+      - You MUST answer using ONLY the knowledge provided below
+      - Do NOT say "I don't know" if answer exists in knowledge
+      - Extract exact details like price, product name, features
+      - Be direct and helpful
 
-If knowledge is empty, answer normally.
-`;
+      KNOWLEDGE BASE:
+      ${knowledge}
+
+      USER QUESTION:
+      ${message}
+
+      Give a clear and direct answer.
+      `;
 
     // AI Response
     const chatResponse = await openai.chat.completions.create({
