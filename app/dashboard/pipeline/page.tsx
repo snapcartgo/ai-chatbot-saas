@@ -2,11 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import {
-  DragDropContext,
-  Droppable,
-  Draggable,
-} from "@hello-pangea/dnd";
+import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 
 type Lead = {
   id: string;
@@ -14,6 +10,7 @@ type Lead = {
   phone: string;
   service: string;
   leads_status?: string;
+  channel?: string | null;
 };
 
 const columns = ["new", "contacted", "booked", "closed"];
@@ -30,9 +27,7 @@ export default function PipelinePage() {
     loadLeads();
   }, []);
 
-  // 🔥 HYBRID LOAD (leads + conversations)
   async function loadLeads() {
-    // 1️⃣ Fetch leads (booked users)
     const { data: leadsData, error: leadsError } = await supabase
       .from("leads")
       .select("*");
@@ -42,7 +37,6 @@ export default function PipelinePage() {
       return;
     }
 
-    // 2️⃣ Fetch conversations (all users)
     const { data: convoData, error: convoError } = await supabase
       .from("conversations")
       .select("*");
@@ -59,39 +53,36 @@ export default function PipelinePage() {
       closed: [],
     };
 
-    // ✅ Step 1: Add booked leads
     leadsData?.forEach((lead) => {
       grouped.booked.push({
         id: lead.id,
-        name: lead.name,
-        phone: lead.phone,
-        service: lead.service,
+        name: lead.name || "Lead",
+        phone: lead.phone || lead.phone_number || "-",
+        service: lead.service || "Lead",
         leads_status: "booked",
+        channel: lead.channel || "website",
       });
     });
 
-    // ✅ Step 2: Add conversations (not yet leads)
     convoData?.forEach((conv: any) => {
-      const alreadyLead = leadsData?.find(
-        (l) => l.phone === conv.phone
-      );
+      const alreadyLead = leadsData?.find((l) => (l.phone || l.phone_number) === (conv.phone || conv.phone_number));
 
       if (!alreadyLead) {
-        // 🔹 If user has some info → contacted
-        if (conv.name || conv.phone) {
+        if (conv.name || conv.phone || conv.phone_number) {
           grouped.contacted.push({
             id: conv.id,
             name: conv.name || "Unknown",
-            phone: conv.phone || "-",
+            phone: conv.phone || conv.phone_number || "-",
             service: "From Chat",
+            channel: conv.channel || "website",
           });
         } else {
-          // 🔹 Just started chat → new
           grouped.new.push({
             id: conv.id,
             name: "New Visitor",
             phone: "-",
             service: "Chat Started",
+            channel: conv.channel || "website",
           });
         }
       }
@@ -100,7 +91,6 @@ export default function PipelinePage() {
     setLeads(grouped);
   }
 
-  // 🔥 DRAG HANDLER (only for real leads)
   const handleDragEnd = async (result: any) => {
     if (!result.destination) return;
 
@@ -113,7 +103,6 @@ export default function PipelinePage() {
     const destItems = Array.from(leads[destCol]);
 
     const [movedItem] = sourceItems.splice(result.source.index, 1);
-
     destItems.splice(result.destination.index, 0, movedItem);
 
     const newState = {
@@ -124,7 +113,6 @@ export default function PipelinePage() {
 
     setLeads(newState);
 
-    // ⚠️ Only update DB if it's from leads table (booked items)
     if (movedItem.phone !== "-") {
       const { error } = await supabase
         .from("leads")
@@ -139,14 +127,11 @@ export default function PipelinePage() {
 
   return (
     <div className="p-4 md:p-6 w-full">
-      <h1 className="text-xl md:text-2xl font-semibold mb-6">
-        Lead Pipeline
-      </h1>
+      <h1 className="text-xl md:text-2xl font-semibold mb-6">Lead Pipeline</h1>
 
       <DragDropContext onDragEnd={handleDragEnd}>
         <div className="overflow-x-auto">
           <div className="flex gap-4 min-w-[800px] md:grid md:grid-cols-4">
-
             {columns.map((status) => (
               <Droppable droppableId={status} key={status}>
                 {(provided) => (
@@ -161,11 +146,7 @@ export default function PipelinePage() {
 
                     <div className="space-y-2">
                       {leads[status].map((lead, index) => (
-                        <Draggable
-                          key={lead.id}
-                          draggableId={lead.id.toString()}
-                          index={index}
-                        >
+                        <Draggable key={lead.id} draggableId={lead.id.toString()} index={index}>
                           {(provided) => (
                             <div
                               ref={provided.innerRef}
@@ -173,24 +154,12 @@ export default function PipelinePage() {
                               {...provided.dragHandleProps}
                               className="bg-white p-3 rounded-md shadow-sm cursor-grab"
                             >
-                              <div className="font-semibold text-sm">
-                                {lead.name}
+                              <div className="font-semibold text-sm">{lead.name}</div>
+                              <div className="text-xs text-gray-600">{lead.phone}</div>
+                              <div className="text-xs text-gray-500">{lead.service}</div>
+                              <div className="text-[10px] text-blue-500 mt-1">
+                                {lead.channel || "website"}
                               </div>
-
-                              <div className="text-xs text-gray-600">
-                                {lead.phone}
-                              </div>
-
-                              <div className="text-xs text-gray-500">
-                                {lead.service}
-                              </div>
-
-                              {/* 🔥 Badge */}
-                              {lead.phone === "-" && (
-                                <div className="text-[10px] text-blue-500 mt-1">
-                                  Chat User
-                                </div>
-                              )}
                             </div>
                           )}
                         </Draggable>
@@ -202,7 +171,6 @@ export default function PipelinePage() {
                 )}
               </Droppable>
             ))}
-
           </div>
         </div>
       </DragDropContext>

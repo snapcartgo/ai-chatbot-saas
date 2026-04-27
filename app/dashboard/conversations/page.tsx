@@ -3,190 +3,163 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 
-type MessageRow = {
-  id: string;
-  conversation_id: string;
-  role: "user" | "assistant";
-  content: string;
-  created_at: string;
-  bot_id: string | null;
-  user_id: string | null;
-  channel?: string | null;
-  phone_number?: string | null;
-  external_user_id?: string | null;
-};
-
 export default function ConversationsPage() {
-  const [groupedMessages, setGroupedMessages] = useState<Record<string, MessageRow[]>>({});
-  const [expandedSession, setExpandedSession] = useState<string | null>(null);
+  const [whatsappGroups, setWhatsappGroups] = useState<any>({});
+  const [websiteGroups, setWebsiteGroups] = useState<any>({});
+  const [activeTab, setActiveTab] = useState<"website" | "whatsapp">("website");
   const [loading, setLoading] = useState(true);
+  const [expandedSession, setExpandedSession] = useState<string | null>(null);
+
+  // 1. Helper: Format the timestamp for the UI
+  const formatTime = (dateString: string) => {
+    if (!dateString) return "";
+    return new Date(dateString).toLocaleTimeString([], { 
+      hour: '2-digit', 
+      minute: '2-digit' 
+    });
+  };
 
   useEffect(() => {
-    const loadMessages = async () => {
+    const loadData = async () => {
       setLoading(true);
-
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
+      const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
         setLoading(false);
         return;
       }
 
-      const { data: bots } = await supabase
-        .from("chatbots")
-        .select("id")
-        .eq("user_id", user.id);
+      // Fetch Bot IDs to filter website chats
+      const { data: bots } = await supabase.from("chatbots").select("id").eq("user_id", user.id);
+      const botIds = bots?.map(b => b.id) || [];
 
-      const botIds = (bots || []).map((b: any) => b.id);
+      // Query the dashboard_messages view
+      let query = supabase.from("dashboard_messages").select("*");
+      if (botIds.length > 0) {
+        query = query.or(`user_id.eq.${user.id},bot_id.in.(${botIds.join(",")})`);
+      } else {
+        query = query.eq("user_id", user.id);
+      }
 
-      const websiteQuery = botIds.length
-        ? supabase
-            .from("messages")
-            .select("id, conversation_id, role, content, created_at, bot_id, user_id, channel, phone_number, external_user_id")
-            .in("bot_id", botIds)
-            .order("created_at", { ascending: true })
-        : null;
+      const { data, error } = await query.order("created_at", { ascending: true });
 
-      const whatsappQuery = supabase
-        .from("messages")
-        .select("id, conversation_id, role, content, created_at, bot_id, user_id, channel, phone_number, external_user_id")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: true });
+      if (!error && data) {
+        const whatsapp: any = {};
+        const website: any = {};
 
-      const [websiteRes, whatsappRes] = await Promise.all([
-        websiteQuery ? websiteQuery : Promise.resolve({ data: [], error: null } as any),
-        whatsappQuery,
-      ]);
+        data.forEach((msg: any) => {
+          const id = msg.display_session_id;
+          const target = msg.channel === 'whatsapp' || msg.phone_number ? whatsapp : website;
+          if (!target[id]) target[id] = [];
+          target[id].push(msg);
+        });
 
-      const allMessages: MessageRow[] = [];
-      if (!websiteRes.error && websiteRes.data) allMessages.push(...(websiteRes.data as MessageRow[]));
-      if (!whatsappRes.error && whatsappRes.data) allMessages.push(...(whatsappRes.data as MessageRow[]));
+        // Sort by newest message at the top
+        const sortByNewest = (obj: any) => {
+          return Object.entries(obj).sort((a: any, b: any) => {
+            const timeA = new Date(a[1][a[1].length - 1].created_at).getTime();
+            const timeB = new Date(b[1][b[1].length - 1].created_at).getTime();
+            return timeB - timeA;
+          });
+        };
 
-      const unique = new Map<string, MessageRow>();
-      allMessages.forEach((msg) => {
-        unique.set(msg.id, msg);
-      });
-
-      const merged = Array.from(unique.values()).sort(
-        (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-      );
-
-      const groups = merged.reduce((acc: Record<string, MessageRow[]>, msg) => {
-        const id = msg.conversation_id || "unknown_session";
-        if (!acc[id]) acc[id] = [];
-        acc[id].push(msg);
-        return acc;
-      }, {});
-
-      const sortedEntries = Object.entries(groups).sort((a, b) => {
-        const lastTimeA = new Date(a[1][a[1].length - 1].created_at).getTime();
-        const lastTimeB = new Date(b[1][b[1].length - 1].created_at).getTime();
-        return lastTimeB - lastTimeA;
-      });
-
-      setGroupedMessages(Object.fromEntries(sortedEntries));
+        setWhatsappGroups(Object.fromEntries(sortByNewest(whatsapp)));
+        setWebsiteGroups(Object.fromEntries(sortByNewest(website)));
+      }
       setLoading(false);
     };
-
-    loadMessages();
+    loadData();
   }, []);
 
+  const currentGroups = activeTab === "whatsapp" ? whatsappGroups : websiteGroups;
+
   return (
-    <div style={{ padding: "30px", maxWidth: "900px", margin: "0 auto", color: "#333" }}>
-      <h1 style={{ marginBottom: "20px" }}>Chat Conversations</h1>
+    <div style={{ padding: "30px", maxWidth: "1000px", margin: "0 auto", fontFamily: "sans-serif", color: "#333" }}>
+      <h2 style={{ marginBottom: "20px", fontSize: "24px", fontWeight: "bold" }}>Conversations History</h2>
 
-      {loading && <p>Loading sessions...</p>}
-      {!loading && Object.keys(groupedMessages).length === 0 && <p>No conversations yet.</p>}
-
-      {Object.entries(groupedMessages).map(([sessionId, msgs]) => (
-        <div
-          key={sessionId}
+      {/* TABS */}
+      <div style={{ display: "flex", gap: "10px", marginBottom: "25px", borderBottom: "1px solid #e2e8f0", paddingBottom: "12px" }}>
+        <button 
+          onClick={() => { setActiveTab("website"); setExpandedSession(null); }}
           style={{
-            border: "1px solid #e0e0e0",
-            borderRadius: "10px",
-            marginBottom: "15px",
-            overflow: "hidden",
-            boxShadow: "0 2px 5px rgba(0,0,0,0.05)",
+            padding: "10px 20px", borderRadius: "8px", cursor: "pointer", border: "none", fontWeight: "600",
+            backgroundColor: activeTab === "website" ? "#007bff" : "#f1f5f9",
+            color: activeTab === "website" ? "white" : "#475569",
+            transition: "all 0.2s"
           }}
         >
-          <div
-            onClick={() => setExpandedSession(expandedSession === sessionId ? null : sessionId)}
-            style={{
-              padding: "15px 20px",
-              backgroundColor: "#f8f9fa",
-              cursor: "pointer",
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              fontWeight: "600",
-              borderBottom: expandedSession === sessionId ? "1px solid #eee" : "none",
-            }}
-          >
-            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              <span style={{ fontSize: "14px", color: "#555" }}>Session ID:</span>
-              <span style={{ fontSize: "12px", fontWeight: "normal", color: "#888" }}>
-                {sessionId}
-              </span>
-              <span style={{ fontSize: "11px", color: "#999" }}>
-                Channel: {msgs[0]?.channel || (msgs[0]?.user_id ? "whatsapp" : "website")}
-              </span>
-              {msgs[0]?.phone_number && (
-                <span style={{ fontSize: "11px", color: "#999" }}>
-                  Phone: {msgs[0]?.phone_number}
-                </span>
-              )}
-            </div>
-            <span style={{ fontSize: "12px", color: "#007bff" }}>
-              {expandedSession === sessionId ? "Close" : "View Conversation"}
-            </span>
-          </div>
+          Website ({Object.keys(websiteGroups).length})
+        </button>
+        <button 
+          onClick={() => { setActiveTab("whatsapp"); setExpandedSession(null); }}
+          style={{
+            padding: "10px 20px", borderRadius: "8px", cursor: "pointer", border: "none", fontWeight: "600",
+            backgroundColor: activeTab === "whatsapp" ? "#25D366" : "#f1f5f9",
+            color: activeTab === "whatsapp" ? "white" : "#475569",
+            transition: "all 0.2s"
+          }}
+        >
+          WhatsApp ({Object.keys(whatsappGroups).length})
+        </button>
+      </div>
 
-          {expandedSession === sessionId && (
-            <div style={{ padding: "20px", backgroundColor: "#ffffff" }}>
-              {msgs.map((msg) => (
-                <div
-                  key={msg.id}
-                  style={{
-                    marginBottom: "15px",
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: msg.role === "user" ? "flex-end" : "flex-start",
-                  }}
-                >
-                  <div
-                    style={{
-                      maxWidth: "75%",
-                      padding: "10px 15px",
-                      borderRadius: "15px",
-                      backgroundColor: msg.role === "user" ? "#007bff" : "#f1f1f1",
-                      color: msg.role === "user" ? "#ffffff" : "#333333",
-                      fontSize: "14px",
-                      lineHeight: "1.5",
-                      borderBottomRightRadius: msg.role === "user" ? "2px" : "15px",
-                      borderBottomLeftRadius: msg.role === "user" ? "15px" : "2px",
-                    }}
-                  >
-                    <div dangerouslySetInnerHTML={{ __html: msg.content }} />
-                  </div>
-                  <span style={{ fontSize: "10px", color: "#aaa", marginTop: "4px" }}>
-                    {msg.role === "user" ? "User" : "Bot"} -{" "}
-                    {new Date(msg.created_at).toLocaleString("en-IN", {
-                      timeZone: "Asia/Kolkata",
-                      day: "2-digit",
-                      month: "short",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                      hour12: true,
-                    })}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
+      {loading ? (
+        <div style={{ padding: "20px", textAlign: "center", color: "#666" }}>Syncing conversations...</div>
+      ) : Object.keys(currentGroups).length === 0 ? (
+        <div style={{ padding: "40px", textAlign: "center", background: "#f8fafc", borderRadius: "12px", color: "#94a3b8" }}>
+          No {activeTab} conversations found.
         </div>
-      ))}
+      ) : null}
+
+      {/* CONVERSATION LIST */}
+      {Object.entries(currentGroups).map(([sessionId, msgs]: any) => {
+        const lastMsg = msgs[msgs.length - 1];
+        
+        return (
+          <div key={sessionId} style={{ border: "1px solid #e2e8f0", marginBottom: "15px", borderRadius: "12px", overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
+            <div 
+              onClick={() => setExpandedSession(expandedSession === sessionId ? null : sessionId)}
+              style={{ 
+                padding: "18px", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center",
+                background: activeTab === "whatsapp" ? "#f0fff4" : "#ffffff"
+              }}
+            >
+              <div>
+                <div style={{ fontWeight: "bold", fontSize: "15px", marginBottom: "4px" }}>{sessionId}</div>
+                <div style={{ fontSize: "12px", color: "#64748b" }}>
+                  Last active: {new Date(lastMsg.created_at).toLocaleDateString()} at {formatTime(lastMsg.created_at)}
+                  {activeTab === "whatsapp" && msgs[0].phone_number && ` • +${msgs[0].phone_number}`}
+                </div>
+              </div>
+              <div style={{ fontSize: "12px", fontWeight: "600", color: "#007bff" }}>
+                {expandedSession === sessionId ? "Collapse" : "Open Chat"}
+              </div>
+            </div>
+            
+            {expandedSession === sessionId && (
+              <div style={{ padding: "20px", background: "#fff", borderTop: "1px solid #f1f5f9" }}>
+                {msgs.map((m: any) => (
+                  <div key={m.id} style={{ display: "flex", flexDirection: "column", alignItems: m.role === 'user' ? 'flex-end' : 'flex-start', marginBottom: "15px" }}>
+                    <div style={{ 
+                      padding: "12px 16px", borderRadius: "18px", fontSize: "14px", lineHeight: "1.5",
+                      backgroundColor: m.role === 'user' ? (activeTab === "whatsapp" ? "#dcf8c6" : "#007bff") : "#f1f5f9",
+                      color: m.role === 'user' && activeTab === "website" ? "#fff" : "#1e293b",
+                      maxWidth: "80%", boxShadow: "0 1px 2px rgba(0,0,0,0.05)"
+                    }}>
+                      {m.content}
+                      <div style={{ 
+                        fontSize: "10px", marginTop: "6px", textAlign: "right", opacity: 0.6,
+                        color: m.role === 'user' && activeTab === "website" ? "#e0f2fe" : "#64748b"
+                      }}>
+                        {formatTime(m.created_at)}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
