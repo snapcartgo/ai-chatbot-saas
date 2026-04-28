@@ -39,6 +39,24 @@ export async function POST(req: Request) {
       return new Response("<Response></Response>", { headers: { "Content-Type": "text/xml" } });
     }
 
+    // --- START OF N8N BRIDGE ADDITION ---
+    // This sends the data and the secret to your n8n bridge workflow
+    if (process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL) {
+       await fetch(process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-bot-secret": process.env.N8N_BOT_SECRET || "", // Passing your secret here!
+        },
+        body: JSON.stringify({
+          message: userMessage,
+          phone: customerPhone,
+          chatbot_id: config.chatbot_id
+        }),
+      }).catch(err => console.error("n8n Bridge Error:", err));
+    }
+    // --- END OF N8N BRIDGE ADDITION ---
+
     const { data: bot } = await supabase
       .from("chatbots")
       .select("id, name, prompt")
