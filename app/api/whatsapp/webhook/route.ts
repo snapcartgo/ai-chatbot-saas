@@ -41,20 +41,22 @@ export async function POST(req: Request) {
 
     // --- START OF N8N BRIDGE ADDITION ---
     // This sends the data and the secret to your n8n bridge workflow
-    if (process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL) {
-       await fetch(process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-bot-secret": process.env.N8N_BOT_SECRET || "", // Passing your secret here!
-        },
-        body: JSON.stringify({
-          message: userMessage,
-          phone: customerPhone,
-          chatbot_id: config.chatbot_id
-        }),
-      }).catch(err => console.error("n8n Bridge Error:", err));
-    }
+    if (process.env.N8N_WHATSAPP_WEBHOOK_URL) {
+  await fetch(process.env.N8N_WHATSAPP_WEBHOOK_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      // This sends your secret from Vercel/Next.js to n8n
+      "x-bot-secret": process.env.N8N_BOT_SECRET || "", 
+    },
+    body: JSON.stringify({
+      message: userMessage,
+      phone: customerPhone,
+      chatbot_id: config.chatbot_id,
+      profile_name: params.get("ProfileName") || "Customer"
+    }),
+  }).catch(err => console.error("n8n Bridge Connection Error:", err));
+}
     // --- END OF N8N BRIDGE ADDITION ---
 
     const { data: bot } = await supabase
