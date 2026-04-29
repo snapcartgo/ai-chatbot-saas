@@ -45,31 +45,29 @@ export default function WhatsAppSettings() {
     setLoading(true);
 
     const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
+      data: { session },
+      error: sessionError,
+    } = await supabase.auth.getSession();
 
-    if (userError || !user) {
+    if (sessionError || !session?.access_token) {
       alert("User session not found. Please log in again.");
       setLoading(false);
       return;
     }
 
-    const { error } = await supabase.from("whatsapp_configs").upsert(
-      {
-        user_id: user.id,
-        twilio_sid: config.twilio_sid,
-        twilio_auth_token: config.twilio_auth_token,
-        phone_number: config.phone_number,
-        category: config.category,
-        workflow_type: "whatsapp_only",
+    const res = await fetch("/api/whatsapp/save-config", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.access_token}`,
       },
-      { onConflict: "user_id" }
-    );
+      body: JSON.stringify(config),
+    });
 
-    if (error) {
-      console.error("Save Error:", error.message);
-      alert("Save failed: " + error.message);
+    const data = await res.json();
+
+    if (!res.ok) {
+      alert(data.error || "Save failed");
     } else {
       alert("Settings saved successfully!");
     }
@@ -122,13 +120,18 @@ export default function WhatsAppSettings() {
           <select
             className="w-full p-2 border rounded"
             value={config.category}
-            onChange={(e) => setConfig({ ...config, category: e.target.value })}
+            onChange={(e) =>
+              setConfig({
+                ...config,
+                category: e.target.value as "booking" | "ecommerce",
+              })
+            }
           >
             <option value="booking">Booking</option>
             <option value="ecommerce">Ecommerce</option>
           </select>
           <p className="text-xs text-gray-500 mt-1">
-            This controls the WhatsApp assistant behavior.
+            A WhatsApp-only chatbot record will be created automatically in backend.
           </p>
         </div>
 
@@ -139,20 +142,6 @@ export default function WhatsAppSettings() {
         >
           {loading ? "Saving..." : "Save Settings"}
         </button>
-      </div>
-
-      <div className="mt-10 p-4 bg-blue-50 rounded-lg">
-        <h3 className="font-bold text-blue-800">Setup Instructions</h3>
-        <ol className="list-decimal ml-5 mt-2 text-sm text-blue-700 space-y-2">
-          <li>Get your credentials from the Twilio Console.</li>
-          <li>
-            Set your Webhook URL in Twilio to:
-            <br />
-            <code className="bg-white p-1 rounded font-mono">
-              https://your-domain.com/api/whatsapp/webhook
-            </code>
-          </li>
-        </ol>
       </div>
     </div>
   );
