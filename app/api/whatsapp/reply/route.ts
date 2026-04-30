@@ -84,6 +84,46 @@ async function saveMessage(payload: {
   }
 }
 
+async function upsertWhatsAppLead(params: {
+  user_id: string;
+  bot_id: string | null;
+  conversation_id: string;
+  phone_number: string;
+  profile_name?: string | null;
+  category?: string | null;
+}) {
+  const name =
+    params.profile_name?.trim() || `WhatsApp Lead ${params.phone_number}`;
+
+  const service =
+    params.category === "ecommerce"
+      ? "Ecommerce Inquiry"
+      : params.category === "booking"
+        ? "Booking Inquiry"
+        : "WhatsApp Inquiry";
+
+  const { error } = await supabase.from("leads").upsert(
+    {
+      user_id: params.user_id,
+      bot_id: params.bot_id,
+      name,
+      phone: params.phone_number,
+      phone_number: params.phone_number,
+      conversation_id: params.conversation_id,
+      channel: "whatsapp",
+      service,
+      lead_status: "new",
+    },
+    {
+      onConflict: "user_id,channel,phone_number",
+    }
+  );
+
+  if (error) {
+    console.error("Lead upsert error:", error);
+  }
+}
+
 export async function POST(req: Request) {
   try {
     const expectedSecret = (process.env.N8N_BOT_SECRET || "").trim();
@@ -105,6 +145,7 @@ export async function POST(req: Request) {
     const from_phone = body.from_phone || body.fromPhone || "";
     const message = body.message || "";
     const knowledge = body.knowledge || body.kb || "";
+    const profile_name = body.profile_name || body.profileName || null;
     const whatsapp_message_sid =
       body.whatsapp_message_sid || body.messageSid || null;
 
@@ -139,6 +180,15 @@ export async function POST(req: Request) {
       visitor_id: normalizedFrom,
     });
 
+    await upsertWhatsAppLead({
+      user_id,
+      bot_id: config?.chatbot_id || null,
+      conversation_id,
+      phone_number: customerPhone,
+      profile_name,
+      category: config?.category || null,
+    });
+
     await saveMessage({
       user_id,
       bot_id: config?.chatbot_id || null,
@@ -162,12 +212,10 @@ export async function POST(req: Request) {
       console.error("History fetch error:", historyError);
     }
 
-    const historyMessages = (history || [])
-      .reverse()
-      .map((item) => ({
-        role: item.role as "user" | "assistant" | "system",
-        content: item.content,
-      }));
+    const historyMessages = (history || []).reverse().map((item) => ({
+      role: item.role as "user" | "assistant" | "system",
+      content: item.content,
+    }));
 
     const category = config?.category || "general";
     const defaultPrompt =
