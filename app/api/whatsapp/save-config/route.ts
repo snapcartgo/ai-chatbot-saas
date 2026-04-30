@@ -13,10 +13,9 @@ type Body = {
   twilio_auth_token: string;
   phone_number: string;
   category: "booking" | "ecommerce";
-  chatbot_id?: string | null;
 };
 
-function buildWhatsappBotName(category: string) {
+function buildWhatsappBotName(category: "booking" | "ecommerce") {
   return category === "ecommerce"
     ? "WhatsApp Ecommerce Bot"
     : "WhatsApp Booking Bot";
@@ -40,10 +39,7 @@ export async function POST(req: NextRequest) {
     } = await authClient.auth.getUser(token);
 
     if (authError || !user) {
-      return NextResponse.json(
-        { error: "Unauthorized user" },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: "Unauthorized user" }, { status: 401 });
     }
 
     const body = (await req.json()) as Body;
@@ -51,8 +47,8 @@ export async function POST(req: NextRequest) {
     const twilio_sid = body.twilio_sid?.trim() || "";
     const twilio_auth_token = body.twilio_auth_token?.trim() || "";
     const phone_number = body.phone_number?.trim() || "";
-    const category = body.category === "ecommerce" ? "ecommerce" : "booking";
-    const requestedChatbotId = body.chatbot_id?.trim() || null;
+    const category: "booking" | "ecommerce" =
+      body.category === "ecommerce" ? "ecommerce" : "booking";
 
     if (!twilio_sid || !twilio_auth_token || !phone_number) {
       return NextResponse.json(
@@ -74,27 +70,44 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    let finalChatbotId = requestedChatbotId || existingConfig?.chatbot_id || null;
+    let finalChatbotId = existingConfig?.chatbot_id || null;
 
     if (finalChatbotId) {
-      const { data: linkedBot, error: linkedBotError } = await adminClient
+      const { data: existingBot, error: existingBotError } = await adminClient
         .from("chatbots")
-        .select("id, user_id, source, is_system")
+        .select("id, user_id")
         .eq("id", finalChatbotId)
         .maybeSingle();
 
-      if (linkedBotError) {
+      if (existingBotError) {
         return NextResponse.json(
-          { error: linkedBotError.message },
+          { error: existingBotError.message },
           { status: 500 }
         );
       }
 
-      if (!linkedBot || linkedBot.user_id !== user.id) {
+      if (!existingBot || existingBot.user_id !== user.id) {
+        finalChatbotId = null;
+      }
+    }
+
+    if (!finalChatbotId) {
+      const { data: workflowBot, error: workflowBotError } = await adminClient
+        .from("chatbots")
+        .select("id")
+        .eq("user_id", user.id)
+        .eq("workflow_type", "whatsapp_only")
+        .maybeSingle();
+
+      if (workflowBotError) {
         return NextResponse.json(
-          { error: "Invalid chatbot selected" },
-          { status: 400 }
+          { error: workflowBotError.message },
+          { status: 500 }
         );
+      }
+
+      if (workflowBot?.id) {
+        finalChatbotId = workflowBot.id;
       }
     }
 
@@ -114,6 +127,7 @@ export async function POST(req: NextRequest) {
           category,
           source: "whatsapp",
           is_system: true,
+          workflow_type: "whatsapp_only",
         })
         .select("id")
         .single();
@@ -132,6 +146,9 @@ export async function POST(req: NextRequest) {
         .update({
           category,
           source: "whatsapp",
+          is_system: true,
+          workflow_type: "whatsapp_only",
+          active: true,
         })
         .eq("id", finalChatbotId)
         .eq("user_id", user.id);
@@ -155,6 +172,7 @@ export async function POST(req: NextRequest) {
           category,
           chatbot_id: finalChatbotId,
           workflow_type: "whatsapp_only",
+          automation_enabled: true,
         },
         { onConflict: "user_id" }
       );
