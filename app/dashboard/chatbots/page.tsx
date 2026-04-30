@@ -12,6 +12,9 @@ type BotRow = {
   temperature: number;
   active: boolean;
   category?: string | null;
+  workflow_type?: string | null;
+  source?: string | null;
+  is_system?: boolean | null;
 };
 
 type WhatsAppConfigRow = {
@@ -51,6 +54,7 @@ export default function ChatbotsPage() {
       .from("chatbots")
       .select("*")
       .eq("user_id", user.id)
+      .neq("workflow_type", "whatsapp_only")
       .order("created_at", { ascending: true });
 
     if (botError) {
@@ -122,6 +126,7 @@ export default function ChatbotsPage() {
       .from("chatbots")
       .select("id")
       .eq("user_id", user.id)
+      .neq("workflow_type", "whatsapp_only")
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
