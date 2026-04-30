@@ -12,9 +12,7 @@ type BotRow = {
   temperature: number;
   active: boolean;
   category?: string | null;
-  workflow_type?: string | null;
-  source?: string | null;
-  is_system?: boolean | null;
+  workflow_type?: string | null; // Added this to the type for safety
 };
 
 type WhatsAppConfigRow = {
@@ -50,19 +48,26 @@ export default function ChatbotsPage() {
 
     const user = session.user;
 
+    // 1. Load all chatbots for the user
     const { data: botData, error: botError } = await supabase
       .from("chatbots")
       .select("*")
       .eq("user_id", user.id)
-      .neq("workflow_type", "whatsapp_only")
       .order("created_at", { ascending: true });
 
     if (botError) {
       console.error("Load bots error:", botError);
     }
 
-    setBots((botData || []) as BotRow[]);
+    // 2. FILTER: Only keep bots that are NOT specifically "whatsapp_only"
+    // This allows Website bots (which usually have workflow_type as null) to show up.
+    const filteredBots = (botData || []).filter(
+      (bot) => bot.workflow_type !== "whatsapp_only"
+    );
 
+    setBots(filteredBots as BotRow[]);
+
+    // 3. Load WhatsApp Configuration
     const { data: whatsappData, error: whatsappError } = await supabase
       .from("whatsapp_configs")
       .select("id, phone_number, automation_enabled, default_prompt")
@@ -75,6 +80,7 @@ export default function ChatbotsPage() {
 
     setWhatsappConfig((whatsappData || null) as WhatsAppConfigRow | null);
 
+    // 4. Load Subscription Limit
     const { data: subscription, error: subError } = await supabase
       .from("subscriptions")
       .select("chatbot_limit")
@@ -101,6 +107,7 @@ export default function ChatbotsPage() {
 
     const limit = chatbotLimit || 2;
 
+    // This check now correctly only counts visible Website chatbots
     if (bots.length >= limit) {
       alert(`Limit reached: Your plan allows ${limit} chatbots.`);
       return;
@@ -114,6 +121,7 @@ export default function ChatbotsPage() {
       user_id: user.id,
       active: true,
       category: "booking",
+      workflow_type: null, // Ensure new dashboard bots are null (Website bots)
     });
 
     if (error) {
@@ -126,7 +134,6 @@ export default function ChatbotsPage() {
       .from("chatbots")
       .select("id")
       .eq("user_id", user.id)
-      .neq("workflow_type", "whatsapp_only")
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -228,3 +235,4 @@ export default function ChatbotsPage() {
     </div>
   );
 }
+
