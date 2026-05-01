@@ -21,8 +21,10 @@ export async function GET(req: Request) {
     baseUrl = "https://www.paypal.com/ncp/payment/24P73JDAGGGB8"; 
   } else if (plan === "growth") {
     baseUrl = "https://www.paypal.com/ncp/payment/W9P8U6SXQFHDE";
+  } else if (plan === "whatsapp") {
+  // Replace with your PayPal link for the $29 WhatsApp plan
+  baseUrl = "https://www.paypal.com/ncp/payment/N7WHXJVVTREKC";
   }
-
   if (!baseUrl) {
     return NextResponse.json(
       { error: "Invalid plan" },
