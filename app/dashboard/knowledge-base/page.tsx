@@ -85,13 +85,12 @@ export default function KnowledgeBasePage() {
     ]);
 
     const websiteBots = (botData || []) as ChatbotOption[];
-    setChatbots(websiteBots);
+setChatbots(websiteBots);
 
-    if (websiteBots.length > 0) {
-      setSelectedSource(websiteBots[0].id);
-    } else {
-      setSelectedSource("whatsapp");
-    }
+// Keep WhatsApp independent from website chatbot.
+// WhatsApp is selected by default so WhatsApp-only clients can see their KB.
+setSelectedSource("whatsapp");
+
 
     if (subData?.plan) {
       setUserPlan(String(subData.plan).toLowerCase());
