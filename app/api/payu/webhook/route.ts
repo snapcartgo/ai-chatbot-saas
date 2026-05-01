@@ -6,17 +6,19 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-const PLAN_CONFIG: Record<string, { amount: number; chatbot_limit: number; message_limit: number }> = {
+const PLAN_CONFIG: Record<string, { amount: number; chatbot_limit?: number; message_limit: number }> = {
   starter: { amount: 999, chatbot_limit: 1, message_limit: 1000 },
   pro: { amount: 1999, chatbot_limit: 2, message_limit: 3000 },
   growth: { amount: 4999, chatbot_limit: 5, message_limit: 12000 },
+  whatsapp: { amount: 999, message_limit: 1000 }, // Added WhatsApp config
 };
 
-function detectPlan(raw: string): "starter" | "pro" | "growth" | null {
+function detectPlan(raw: string): string | null {
   const v = (raw || "").toLowerCase();
   if (v.includes("starter")) return "starter";
   if (v.includes("pro")) return "pro";
   if (v.includes("growth")) return "growth";
+  if (v.includes("whatsapp")) return "whatsapp"; // Added detection for whatsapp
   return null;
 }
 
@@ -38,6 +40,7 @@ export async function POST(req: Request) {
 
     const plan = detectPlan(productinfo);
 
+    // 1. Update Orders Table (General for any payment)
     if (email) {
       await supabase
         .from("orders")
@@ -56,6 +59,7 @@ export async function POST(req: Request) {
     const cfg = PLAN_CONFIG[plan];
     const finalAmount = amountFromGateway > 0 ? amountFromGateway : cfg.amount;
 
+    // 2. Get Profile
     const { data: profile } = await supabase
       .from("profiles")
       .select("id")
@@ -66,31 +70,58 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: false, message: "Profile not found" }, { status: 404 });
     }
 
-    const now = new Date();
-    const expiry = new Date(now);
-    expiry.setDate(expiry.getDate() + 30);
+    const now = new Date().toISOString();
+    const expiryDate = new Date();
+    expiryDate.setDate(expiryDate.getDate() + 30);
+    const expiry = expiryDate.toISOString();
 
-    await supabase
-      .from("subscriptions")
-      .upsert(
-        {
-          user_id: profile.id,
-          email,
-          plan,
-          status: "active",
-          amount: finalAmount,
-          chatbot_limit: cfg.chatbot_limit,
-          message_limit: cfg.message_limit,
-          message_used: 0,
-          billing_cycle_start: now.toISOString(),
-          billing_cycle_end: expiry.toISOString(),
-          plan_expiry: expiry.toISOString(),
-        },
-        { onConflict: "user_id" }
-      );
+    // 3. LOGIC BRANCH: Update standard Subscriptions OR WhatsApp Subscriptions
+    if (plan === "whatsapp") {
+      // Update whatsapp_subscriptions table (Reference: image_58eea4.png)
+      await supabase
+        .from("whatsapp_subscriptions")
+        .upsert(
+          {
+            user_id: profile.id,
+            status: "active",
+            plan: "whatsapp_automation",
+            message_limit: cfg.message_limit,
+            messages_used: 0,
+            updated_at: now,
+          },
+          { onConflict: "user_id" }
+        );
 
+      // Also enable the config so the UI updates (Reference: image_58ede8.png)
+      await supabase
+        .from("whatsapp_configs")
+        .update({ automation_enabled: true })
+        .eq("user_id", profile.id);
+        
+    } else {
+      // Standard Website Plans
+      await supabase
+        .from("subscriptions")
+        .upsert(
+          {
+            user_id: profile.id,
+            email,
+            plan,
+            status: "active",
+            amount: finalAmount,
+            chatbot_limit: cfg.chatbot_limit,
+            message_limit: cfg.message_limit,
+            message_used: 0,
+            billing_cycle_start: now,
+            billing_cycle_end: expiry,
+            plan_expiry: expiry,
+          },
+          { onConflict: "user_id" }
+        );
+    }
+
+    // 4. Referral Commission Logic
     const commission = Number((finalAmount * 0.2).toFixed(2));
-
     const { data: refs } = await supabase
       .from("referrals")
       .select("id")
@@ -109,7 +140,7 @@ export async function POST(req: Request) {
         .in("id", ids);
     }
 
-    return NextResponse.json({ success: true, type: "subscription" });
+    return NextResponse.json({ success: true, type: "subscription_updated" });
   } catch (err) {
     console.error("Webhook Global Error:", err);
     return NextResponse.json({ success: false }, { status: 500 });
