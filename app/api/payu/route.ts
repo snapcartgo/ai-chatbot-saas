@@ -47,7 +47,7 @@ export async function GET(req: Request) {
     // 👉 IMPORTANT:
     // Create ONE PayU payment link from dashboard
     // and paste it here
-    paymentUrl = `https://u.payu.in/PAYUMN/REPLACE_WITH_YOUR_WHATSAPP_LINK`;
+    paymentUrl = `https://u.payu.in/PAYUMN/kJU8IVJOMD8V`;
   }
 
   if (!paymentUrl) {
