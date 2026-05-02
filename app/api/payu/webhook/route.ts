@@ -43,7 +43,10 @@ export async function POST(req: Request) {
     if (productinfo.includes("whatsapp")) {
       console.log("🚀 Processing WhatsApp Subscription...");
 
-      // Use Promise.all to run these updates at the same time so the server doesn't wait twice
+      // Calculate expiration date (1 month from now)
+      const expiryDate = new Date();
+      expiryDate.setMonth(expiryDate.getMonth() + 1);
+
       await Promise.all([
         supabase.from("whatsapp_subscriptions").upsert({
           user_id: profile.id,
@@ -52,11 +55,13 @@ export async function POST(req: Request) {
           message_limit: 1000,
           messages_used: 0,
           updated_at: new Date().toISOString(),
+          expires_at: expiryDate.toISOString(), // CRITICAL: Adds the 1-month limit
         }, { onConflict: "user_id" }),
 
-        supabase.from("whatsapp_configs").update({ 
+        supabase.from("whatsapp_configs").upsert({ 
+          user_id: profile.id,
           automation_enabled: true 
-        }).eq("user_id", profile.id)
+        }, { onConflict: "user_id" }) // Changed to upsert to ensure record exists
       ]);
 
     } else {
