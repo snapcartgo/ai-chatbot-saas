@@ -4,6 +4,9 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import * as Sentry from "@sentry/nextjs";
+// Path corrected based on your project structure in image_aa77ab.png
+import WhatsAppSetupButton from "../components/WhatsAppSetupButton";
+import Script from "next/script";
 
 export default function DashboardPage() {
   const [stats, setStats] = useState({
@@ -12,13 +15,10 @@ export default function DashboardPage() {
     bookings: 0,
   });
   const [loading, setLoading] = useState(true);
+  const [userId, setUserId] = useState<string | null>(null);
 
   const [calendarId, setCalendarId] = useState("");
   const [clientName, setClientName] = useState("");
-
-  const [testPhone, setTestPhone] = useState("");
-  const [testMessage, setTestMessage] = useState("Hello from your AI Agent!");
-  const [isTesting, setIsTesting] = useState(false);
 
   useEffect(() => {
     async function initDashboard() {
@@ -32,6 +32,8 @@ export default function DashboardPage() {
         setLoading(false);
         return;
       }
+
+      setUserId(user.id);
 
       await Promise.all([
         supabase.from("profiles").upsert({
@@ -48,10 +50,8 @@ export default function DashboardPage() {
 
       const fetchedBotIds = botsRes.data?.map((b: { id: string }) => b.id) || [];
 
-      if (calRes.data) {
-        // Loaded for dashboard state.
-      }
-
+      // Note: Leads count is currently global based on your query. 
+      // If leads should be user-specific, add .eq("user_id", user.id)
       const [leadsRes, bookingsRes] = await Promise.all([
         supabase.from("leads").select("*", { count: "exact", head: true }),
         supabase
@@ -105,13 +105,10 @@ export default function DashboardPage() {
 
   async function handleCalendarSync(e: React.FormEvent) {
     e.preventDefault();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) return;
+    if (!userId) return;
 
     const { error } = await supabase.from("client_calendars").upsert(
-      { calendar_id: calendarId, client_name: clientName, user_id: user.id, status: "pending" },
+      { calendar_id: calendarId, client_name: clientName, user_id: userId, status: "pending" },
       { onConflict: "user_id" }
     );
 
@@ -122,39 +119,35 @@ export default function DashboardPage() {
     }
   }
 
-  async function handleWhatsAppTest(e: React.FormEvent) {
-    e.preventDefault();
-    setIsTesting(true);
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    try {
-      const res = await fetch("/api/whatsapp/send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          user_id: user?.id,
-          message: testMessage,
-          recipient_phone: testPhone,
-        }),
-      });
-
-      if (res.ok) alert("Test Sent!");
-      else alert("Check console for errors.");
-    } catch {
-      alert("Network error.");
-    } finally {
-      setIsTesting(false);
-    }
-  }
-
   const conversionRate =
     stats.leads > 0 ? ((stats.bookings / stats.leads) * 100).toFixed(1) : "0.0";
 
+  // ... inside your DashboardPage component
   return (
     <main className="min-h-screen bg-gray-50 p-4 md:p-8 text-gray-900">
+      {/* 
+        Inject the Meta SDK directly into the dashboard. 
+        This prevents the 'FB is not defined' error by ensuring 
+        initialization happens as soon as the script loads.
+      */}
+      <Script
+        id="facebook-jssdk"
+        src="https://connect.facebook.net/en_US/sdk.js"
+        strategy="afterInteractive"
+        onLoad={() => {
+          // @ts-ignore
+          window.fbAsyncInit = function() {
+            // @ts-ignore
+            FB.init({
+              appId: process.env.NEXT_PUBLIC_FACEBOOK_APP_ID,
+              cookie: true,
+              xfbml: true,
+              version: 'v18.0'
+            });
+          };
+        }}
+      />
+
       <div className="max-w-7xl mx-auto">
         <h1 className="text-3xl font-bold text-gray-800 mb-8">Agency Dashboard</h1>
 
@@ -170,6 +163,7 @@ export default function DashboardPage() {
         )}
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          {/* Calendar Sync Card */}
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
             <h2 className="text-xl font-bold mb-4">Calendar Sync</h2>
             <form onSubmit={handleCalendarSync} className="space-y-4">
@@ -177,51 +171,48 @@ export default function DashboardPage() {
                 value={clientName}
                 onChange={(e) => setClientName(e.target.value)}
                 placeholder="Client Name"
-                className="w-full border rounded-lg p-3"
+                className="w-full border rounded-lg p-3 text-gray-900 bg-white"
                 required
               />
               <input
                 value={calendarId}
                 onChange={(e) => setCalendarId(e.target.value)}
                 placeholder="Calendar ID"
-                className="w-full border rounded-lg p-3"
+                className="w-full border rounded-lg p-3 text-gray-900 bg-white"
                 required
               />
-              <button className="w-full bg-blue-600 text-white rounded-lg p-3 font-semibold">
+              <button className="w-full bg-blue-600 text-white rounded-lg p-3 font-semibold hover:bg-blue-700 transition-colors">
                 Sync Calendar
               </button>
             </form>
           </div>
 
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
-            <h2 className="text-xl font-bold mb-4">Twilio WhatsApp Test</h2>
-            <form onSubmit={handleWhatsAppTest} className="space-y-4">
-              <input
-                value={testPhone}
-                onChange={(e) => setTestPhone(e.target.value)}
-                placeholder="Recipient phone (e.g. +919876543210)"
-                className="w-full border rounded-lg p-3"
-                required
-              />
-              <textarea
-                value={testMessage}
-                onChange={(e) => setTestMessage(e.target.value)}
-                className="w-full border rounded-lg p-3 h-20"
-                placeholder="Message text..."
-              />
-              <p className="text-sm text-gray-500">
-                This sends through the Twilio credentials saved in WhatsApp settings.
+          {/* WhatsApp Onboarding Card */}
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 flex flex-col">
+            <h2 className="text-xl font-bold mb-2 text-gray-800">WhatsApp Onboarding</h2>
+            <p className="text-sm text-gray-600 mb-6">
+              Connect your official Meta WhatsApp Business Account to enable automated AI messaging.
+            </p>
+            
+            <div className="mt-auto">
+              {userId ? (
+                <WhatsAppSetupButton clientId={userId} />
+              ) : (
+                <div className="h-12 w-full bg-gray-100 animate-pulse rounded-lg flex items-center justify-center text-gray-400 text-sm">
+                  Loading user session...
+                </div>
+              )}
+              <p className="text-[10px] text-gray-400 mt-3 text-center">
+                Requires Meta Business Verification for full message volume.
               </p>
-              <button disabled={isTesting} className="w-full bg-green-600 text-white rounded-lg p-3 font-semibold">
-                {isTesting ? "Sending..." : "Send Test WhatsApp"}
-              </button>
-            </form>
+            </div>
           </div>
         </div>
       </div>
     </main>
   );
 }
+
 
 function StatCard({
   title,
