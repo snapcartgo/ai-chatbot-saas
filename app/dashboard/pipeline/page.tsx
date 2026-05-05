@@ -28,68 +28,88 @@ export default function PipelinePage() {
   }, []);
 
   async function loadLeads() {
-    const { data: leadsData, error: leadsError } = await supabase
-      .from("leads")
-      .select("*");
+  // 1. Get the current authenticated user's ID
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
 
-    if (leadsError) {
-      console.error(leadsError);
-      return;
-    }
+  if (authError || !user) {
+    console.error("Authentication error:", authError);
+    return;
+  }
 
-    const { data: convoData, error: convoError } = await supabase
-      .from("conversations")
-      .select("*");
+  // 2. Fetch leads filtered by the user's ID
+  // Replace 'user_id' with the actual column name in your table that links to the owner
+  const { data: leadsData, error: leadsError } = await supabase
+    .from("leads")
+    .select("*")
+    .eq("user_id", user.id); 
 
-    if (convoError) {
-      console.error(convoError);
-      return;
-    }
+  if (leadsError) {
+    console.error(leadsError);
+    return;
+  }
 
-    const grouped: Record<string, Lead[]> = {
-      new: [],
-      contacted: [],
-      booked: [],
-      closed: [],
-    };
+  // 3. Fetch conversations filtered by the user's ID
+  const { data: convoData, error: convoError } = await supabase
+    .from("conversations")
+    .select("*")
+    .eq("user_id", user.id);
 
-    leadsData?.forEach((lead) => {
-      grouped.booked.push({
+  if (convoError) {
+    console.error(convoError);
+    return;
+  }
+
+  const grouped: Record<string, Lead[]> = {
+    new: [],
+    contacted: [],
+    booked: [],
+    closed: [],
+  };
+
+  // Grouping logic remains the same, but now operates on filtered data
+  leadsData?.forEach((lead) => {
+    // Determine which column to push to based on lead.leads_status or default to booked
+    const status = lead.leads_status || "booked";
+    if (grouped[status]) {
+      grouped[status].push({
         id: lead.id,
         name: lead.name || "Lead",
         phone: lead.phone || lead.phone_number || "-",
         service: lead.service || "Lead",
-        leads_status: "booked",
+        leads_status: status,
         channel: lead.channel || "website",
       });
-    });
+    }
+  });
 
-    convoData?.forEach((conv: any) => {
-      const alreadyLead = leadsData?.find((l) => (l.phone || l.phone_number) === (conv.phone || conv.phone_number));
+  convoData?.forEach((conv: any) => {
+    const alreadyLead = leadsData?.find(
+      (l) => (l.phone || l.phone_number) === (conv.phone || conv.phone_number)
+    );
 
-      if (!alreadyLead) {
-        if (conv.name || conv.phone || conv.phone_number) {
-          grouped.contacted.push({
-            id: conv.id,
-            name: conv.name || "Unknown",
-            phone: conv.phone || conv.phone_number || "-",
-            service: "From Chat",
-            channel: conv.channel || "website",
-          });
-        } else {
-          grouped.new.push({
-            id: conv.id,
-            name: "New Visitor",
-            phone: "-",
-            service: "Chat Started",
-            channel: conv.channel || "website",
-          });
-        }
+    if (!alreadyLead) {
+      if (conv.name || conv.phone || conv.phone_number) {
+        grouped.contacted.push({
+          id: conv.id,
+          name: conv.name || "Unknown",
+          phone: conv.phone || conv.phone_number || "-",
+          service: "From Chat",
+          channel: conv.channel || "website",
+        });
+      } else {
+        grouped.new.push({
+          id: conv.id,
+          name: "New Visitor",
+          phone: "-",
+          service: "Chat Started",
+          channel: conv.channel || "website",
+        });
       }
-    });
+    }
+  });
 
-    setLeads(grouped);
-  }
+  setLeads(grouped);
+}
 
   const handleDragEnd = async (result: any) => {
     if (!result.destination) return;
