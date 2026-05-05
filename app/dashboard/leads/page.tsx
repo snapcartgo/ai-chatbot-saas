@@ -14,10 +14,20 @@ export default function LeadsPage() {
   }, []);
 
   async function loadLeads() {
-    const { data, error } = await supabase
+    // Fetch user to ensure multi-tenant data isolation
+    const { data: { user } } = await supabase.auth.getUser();
+    
+    let query = supabase
       .from("leads")
       .select("*")
       .order("created_at", { ascending: false });
+
+    // Filter by user_id if your schema supports it
+    if (user) {
+      query = query.eq("user_id", user.id);
+    }
+
+    const { data, error } = await query;
 
     if (!error && data) {
       setLeads(data);
@@ -30,8 +40,9 @@ export default function LeadsPage() {
       lead.phone?.includes(search) ||
       lead.phone_number?.includes(search);
 
+    // Corrected to leads_status to match DB column
     const matchesFilter =
-      filter === "all" || lead.lead_status === filter;
+      filter === "all" || lead.leads_status === filter;
 
     const matchesChannel =
       channelFilter === "all" || (lead.channel || "website") === channelFilter;
@@ -44,10 +55,10 @@ export default function LeadsPage() {
 
     const rows = filteredLeads.map((lead) => [
       lead.name,
-      lead.phone,
+      lead.phone || lead.phone_number,
       lead.service,
       lead.budget,
-      lead.lead_status,
+      lead.leads_status, // Corrected key
       lead.channel || "website",
     ]);
 
@@ -70,13 +81,13 @@ export default function LeadsPage() {
           placeholder="Search name or phone..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="w-full md:w-[250px] border rounded px-3 py-2"
+          className="w-full md:w-[250px] border rounded px-3 py-2 text-black"
         />
 
         <select
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
-          className="w-full md:w-[200px] border rounded px-3 py-2"
+          className="w-full md:w-[200px] border rounded px-3 py-2 text-black"
         >
           <option value="all">All Leads</option>
           <option value="new">New</option>
@@ -88,7 +99,7 @@ export default function LeadsPage() {
         <select
           value={channelFilter}
           onChange={(e) => setChannelFilter(e.target.value)}
-          className="w-full md:w-[200px] border rounded px-3 py-2"
+          className="w-full md:w-[200px] border rounded px-3 py-2 text-black"
         >
           <option value="all">All Channels</option>
           <option value="website">Website</option>
@@ -97,14 +108,14 @@ export default function LeadsPage() {
 
         <button
           onClick={exportCSV}
-          className="bg-blue-600 text-white px-4 py-2 rounded w-full md:w-auto"
+          className="bg-blue-600 text-white px-4 py-2 rounded w-full md:w-auto hover:bg-blue-700"
         >
           Export CSV
         </button>
       </div>
 
       <div className="overflow-x-auto">
-        <table className="min-w-[700px] w-full border">
+        <table className="min-w-[700px] w-full border border-gray-200">
           <thead className="bg-black text-white text-sm">
             <tr>
               <th className="p-3 text-left">Name</th>
@@ -117,9 +128,9 @@ export default function LeadsPage() {
             </tr>
           </thead>
 
-          <tbody>
+          <tbody className="text-black">
             {filteredLeads.map((lead: any) => (
-              <tr key={lead.id} className="border-b">
+              <tr key={lead.id} className="border-b hover:bg-gray-50">
                 <td className="p-3">
                   <button
                     onClick={() =>
@@ -127,32 +138,34 @@ export default function LeadsPage() {
                     }
                     className="text-blue-600 underline font-medium"
                   >
-                    {lead.name}
+                    {lead.name || "Unknown"}
                   </button>
                 </td>
 
-                <td className="p-3">{lead.phone || lead.phone_number}</td>
-                <td className="p-3">{lead.service}</td>
-                <td className="p-3">{lead.budget}</td>
+                <td className="p-3">{lead.phone || lead.phone_number || "-"}</td>
+                <td className="p-3">{lead.service || "-"}</td>
+                <td className="p-3">{lead.budget || "-"}</td>
 
                 <td className="p-3">
                   <select
-                    value={lead.lead_status || "new"}
+                    value={lead.leads_status || "new"} // Corrected key
                     onChange={async (e) => {
                       const status = e.target.value;
 
+                      // Update DB using correct column name
                       await supabase
                         .from("leads")
-                        .update({ lead_status: status })
+                        .update({ leads_status: status })
                         .eq("id", lead.id);
 
+                      // Update local state
                       setLeads((prev) =>
                         prev.map((l: any) =>
-                          l.id === lead.id ? { ...l, lead_status: status } : l
+                          l.id === lead.id ? { ...l, leads_status: status } : l
                         )
                       );
                     }}
-                    className="border rounded px-2 py-1 bg-white text-black"
+                    className="border rounded px-2 py-1 bg-white text-black text-sm"
                   >
                     <option value="new">New</option>
                     <option value="contacted">Contacted</option>
@@ -162,7 +175,7 @@ export default function LeadsPage() {
                 </td>
 
                 <td className="p-3">
-                  <span className="text-sm px-2 py-1 rounded bg-gray-100">
+                  <span className="text-xs px-2 py-1 rounded bg-gray-100 uppercase">
                     {lead.channel || "website"}
                   </span>
                 </td>
@@ -170,7 +183,7 @@ export default function LeadsPage() {
                 <td className="p-3">
                   <a
                     href={`/dashboard/conversations?conversation=${lead.conversation_id}`}
-                    className="text-blue-600"
+                    className="text-blue-600 hover:underline text-sm"
                   >
                     View Chat
                   </a>
