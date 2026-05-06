@@ -9,17 +9,23 @@ export default function BillingPage() {
 
   useEffect(() => {
     const getUserData = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
 
       if (!user) return;
 
       setUserEmail(user.email ?? null);
 
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("users")
         .select("country")
         .eq("id", user.id)
-        .single();
+        .maybeSingle();
+
+      if (error) {
+        console.error("Billing user lookup error:", error);
+      }
 
       setIsIndia(data?.country === "India");
     };
@@ -27,16 +33,13 @@ export default function BillingPage() {
     getUserData();
   }, []);
 
-  // =========================
-  // EXISTING PAYMENT (UNCHANGED)
-  // =========================
   const handlePayment = (
     planId: string,
     price: number,
     gateway: "payu" | "paypal"
   ) => {
     if (!userEmail) {
-      alert("User not logged in ❌");
+      alert("User not logged in");
       return;
     }
 
@@ -48,12 +51,9 @@ export default function BillingPage() {
     window.location.href = `/api/${gateway}?plan=${planId}&email=${userEmail}&amount=${price}`;
   };
 
-  // =========================
-  // 🆕 WHATSAPP PAYMENT
-  // =========================
   const handleWhatsAppPayment = (gateway: "payu" | "paypal") => {
     if (!userEmail) {
-      alert("User not logged in ❌");
+      alert("User not logged in");
       return;
     }
 
@@ -67,9 +67,6 @@ export default function BillingPage() {
     }`;
   };
 
-  // =========================
-  // PLANS (UNCHANGED)
-  // =========================
   const plans = [
     {
       name: "Starter",
@@ -126,31 +123,23 @@ export default function BillingPage() {
 
   return (
     <div className="p-4 md:p-8 bg-black min-h-screen text-white w-full">
-
-      <h1 className="text-xl md:text-3xl font-bold mb-2">
-        Billing Plans
-      </h1>
+      <h1 className="text-xl md:text-3xl font-bold mb-2">Billing Plans</h1>
 
       <p className="text-gray-400 mb-6 md:mb-8 text-sm md:text-base">
         Choose the plan that fits your business needs.
       </p>
 
-      {/* =========================
-          WEBSITE PLANS (UNCHANGED)
-      ========================= */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6 mb-10">
-
         {plans.map((plan) => (
           <div
             key={plan.name}
             className="border border-gray-800 rounded-2xl p-5 md:p-6 bg-gray-900 flex flex-col"
           >
-            <h2 className="text-lg md:text-2xl font-bold mb-1">
-              {plan.name}
-            </h2>
+            <h2 className="text-lg md:text-2xl font-bold mb-1">{plan.name}</h2>
 
             <p className="text-blue-500 font-bold text-lg md:text-xl mb-3">
-              {plan.currency}{plan.price}
+              {plan.currency}
+              {plan.price}
             </p>
 
             <p className="text-gray-400 mb-5 text-xs md:text-sm">
@@ -169,9 +158,7 @@ export default function BillingPage() {
 
             {isIndia && (
               <button
-                onClick={() =>
-                  handlePayment(plan.planId, plan.price, "payu")
-                }
+                onClick={() => handlePayment(plan.planId, plan.price, "payu")}
                 className="w-full bg-blue-600 py-2 md:py-3 rounded-xl font-bold mb-2 hover:bg-blue-700"
               >
                 Pay with PayU
@@ -179,9 +166,7 @@ export default function BillingPage() {
             )}
 
             <button
-              onClick={() =>
-                handlePayment(plan.planId, plan.price, "paypal")
-              }
+              onClick={() => handlePayment(plan.planId, plan.price, "paypal")}
               className="w-full border border-gray-700 py-2 md:py-3 rounded-xl font-bold hover:bg-gray-800"
             >
               Pay with PayPal
@@ -190,11 +175,7 @@ export default function BillingPage() {
         ))}
       </div>
 
-      {/* =========================
-          🆕 WHATSAPP ADD-ON
-      ========================= */}
       <div className="max-w-xl mx-auto border border-green-700 rounded-2xl p-6 bg-gray-900">
-
         <h2 className="text-2xl font-bold mb-2 text-green-400">
           WhatsApp Automation
         </h2>
@@ -229,7 +210,6 @@ export default function BillingPage() {
         >
           Enable via PayPal
         </button>
-
       </div>
     </div>
   );

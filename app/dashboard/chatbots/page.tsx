@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 
-// Types
 type BotRow = {
   id: string;
   name: string;
@@ -14,6 +13,8 @@ type BotRow = {
   active: boolean;
   category?: string | null;
   workflow_type?: string | null;
+  source?: string | null;
+  is_system?: boolean | null;
 };
 
 type WhatsAppConfigRow = {
@@ -23,16 +24,9 @@ type WhatsAppConfigRow = {
   default_prompt: string | null;
 };
 
-type WhatsAppSubscription = {
-  status: string;
-  plan: string;
-  expires_at: string | null;
-};
-
 export default function ChatbotsPage() {
   const [bots, setBots] = useState<BotRow[]>([]);
   const [whatsappConfig, setWhatsappConfig] = useState<WhatsAppConfigRow | null>(null);
-  const [whatsappSub, setWhatsappSub] = useState<WhatsAppSubscription | null>(null);
   const [chatbotLimit, setChatbotLimit] = useState<number>(0);
   const [loading, setLoading] = useState(true);
 
@@ -45,7 +39,9 @@ export default function ChatbotsPage() {
   const loadData = async () => {
     setLoading(true);
 
-    const { data: { session } } = await supabase.auth.getSession();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
 
     if (!session) {
       router.push("/login");
@@ -54,40 +50,40 @@ export default function ChatbotsPage() {
 
     const user = session.user;
 
-    // 1. Load Website Chatbots
-    const { data: botData } = await supabase
+    const { data: botData, error: botError } = await supabase
       .from("chatbots")
       .select("*")
       .eq("user_id", user.id)
+      .or("workflow_type.is.null,workflow_type.neq.whatsapp_only")
       .order("created_at", { ascending: true });
 
-    const filteredBots = (botData || []).filter(
-      (bot) => bot.workflow_type !== "whatsapp_only"
-    );
-    setBots(filteredBots as BotRow[]);
+    if (botError) {
+      console.error("Load bots error:", botError);
+    }
 
-    // 2. Load WhatsApp Configuration (from whatsapp_configs)
-    const { data: whatsappData } = await supabase
+    setBots((botData || []) as BotRow[]);
+
+    const { data: whatsappData, error: whatsappError } = await supabase
       .from("whatsapp_configs")
       .select("id, phone_number, automation_enabled, default_prompt")
       .eq("user_id", user.id)
       .maybeSingle();
-    setWhatsappConfig(whatsappData as WhatsAppConfigRow | null);
 
-    // 3. Load WhatsApp Subscription (from whatsapp_subscriptions)
-    const { data: subData } = await supabase
-      .from("whatsapp_subscriptions")
-      .select("status, plan, expires_at")
-      .eq("user_id", user.id)
-      .maybeSingle();
-    setWhatsappSub(subData as WhatsAppSubscription | null);
+    if (whatsappError) {
+      console.error("Load WhatsApp config error:", whatsappError);
+    }
 
-    // 4. Load Global Subscription Limits
-    const { data: subscription } = await supabase
+    setWhatsappConfig((whatsappData || null) as WhatsAppConfigRow | null);
+
+    const { data: subscription, error: subError } = await supabase
       .from("subscriptions")
       .select("chatbot_limit")
       .eq("calendar_id", user.email)
       .single();
+
+    if (subError) {
+      console.error("Subscription error:", subError);
+    }
 
     if (subscription) {
       setChatbotLimit(subscription.chatbot_limit);
@@ -96,17 +92,15 @@ export default function ChatbotsPage() {
     setLoading(false);
   };
 
-  // Logic to check if the user has an active, paid monthly plan
-  const isWhatsAppActive = 
-    whatsappSub?.status === 'active' && 
-    whatsappSub?.expires_at && 
-    new Date(whatsappSub.expires_at) > new Date();
-
   const createBot = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
     if (!user) return;
 
     const limit = chatbotLimit || 2;
+
     if (bots.length >= limit) {
       alert(`Limit reached: Your plan allows ${limit} chatbots.`);
       return;
@@ -120,11 +114,36 @@ export default function ChatbotsPage() {
       user_id: user.id,
       active: true,
       category: "booking",
-      workflow_type: null,
     });
 
-    if (!error) await loadData();
+    if (error) {
+      console.error("Create bot error:", error);
+      alert(error.message || "Error creating chatbot");
+      return;
+    }
+
+    const { data: latestBot, error: latestError } = await supabase
+      .from("chatbots")
+      .select("id")
+      .eq("user_id", user.id)
+      .or("workflow_type.is.null,workflow_type.neq.whatsapp_only")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (latestError) {
+      console.error("Latest bot lookup error:", latestError);
+    }
+
+    if (latestBot?.id) {
+      router.push(`/dashboard/chatbots/${latestBot.id}`);
+      return;
+    }
+
+    await loadData();
   };
+
+  const whatsappEnabled = !!whatsappConfig?.automation_enabled;
 
   return (
     <div style={{ padding: "20px" }}>
@@ -145,11 +164,12 @@ export default function ChatbotsPage() {
         </button>
 
         <div>
-          <p>Website Chatbots: {bots.length} / {chatbotLimit || 2}</p>
+          <p>
+            Website Chatbots: {bots.length} / {chatbotLimit || 2}
+          </p>
         </div>
       </div>
 
-      {/* WhatsApp Channel Card */}
       <div style={{ display: "grid", gap: "16px", marginBottom: "24px" }}>
         <div
           style={{
@@ -160,61 +180,26 @@ export default function ChatbotsPage() {
           }}
         >
           <h3 style={{ marginBottom: 8 }}>WhatsApp Channel</h3>
-          
-          <p>
-            Status: 
-            <span style={{ 
-              marginLeft: "8px", 
-              fontWeight: "bold", 
-              color: isWhatsAppActive ? "#10b981" : "#ef4444" 
-            }}>
-              {isWhatsAppActive ? "Active" : "Inactive"}
-            </span>
-          </p>
-
+          <p>Status: {whatsappEnabled ? "Enabled" : "Not configured"}</p>
           <p>Number: {whatsappConfig?.phone_number || "Not set"}</p>
-          
-          {isWhatsAppActive && whatsappSub?.expires_at && (
-            <p style={{ fontSize: "12px", color: "#9ca3af", marginTop: "4px" }}>
-              Plan expires on: {new Date(whatsappSub.expires_at).toLocaleDateString()}
-            </p>
-          )}
-
           <div style={{ marginTop: 12 }}>
-            {isWhatsAppActive ? (
-              <Link
-                href="/dashboard/settings/whatsapp"
-                style={{
-                  display: "inline-block",
-                  padding: "8px 14px",
-                  background: "#2563eb",
-                  color: "white",
-                  borderRadius: 6,
-                  textDecoration: "none",
-                }}
-              >
-                Configure WhatsApp
-              </Link>
-            ) : (
-              <Link
-                href="/dashboard/Billing"
-                style={{
-                  display: "inline-block",
-                  padding: "8px 14px",
-                  background: "#f59e0b",
-                  color: "white",
-                  borderRadius: 6,
-                  textDecoration: "none",
-                }}
-              >
-                Buy WhatsApp Bot
-              </Link>
-            )}
+            <Link
+              href="/dashboard/settings/whatsapp"
+              style={{
+                display: "inline-block",
+                padding: "8px 14px",
+                background: "#2563eb",
+                color: "white",
+                borderRadius: 6,
+                textDecoration: "none",
+              }}
+            >
+              Configure WhatsApp
+            </Link>
           </div>
         </div>
       </div>
 
-      {/* Website Chatbots List */}
       {loading ? (
         <p>Loading...</p>
       ) : bots.length === 0 ? (
