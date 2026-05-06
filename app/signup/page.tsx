@@ -18,7 +18,6 @@ export default function Signup() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
 
-    // Referral
     const refFromUrl = params.get("ref");
     const refFromStorage = localStorage.getItem("referral");
 
@@ -29,15 +28,13 @@ export default function Signup() {
       setReferralCode(refFromStorage);
     }
 
-    // Demo tracking (🔥 important)
     const demo = localStorage.getItem("demo_type");
     if (demo) {
       setDemoType(demo);
-      console.log("User came from demo:", demo);
     }
   }, []);
 
-  // ✅ Email Signup
+  // ✅ Email Signup (Corrected for Referral/Client Role)
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -46,16 +43,19 @@ export default function Signup() {
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
+        options: {
+          data: {
+            role: "client", // 🔥 Mark as client, not partner
+            referred_by: referralCode, // 🔥 Link to partner
+            demo_type: demoType,
+          },
+        },
       });
 
       if (error) throw error;
 
       alert("Signup successful 🎉");
-
-      // Optional: store demo type in DB later
-      // You can insert into users table here if needed
-
-      router.push("/redirect"); // ✅ go to redirect logic
+      router.push("/redirect"); 
     } catch (err: any) {
       alert(err.message);
     } finally {
@@ -63,7 +63,8 @@ export default function Signup() {
     }
   };
 
-  // ✅ Google Signup
+  // ✅ Google Signup (Corrected for Referral/Client Role)
+  // ✅ Google Signup (Corrected for Auth Helpers)
   const handleGoogleSignup = async () => {
     try {
       const redirectUrl =
@@ -71,12 +72,17 @@ export default function Signup() {
           ? "http://localhost:3000/redirect"
           : `${window.location.origin}/redirect`;
 
-      await supabase.auth.signInWithOAuth({
-        provider: "google",
-        options: {
-          redirectTo: redirectUrl,
-        },
-      });
+      // Inside handleGoogleSignup
+await supabase.auth.signInWithOAuth({
+  provider: "google",
+  options: {
+    redirectTo: redirectUrl,
+    queryParams: {
+      role: "client",
+      referred_by: referralCode || "", // Ensure this is current
+    },
+  },
+});
     } catch (err: any) {
       alert("Google signup failed");
     }
@@ -85,20 +91,14 @@ export default function Signup() {
   return (
     <main className="min-h-screen flex items-center justify-center bg-gray-950 text-white px-4">
       <div className="bg-gray-900 p-10 rounded-xl w-full max-w-md shadow-lg">
+        <h1 className="text-2xl font-bold mb-2">Create your account</h1>
 
-        {/* TITLE */}
-        <h1 className="text-2xl font-bold mb-2">
-          Create your account
-        </h1>
-
-        {/* 🔥 Demo personalization */}
         {demoType && (
           <p className="text-sm text-gray-400 mb-4">
             Setting up your <b>{demoType}</b> chatbot 🚀
           </p>
         )}
 
-        {/* GOOGLE */}
         <button
           onClick={handleGoogleSignup}
           className="w-full bg-white text-black p-3 rounded mb-4 font-medium"
@@ -106,13 +106,12 @@ export default function Signup() {
           Continue with Google
         </button>
 
-        {/* FORM */}
         <form onSubmit={handleSignup}>
           <input
             type="email"
             placeholder="Email"
             required
-            className="w-full p-3 mb-3 bg-gray-800 rounded"
+            className="w-full p-3 mb-3 bg-gray-800 rounded outline-none focus:ring-1 focus:ring-blue-500"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
           />
@@ -121,7 +120,7 @@ export default function Signup() {
             type="password"
             placeholder="Password"
             required
-            className="w-full p-3 mb-3 bg-gray-800 rounded"
+            className="w-full p-3 mb-3 bg-gray-800 rounded outline-none focus:ring-1 focus:ring-blue-500"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
           />
@@ -129,16 +128,15 @@ export default function Signup() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-blue-600 p-3 rounded font-bold hover:bg-blue-700 transition"
+            className="w-full bg-blue-600 p-3 rounded font-bold hover:bg-blue-700 transition disabled:opacity-50"
           >
             {loading ? "Creating account..." : "Start Free Trial"}
           </button>
         </form>
 
-        {/* LOGIN */}
         <p className="mt-4 text-sm text-gray-400">
           Already have an account?{" "}
-          <Link href="/login" className="text-blue-400">
+          <Link href="/login" className="text-blue-400 hover:underline">
             Login
           </Link>
         </p>

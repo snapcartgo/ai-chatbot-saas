@@ -14,7 +14,6 @@ export default function PartnerPage() {
   const [creatingPartner, setCreatingPartner] = useState(false);
   const [createError, setCreateError] = useState("");
 
-  // 🔥 NEW STATES (IMPORTANT)
   const [demoType, setDemoType] = useState<"booking" | "ecommerce">("booking");
   const [industry, setIndustry] = useState("dentist");
 
@@ -39,17 +38,23 @@ export default function PartnerPage() {
 
       setCurrentUser(user);
 
-      const { data: partnerData } = await supabase
+      const { data: partnerData, error: partnerError } = await supabase
         .from("partners")
         .select("*")
         .eq("user_id", user.id)
         .maybeSingle();
 
+      if (partnerError) {
+        console.error("Partner load error:", partnerError);
+        setLoading(false);
+        return;
+      }
+
       if (partnerData) {
         setPartner(partnerData);
         setIsPartner(true);
 
-        const { data: refData } = await supabase
+        const { data: refData, error: refError } = await supabase
           .from("referrals")
           .select(`
             id,
@@ -59,12 +64,21 @@ export default function PartnerPage() {
             payment_status,
             purchased_plan,
             created_at,
+            status,
             commissions:commissions!left(status,payout_date)
           `)
-          .or(`partner_id.eq.${partnerData.id},partner_id.eq.${partnerData.referral_code}`)
+          .eq("partner_id", partnerData.id)
           .order("created_at", { ascending: false });
 
+        if (refError) {
+          console.error("Referral load error:", refError);
+        }
+
         setReferrals(refData || []);
+      } else {
+        setPartner(null);
+        setIsPartner(false);
+        setReferrals([]);
       }
 
       setLoading(false);
@@ -128,8 +142,7 @@ export default function PartnerPage() {
     setCreatingPartner(false);
   };
 
-  // 🔥 DEMO LINKS LOGIC
-  const bookingLinks: any = {
+  const bookingLinks: Record<string, string> = {
     dentist: "/demos/dentist",
     salon: "/demos/salon",
     "real-estate": "/demos/real-estate",
@@ -196,15 +209,11 @@ export default function PartnerPage() {
   return (
     <main className="min-h-screen bg-black text-white p-4 md:p-8 w-full">
       <div className="max-w-6xl mx-auto">
-
-        {/* HEADER */}
         <div className="mb-6">
           <h1 className="text-3xl font-bold">Partner Dashboard</h1>
-          <p className="text-blue-500">
-            Welcome, {partner.business_name}
-          </p>
+          <p className="text-blue-500">Welcome, {partner.business_name}</p>
           <p className="text-sm text-gray-400 mt-2">
-            💰 Share your referral link or demo pages with businesses.
+            Share your referral link or demo pages with businesses.
             Earn recurring commission every month when they subscribe.
           </p>
           <p className="text-xs text-gray-400 mt-1">
@@ -212,7 +221,6 @@ export default function PartnerPage() {
           </p>
         </div>
 
-        {/* STATS */}
         <div className="grid md:grid-cols-3 gap-4 mb-8">
           <div className="bg-gray-900 p-5 rounded-xl">
             <p className="text-gray-400 text-xs">Total Referrals</p>
@@ -234,7 +242,6 @@ export default function PartnerPage() {
           </div>
         </div>
 
-        {/* REFERRAL LINK */}
         <div className="bg-gray-900 p-5 rounded-xl mb-8">
           <p className="text-gray-400 text-xs mb-2">Referral Link</p>
 
@@ -257,9 +264,8 @@ export default function PartnerPage() {
           </div>
         </div>
 
-        {/* 🔥 DEMO SECTION */}
         <div className="p-6 bg-[#0f172a] rounded-xl mb-8">
-          <h2 className="text-xl font-semibold mb-4">🔗 Demo Pages</h2>
+          <h2 className="text-xl font-semibold mb-4">Demo Pages</h2>
 
           <div className="flex gap-4 mb-4">
             <button
@@ -305,7 +311,6 @@ export default function PartnerPage() {
             </button>
           </div>
 
-          {/* WhatsApp Share */}
           <a
             href={`https://wa.me/?text=${encodeURIComponent(
               `Check this AI demo:\n${fullLink}`
@@ -317,7 +322,6 @@ export default function PartnerPage() {
           </a>
         </div>
 
-        {/* TABLE */}
         <div className="overflow-x-auto bg-gray-900 rounded-xl">
           <table className="w-full text-sm">
             <thead className="text-gray-400">
@@ -328,6 +332,7 @@ export default function PartnerPage() {
                 <th className="p-3 text-left">Commission</th>
                 <th className="p-3 text-left">Payment</th>
                 <th className="p-3 text-left">Payout</th>
+                <th className="p-3 text-left">Referral Status</th>
               </tr>
             </thead>
 
@@ -335,21 +340,21 @@ export default function PartnerPage() {
               {referrals.map((ref) => (
                 <tr key={ref.id} className="border-t border-gray-800">
                   <td className="p-3">{ref.referred_email}</td>
-                  <td className="p-3">{ref.purchased_plan}</td>
+                  <td className="p-3">{ref.purchased_plan || "-"}</td>
                   <td className="p-3">{formatINR(ref.amount)}</td>
                   <td className="p-3 text-green-400">
                     {formatINR(ref.commission_amount)}
                   </td>
-                  <td className="p-3">{ref.payment_status}</td>
+                  <td className="p-3">{ref.payment_status || "pending"}</td>
                   <td className="p-3">
                     {ref.commissions?.[0]?.status || "pending"}
                   </td>
+                  <td className="p-3">{ref.status || "pending"}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-
       </div>
     </main>
   );
