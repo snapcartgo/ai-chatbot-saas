@@ -1,13 +1,20 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type ClipboardEvent,
+  type ReactNode,
+} from "react";
 import { supabase } from "@/lib/supabase";
 
 interface ChatWidgetProps {
   chatbotId?: string;
   isEmbed?: boolean;
   plan?: string;
-  niche?: string; 
+  niche?: string;
 }
 
 type Message = {
@@ -15,17 +22,66 @@ type Message = {
   content: string;
   actionUrl?: string;
   actionLabel?: string;
+  imagePreviewUrl?: string;
+  imageName?: string;
 };
 
-// --- CONFIGURATION ---
+type EnterpriseImageAttachment = {
+  name: string;
+  type: string;
+  dataUrl: string;
+};
+
+type SpeechRecognitionAlternativeLite = {
+  transcript: string;
+};
+
+type SpeechRecognitionResultLite = {
+  0: SpeechRecognitionAlternativeLite;
+  length: number;
+};
+
+type SpeechRecognitionResultListLite = {
+  [index: number]: SpeechRecognitionResultLite;
+  length: number;
+};
+
+type SpeechRecognitionEventLite = {
+  results: SpeechRecognitionResultListLite;
+};
+
+type BrowserSpeechRecognition = {
+  lang: string;
+  interimResults: boolean;
+  continuous: boolean;
+  onstart: (() => void) | null;
+  onresult: ((event: SpeechRecognitionEventLite) => void) | null;
+  onerror: (() => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+
+type SpeechRecognitionCtor = new () => BrowserSpeechRecognition;
+
+declare global {
+  interface Window {
+    webkitSpeechRecognition?: SpeechRecognitionCtor;
+    SpeechRecognition?: SpeechRecognitionCtor;
+  }
+}
 
 const PROMPTS: Record<string, string> = {
-  // FIX: Added eCommerce prompt to stop the AI from thinking it's a SaaS bot
-  ecommerce: "You are a Retail Assistant for an eCommerce store. You only sell physical products like T-shirts. If you see a price of ₹2, it is a promotional product price. DO NOT mention SaaS billing, plans, or subscriptions.",
-  dentist: "You are a professional dental assistant for SmileCare. Your goal is to triage dental pain and book cleanings. Be clinical, clean, and reassuring.",
-  salon: "You are a beauty concierge for Luxe & Gloss. Help clients choose between styling services or simple trims. Use friendly, upbeat language.",
-  'real-estate': "You are a high-end property consultant. Focus on qualifying leads by asking for their budget and locations before booking a viewing.",
-  general: "You are a helpful AI assistant. Answer questions clearly and professionally."
+  ecommerce:
+    "You are a Retail Assistant for an eCommerce store. You only sell physical products like T-shirts. If you see a price of ₹2, it is a promotional product price. DO NOT mention SaaS billing, plans, or subscriptions.",
+  dentist:
+    "You are a professional dental assistant for SmileCare. Your goal is to triage dental pain and book cleanings. Be clinical, clean, and reassuring.",
+  salon:
+    "You are a beauty concierge for Luxe & Gloss. Help clients choose between styling services or simple trims. Use friendly, upbeat language.",
+  "real-estate":
+    "You are a high-end property consultant. Focus on qualifying leads by asking for their budget and locations before booking a viewing.",
+  general:
+    "You are a helpful AI assistant. Answer questions clearly and professionally.",
 };
 
 const EXTERNAL_PAYMENT_HOSTS = new Set([
@@ -38,8 +94,6 @@ const EXTERNAL_PAYMENT_HOSTS = new Set([
 ]);
 
 const PLAIN_URL_REGEX = /\bhttps?:\/\/[^\s<>"']+/gi;
-
-// --- UTILS ---
 
 function sanitizeHttpUrl(raw: string): string | null {
   try {
@@ -108,7 +162,17 @@ function renderTextWithLinks(text: string) {
       }
     }
   }
+
   return nodes;
+}
+
+async function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("Failed to read image"));
+    reader.readAsDataURL(file);
+  });
 }
 
 export default function ChatWidget({
@@ -122,9 +186,16 @@ export default function ChatWidget({
   const [isLoading, setIsLoading] = useState(false);
   const [botCategory, setBotCategory] = useState("booking");
   const [open, setOpen] = useState(isEmbed);
+  const [isRecording, setIsRecording] = useState(false);
+  const [enterpriseImage, setEnterpriseImage] =
+    useState<EnterpriseImageAttachment | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
+
   const activeBotId = chatbotId || "9ff1f58c-d09d-4449-97cc-a5860b640e2c";
+  const isEnterprisePlan = String(plan || "").toLowerCase() === "enterprise";
 
   useEffect(() => {
     const loadBot = async () => {
@@ -146,7 +217,12 @@ export default function ChatWidget({
         ]);
       } catch (err) {
         console.error("Load error:", err);
-        setMessages([{ role: "assistant", content: "Hello! How can I help you today?" }]);
+        setMessages([
+          {
+            role: "assistant",
+            content: "Hello! How can I help you today?",
+          },
+        ]);
       }
     };
 
@@ -159,8 +235,114 @@ export default function ChatWidget({
     }
   }, [messages, isLoading]);
 
+  useEffect(() => {
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+    };
+  }, []);
+
+  const toggleVoiceRecognition = () => {
+    if (!isEnterprisePlan || isLoading) return;
+
+    const RecognitionCtor =
+      window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    if (!RecognitionCtor) {
+      window.alert("Speech-to-text is not supported in this browser.");
+      return;
+    }
+
+    if (isRecording && recognitionRef.current) {
+      recognitionRef.current.stop();
+      return;
+    }
+
+    const recognition = new RecognitionCtor();
+    recognition.lang = "en-IN";
+    recognition.interimResults = true;
+    recognition.continuous = false;
+
+    recognition.onstart = () => {
+      recognitionRef.current = recognition;
+      setIsRecording(true);
+    };
+
+    recognition.onresult = (event: SpeechRecognitionEventLite) => {
+      const transcript = Array.from(
+        { length: event.results.length },
+        (_, index) => event.results[index]?.[0]?.transcript || ""
+      )
+        .join(" ")
+        .trim();
+
+      setUserInput(transcript);
+    };
+
+    recognition.onerror = () => {
+      setIsRecording(false);
+    };
+
+    recognition.onend = () => {
+      setIsRecording(false);
+      recognitionRef.current = null;
+    };
+
+    recognition.start();
+  };
+
+  const attachImageFile = async (file: File) => {
+    if (!file.type.startsWith("image/")) {
+      window.alert("Please upload an image file only.");
+      return;
+    }
+
+    const dataUrl = await fileToDataUrl(file);
+
+    setEnterpriseImage({
+      name: file.name,
+      type: file.type,
+      dataUrl,
+    });
+  };
+
+  const handleImageSelection = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    await attachImageFile(file);
+    event.target.value = "";
+  };
+
+  const handlePaste = async (event: ClipboardEvent<HTMLInputElement>) => {
+    if (!isEnterprisePlan) return;
+
+    const items = event.clipboardData?.items;
+    if (!items?.length) return;
+
+    for (const item of Array.from(items)) {
+      if (item.type.startsWith("image/")) {
+        const file = item.getAsFile();
+        if (file) {
+          event.preventDefault();
+          await attachImageFile(file);
+          return;
+        }
+      }
+    }
+  };
+
+  const clearImageAttachment = () => {
+    setEnterpriseImage(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
   const handleSendMessage = async () => {
-    if (isLoading || !userInput.trim()) return;
+    const trimmedInput = userInput.trim();
+    if (isLoading || (!trimmedInput && !enterpriseImage)) return;
 
     let uniqueSessionId = localStorage.getItem(`chat_session_${activeBotId}`);
     if (!uniqueSessionId) {
@@ -171,24 +353,39 @@ export default function ChatWidget({
       localStorage.setItem(`chat_session_${activeBotId}`, uniqueSessionId);
     }
 
-    const currentInput = userInput.trim();
-    
+    const messageText =
+      trimmedInput || `Image attached: ${enterpriseImage?.name || "Untitled image"}`;
+
     const payload = {
-      message: currentInput,
+      message: messageText,
       bot_id: activeBotId,
       conversation_id: uniqueSessionId,
       category: botCategory,
-      niche: niche,
-      system_instructions: PROMPTS[niche] || PROMPTS.general, 
+      niche,
+      system_instructions: PROMPTS[niche] || PROMPTS.general,
+      image_name: enterpriseImage?.name || null,
+      image_type: enterpriseImage?.type || null,
+      image_data_url: enterpriseImage?.dataUrl || null,
+      channel: "website",
     };
 
-    const newMessages: Message[] = [...messages, { role: "user", content: currentInput }];
+    const newMessages: Message[] = [
+      ...messages,
+      {
+        role: "user",
+        content: messageText,
+        imagePreviewUrl: enterpriseImage?.dataUrl,
+        imageName: enterpriseImage?.name,
+      },
+    ];
+
     setMessages(newMessages);
     setUserInput("");
+    setEnterpriseImage(null);
     setIsLoading(true);
 
     try {
-      const response = await fetch("https://ai-chatbot-saas-five.vercel.app/api/chat", {
+      const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -199,62 +396,47 @@ export default function ChatWidget({
           ...newMessages,
           {
             role: "assistant",
-            content: "⚠️ Too many messages. Please wait a few seconds before trying again.",
+            content:
+              "Too many messages. Please wait a few seconds before trying again.",
           },
         ]);
         return;
       }
 
-      let data;
-      try {
-        data = await response.json();
-      } catch {
-        throw new Error("Invalid server response");
-      }
+      const data = await response.json();
 
       if (!response.ok) {
         throw new Error(data?.reply || "Server Error");
       }
 
-      // Find this section inside handleSendMessage and replace it:
+      const safeActionUrl =
+        typeof data.redirect_url === "string"
+          ? sanitizeHttpUrl(data.redirect_url)
+          : null;
 
-// 1. Get the URL from n8n
-// Inside handleSendMessage, after const data = await response.json();
+      let actionLabel: string | undefined;
 
-const safeActionUrl =
-  typeof data.redirect_url === "string"
-    ? sanitizeHttpUrl(data.redirect_url)
-    : null;
+      if (safeActionUrl) {
+        const lowerUrl = safeActionUrl.toLowerCase();
 
-let actionLabel: string | undefined;
+        if (niche === "ecommerce") {
+          actionLabel = "Buy Now";
+        } else if (lowerUrl.includes("/contact")) {
+          actionLabel = "Contact Us";
+        } else {
+          actionLabel = "Open Page";
+        }
+      }
 
-if (safeActionUrl) {
-  const lowerUrl = safeActionUrl.toLowerCase();
-  const lowerReply = (data.reply || "").toLowerCase();
-
-  // 1. STRICT OVERRIDE: If the niche is eCommerce, force the label to "Buy Now"
-  // This prevents the code from checking for "billing" keywords.
-  if (niche === "ecommerce") {
-    actionLabel = "Buy Now";
-  } 
-   
-  else if (lowerUrl.includes("/contact")) {
-    actionLabel = "Contact Us";
-  } 
-  else {
-    actionLabel = "Open Page";
-  }
-}
-
-setMessages([
-  ...newMessages,
-  {
-    role: "assistant",
-    content: data.reply || "I received your message but have no response.",
-    actionUrl: safeActionUrl || undefined,
-    actionLabel: actionLabel, // Now using the niche-aware label
-  },
-]);
+      setMessages([
+        ...newMessages,
+        {
+          role: "assistant",
+          content: data.reply || "I received your message but have no response.",
+          actionUrl: safeActionUrl || undefined,
+          actionLabel,
+        },
+      ]);
     } catch (error) {
       console.error("Chat Error:", error);
       setMessages([
@@ -274,6 +456,31 @@ setMessages([
     if (!safe) return;
     window.open(safe, "_blank", "noopener,noreferrer");
   };
+
+  const IconButton = ({
+    onClick,
+    title,
+    active = false,
+    children,
+  }: {
+    onClick: () => void;
+    title: string;
+    active?: boolean;
+    children: ReactNode;
+  }) => (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      className={`flex h-10 w-10 items-center justify-center rounded-full border transition ${
+        active
+          ? "border-red-300 bg-red-50 text-red-600 shadow-sm"
+          : "border-blue-200 bg-white text-blue-600 hover:bg-blue-50"
+      }`}
+    >
+      {children}
+    </button>
+  );
 
   const chatPanel = (
     <div
@@ -295,12 +502,15 @@ setMessages([
         )}
       </div>
 
-      <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto bg-gray-50 p-3 overscroll-contain">
+      <div
+        ref={scrollRef}
+        className="flex-1 space-y-3 overflow-y-auto bg-gray-50 p-3 overscroll-contain"
+      >
         {messages.map((m, i) => {
           const { safeUrl, cleanText } = processMessageContent(m.content);
           const actionUrl = m.actionUrl || safeUrl;
-          // FIX: Default to "Buy Now" for eCommerce here too
-          const actionLabel = m.actionLabel || (niche === "ecommerce" ? "Buy Now" : "Open Page");
+          const actionLabel =
+            m.actionLabel || (niche === "ecommerce" ? "Buy Now" : "Open Page");
 
           return (
             <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
@@ -312,6 +522,21 @@ setMessages([
                 <div>
                   {safeUrl ? "Click below to complete your order:" : renderTextWithLinks(cleanText)}
                 </div>
+
+                {m.imagePreviewUrl && (
+                  <div className="mt-2 overflow-hidden rounded-lg border border-gray-200 bg-white">
+                    <img
+                      src={m.imagePreviewUrl}
+                      alt={m.imageName || "Uploaded image"}
+                      className="max-h-40 w-full object-cover"
+                    />
+                    {m.imageName && (
+                      <div className="border-t border-gray-200 px-2 py-1 text-[10px] text-gray-500">
+                        {m.imageName}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {actionUrl && (
                   <div className="mt-2">
@@ -329,17 +554,93 @@ setMessages([
           );
         })}
 
-        {isLoading && <div className="animate-pulse text-xs text-gray-400">Assistant is typing...</div>}
+        {isLoading && (
+          <div className="animate-pulse text-xs text-gray-400">
+            Assistant is typing...
+          </div>
+        )}
       </div>
 
       <div className="shrink-0 border-t bg-white p-2">
+        {isEnterprisePlan && (
+          <div className="mb-2 flex items-center gap-2">
+            <IconButton
+              onClick={() => fileInputRef.current?.click()}
+              title="Upload image"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-5 w-5"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
+                <rect x="3" y="5" width="18" height="14" rx="2" />
+                <circle cx="8.5" cy="10.5" r="1.5" />
+                <path d="M21 15l-5-5L5 21" />
+              </svg>
+            </IconButton>
+
+            <IconButton
+              onClick={toggleVoiceRecognition}
+              title={isRecording ? "Stop voice input" : "Voice to text"}
+              active={isRecording}
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-5 w-5"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
+                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                <path d="M19 10a7 7 0 0 1-14 0" />
+                <path d="M12 19v4" />
+                <path d="M8 23h8" />
+              </svg>
+            </IconButton>
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleImageSelection}
+            />
+
+            <div className="text-[11px] text-blue-700">
+              Enterprise tools
+            </div>
+          </div>
+        )}
+
+        {isEnterprisePlan && enterpriseImage && (
+          <div className="mb-2 flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-2 py-2 text-[11px] text-gray-600">
+            <span className="truncate pr-2">Attached: {enterpriseImage.name}</span>
+            <button
+              type="button"
+              onClick={clearImageAttachment}
+              className="rounded bg-white px-2 py-1 text-gray-500 hover:text-red-600"
+            >
+              Remove
+            </button>
+          </div>
+        )}
+
         <div className="flex gap-2">
           <input
             type="text"
             value={userInput}
             onChange={(e) => setUserInput(e.target.value)}
+            onPaste={handlePaste}
             onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
-            placeholder="Type your message..."
+            placeholder={
+              isEnterprisePlan
+                ? "Type, paste image, speak, or upload image..."
+                : "Type your message..."
+            }
             className="flex-1 rounded-md border px-3 py-2 text-xs text-black focus:outline-none focus:ring-2 focus:ring-blue-500 md:text-sm"
           />
           <button

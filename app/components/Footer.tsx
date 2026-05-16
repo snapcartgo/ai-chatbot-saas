@@ -46,7 +46,7 @@ export default function Footer() {
       </div>
 
       <div className="max-w-7xl mx-auto px-6 mt-16 pt-8 border-t border-gray-900 text-center text-gray-600 text-xs">
-        © {currentYear} AI Chatbot SaaS. All rights reserved.
+        © {currentYear} AI Chatbot SaaS - powered by woodpetra. All rights reserved.
       </div>
     </footer>
   );

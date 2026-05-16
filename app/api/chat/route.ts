@@ -57,6 +57,9 @@ export async function POST(req: Request) {
     const channel = body.channel === "whatsapp" ? "whatsapp" : "website";
 
     const { user_id, product_name, price, email, order_id } = body;
+    const image_name = body.image_name || null;
+    const image_type = body.image_type || null;
+    const image_data_url = body.image_data_url || null;
 
     if (!message || !bot_id) {
       return NextResponse.json(
@@ -132,6 +135,9 @@ export async function POST(req: Request) {
         category,
         channel,
         user_id,
+        image_name,
+        image_type,
+        image_data_url,
       }),
     });
 
