@@ -1,9 +1,11 @@
 import ChatWidget from "@/app/components/ChatWidget";
 import { createClient } from "@supabase/supabase-js";
 
-export const metadata = {
-  viewport: "width=device-width, initial-scale=1",
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
 };
+
 // This tells Vercel NOT to cache this page so every Client ID works
 export const dynamic = "force-dynamic";
 

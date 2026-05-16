@@ -110,14 +110,33 @@ export default function BillingPage() {
       bots: "5 AI Chatbots",
       knowledgeBase: "100 MB",
       features: [
-        "Advanced CRM (Leads + Pipeline + Orders)",
+        "Advanced CRM (Leads + Pipeline)",
         "Auto Lead Assignment",
         "Advanced Automation Workflows",
         "Cart Recovery & Follow-ups",
-        "Advanced Analytics & Conversion Tracking",
-        "Priority Support + Faster Response",
+        "Advanced Analytics",
+        "Priority Support",
       ],
       planId: "growth",
+    },
+    {
+      name: "Enterprise",
+      price: isIndia ? 15000 : 299,
+      currency: isIndia ? "₹" : "$",
+      description: "Advanced Multimodal AI Solution",
+      messages: "20000 AI Messages / month",
+      bots: "10 AI Chatbots",
+      knowledgeBase: "200 MB",
+      features: [
+        "Instant Image & Voice Understanding",
+        "Auto-Detect Multilingual Support",
+        "Mindset & Memory Persistence",
+        "Advanced CRM (Leads + Orders)",
+        "Custom API Integrations",
+        "Full Automation Nodes",
+      ],
+      planId: "enterprise",
+      highlight: true,
     },
   ];
 
@@ -129,12 +148,19 @@ export default function BillingPage() {
         Choose the plan that fits your business needs.
       </p>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6 mb-10">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 mb-10">
         {plans.map((plan) => (
           <div
             key={plan.name}
-            className="border border-gray-800 rounded-2xl p-5 md:p-6 bg-gray-900 flex flex-col"
+            className={`border ${
+              plan.highlight ? "border-blue-500 shadow-lg shadow-blue-500/20" : "border-gray-800"
+            } rounded-2xl p-5 md:p-6 bg-gray-900 flex flex-col relative`}
           >
+            {plan.highlight && (
+              <span className="absolute -top-3 left-1/2 -translate-x-1/2 bg-blue-600 text-white text-[10px] px-3 py-1 rounded-full font-bold uppercase tracking-wider">
+                Most Powerful
+              </span>
+            )}
             <h2 className="text-lg md:text-2xl font-bold mb-1">{plan.name}</h2>
 
             <p className="text-blue-500 font-bold text-lg md:text-xl mb-3">
@@ -147,7 +173,7 @@ export default function BillingPage() {
             </p>
 
             <div className="space-y-2 mb-6 text-xs md:text-sm text-gray-300 flex-grow">
-              <p>✅ {plan.messages}</p>
+              <p className="font-semibold text-white">✅ {plan.messages}</p>
               <p>✅ {plan.bots}</p>
               <p>✅ Knowledge Base: {plan.knowledgeBase}</p>
 
@@ -159,7 +185,9 @@ export default function BillingPage() {
             {isIndia && (
               <button
                 onClick={() => handlePayment(plan.planId, plan.price, "payu")}
-                className="w-full bg-blue-600 py-2 md:py-3 rounded-xl font-bold mb-2 hover:bg-blue-700"
+                className={`w-full ${
+                  plan.highlight ? "bg-blue-500" : "bg-blue-600"
+                } py-2 md:py-3 rounded-xl font-bold mb-2 hover:opacity-90 transition-opacity`}
               >
                 Pay with PayU
               </button>
@@ -167,7 +195,7 @@ export default function BillingPage() {
 
             <button
               onClick={() => handlePayment(plan.planId, plan.price, "paypal")}
-              className="w-full border border-gray-700 py-2 md:py-3 rounded-xl font-bold hover:bg-gray-800"
+              className="w-full border border-gray-700 py-2 md:py-3 rounded-xl font-bold hover:bg-gray-800 transition-colors"
             >
               Pay with PayPal
             </button>
@@ -175,6 +203,7 @@ export default function BillingPage() {
         ))}
       </div>
 
+      {/* WhatsApp Section */}
       <div className="max-w-xl mx-auto border border-green-700 rounded-2xl p-6 bg-gray-900">
         <h2 className="text-2xl font-bold mb-2 text-green-400">
           WhatsApp Automation
