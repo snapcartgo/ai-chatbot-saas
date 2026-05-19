@@ -27,15 +27,16 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: 'Invalid phone_number_id format. Must be numeric.' }, { status: 400 });
         }
 
-        // 4. Forward to Meta using the securely validated string parameter
-        const metaResponse = await fetch(`https://graph.facebook.com/v20.0/${phoneId}/messages`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${META_PERMANENT_ACCESS_TOKEN}`
-            },
-            body: JSON.stringify(body)
-        });
+        // 4. Forward to Meta using the clean token format Meta expects
+const metaResponse = await fetch(`https://graph.facebook.com/v20.0/${phoneId}/messages`, {
+    method: 'POST',
+    headers: {
+        'Content-Type': 'application/json',
+        // Change this line to pass your token directly:
+        'Authorization': `Bearer ${META_PERMANENT_ACCESS_TOKEN.replace('Bearer ', '').trim()}`
+    },
+    body: JSON.stringify(body)
+});
 
         const data = await metaResponse.json();
         return NextResponse.json(data, { status: metaResponse.status });
