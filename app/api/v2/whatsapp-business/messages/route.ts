@@ -1,54 +1,43 @@
 import { NextResponse } from 'next/server';
-// import { supabase } from '@/lib/supabase'; // 👈 Import your database client here
 
 export async function POST(req: Request) {
     try {
         const body = await req.json();
         
-        // 1. Extract the Veblika API Key sent by n8n in the headers
+        // 1. Get the Veblika API Key from headers
         const authHeader = req.headers.get('authorization') || req.headers.get('Authorization');
-
         if (!authHeader) {
             return NextResponse.json({ error: 'Missing Veblika API Key' }, { status: 401 });
         }
 
-        const apiKey = authHeader.replace('Bearer ', '').trim();
-
-        // 2. Fetch the specific user's Meta Token and Phone ID from your database
-        // This keeps your platform dynamic so every user can send via their own WhatsApp account
-        /*
-        const { data: userConfig, error: dbError } = await supabase
-            .from('whatsapp_settings')
-            .select('meta_access_token, phone_number_id')
-            .eq('api_key', apiKey)
-            .single();
-
-        if (dbError || !userConfig) {
-            return NextResponse.json({ error: 'Invalid Veblika API Key or missing configuration' }, { status: 401 });
-        }
-        */
-
-        // For testing right now, you can temporarily assign your active tokens here:
+        // 2. Define your actual Permanent Meta Access Token here
         const META_PERMANENT_ACCESS_TOKEN = "EAA9jJndmp3QBQXrV14fVnrgS49yZCV0Cdoky3MI49KKspjEWUht09rsQOMqZB8j3VKcLQbRzi0Y6AeRfdvzeyWPNdbxxFEdoTGEhI8DSBxT7yGQKPhMyY7WGbckIokeKx1IDGzN5TgaxAml20bTsoQLotywhOiyZCH0BK8le92IjHjyevbtDTzjfNJitaW2TwZDZD";
-        const phoneId = body.phone_number_id || "1039438675915510"; 
 
-        if (!phoneId) {
+        // 3. Extract and SANITIZE the phone number ID to fix the SSRF vulnerability
+        const rawPhoneId = body.phone_number_id; 
+        if (!rawPhoneId) {
             return NextResponse.json({ error: 'Missing phone_number_id' }, { status: 400 });
         }
 
-        // 3. Forward the raw Meta payload straight to Meta's Graph API
+        // Force it to a string and use regex to ensure it contains ONLY digits (0-9)
+        const phoneId = String(rawPhoneId).trim();
+        const isValidMetaId = /^\d+$/.test(phoneId);
+
+        if (!isValidMetaId) {
+            return NextResponse.json({ error: 'Invalid phone_number_id format. Must be numeric.' }, { status: 400 });
+        }
+
+        // 4. Forward to Meta using the securely validated string parameter
         const metaResponse = await fetch(`https://graph.facebook.com/v20.0/${phoneId}/messages`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${META_PERMANENT_ACCESS_TOKEN}` // Uses the validated Meta token
+                'Authorization': `Bearer ${META_PERMANENT_ACCESS_TOKEN}`
             },
             body: JSON.stringify(body)
         });
 
         const data = await metaResponse.json();
-        
-        // Return Meta's direct response back to n8n
         return NextResponse.json(data, { status: metaResponse.status });
 
     } catch (error: any) {
