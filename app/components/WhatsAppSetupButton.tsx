@@ -21,11 +21,11 @@ const WhatsAppSetupButton: React.FC<WhatsAppSetupButtonProps> = ({ clientId }) =
     // Load Facebook SDK
     window.fbAsyncInit = function () {
       window.FB.init({
-        appId: "4331141513783156", // Your Meta App ID
-        cookie: true,
-        xfbml: false,
-        version: "v23.0",
-      });
+  appId      : '4331141513783156',
+  cookie     : true,
+  xfbml      : true,
+  version    : 'v20.0' // <-- Change to v20.0
+});
 
       setSdkReady(true);
       console.log("Facebook SDK initialized");
