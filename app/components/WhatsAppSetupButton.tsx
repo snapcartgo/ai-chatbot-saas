@@ -34,23 +34,23 @@ const WhatsAppSetupButton: React.FC<WhatsAppSetupButtonProps> = ({ clientId }) =
       setIsInitializing(true);
       
       fb.login((response: any) => {
-        if (response.authResponse) {
-          console.log('Successfully authenticated with Meta', response);
-          // You will eventually send response.authResponse.accessToken to your backend
-        } else {
-          console.warn('User cancelled login or did not fully authorize.');
-        }
-        setIsInitializing(false);
-      }, {
-        // Specific scopes required for WhatsApp Embedded Signup
-        scope: 'whatsapp_business_management,whatsapp_business_messaging',
-        extras: {
-          feature: 'whatsapp_embedded_signup',
-          setup: {
-            // Optional: You can pass pre-filled data here if needed
-          }
-        }
-      });
+  if (response.authResponse) {
+    console.log('Successfully authenticated with Meta', response);
+  } else {
+    console.warn('User cancelled login or did not fully authorize.');
+  }
+
+  setIsInitializing(false);
+
+}, {
+  config_id: '1561772279278060',
+  response_type: 'code',
+  override_default_response_type: true,
+  extras: {
+    feature: 'whatsapp_embedded_signup',
+    setup: {}
+  }
+});
     } else {
       alert("WhatsApp setup is still initializing. Please try again in a moment.");
     }
