@@ -122,13 +122,10 @@ export default function DashboardPage() {
   const conversionRate =
     stats.leads > 0 ? ((stats.bookings / stats.leads) * 100).toFixed(1) : "0.0";
 
-  // ... inside your DashboardPage component
   return (
     <main className="min-h-screen bg-gray-50 p-4 md:p-8 text-gray-900">
-      {/* 
-        Inject the Meta SDK directly into the dashboard. 
-        This prevents the 'FB is not defined' error by ensuring 
-        initialization happens as soon as the script loads.
+      {/* Inject the Meta SDK directly into the dashboard. 
+        Fixed version parameter from v24.0 to v20.0 to prevent Meta API crash layout.
       */}
       <Script
         id="facebook-jssdk"
@@ -142,7 +139,7 @@ export default function DashboardPage() {
               appId: process.env.NEXT_PUBLIC_FACEBOOK_APP_ID,
               cookie: true,
               xfbml: true,
-              version: 'v24.0'
+              version: 'v20.0' // ✅ FIXED: Changed from v24.0 to v20.0
             });
           };
         }}
@@ -212,7 +209,6 @@ export default function DashboardPage() {
     </main>
   );
 }
-
 
 function StatCard({
   title,
