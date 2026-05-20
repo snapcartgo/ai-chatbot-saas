@@ -142,7 +142,7 @@ export default function DashboardPage() {
               appId: process.env.NEXT_PUBLIC_FACEBOOK_APP_ID,
               cookie: true,
               xfbml: true,
-              version: 'v18.0'
+              version: 'v24.0'
             });
           };
         }}
