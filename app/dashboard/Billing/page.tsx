@@ -125,7 +125,7 @@ export default function BillingPage() {
       currency: isIndia ? "₹" : "$",
       description: "Advanced Multimodal AI Solution",
       messages: "20000 AI Messages / month",
-      bots: "10 AI Chatbots",
+      bots: "5 AI Chatbots",
       knowledgeBase: "200 MB",
       features: [
         "Instant Image & Voice Understanding",
