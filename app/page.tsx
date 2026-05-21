@@ -24,7 +24,7 @@ export default function HomeClient() {
       <nav className="flex flex-col md:flex-row justify-between items-center px-4 md:px-8 py-4 border-b border-gray-800 gap-3">
 
         <h1 className="text-lg md:text-xl font-bold text-blue-500">
-          AI Chatbot SaaS
+          Woodpetra AI
         </h1>
 
         <div className="flex gap-3 md:gap-6">
