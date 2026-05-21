@@ -19,10 +19,17 @@ export default function PrivacyPolicy() {
       </p>
 
       <p>
-        Welcome to <strong>AI Chatbot SaaS</strong>, powered by{" "}
-        <strong>woodpetra</strong>. This Privacy Policy explains how we
-        collect, use, store, and protect information when you use our
-        platform, services, website, and automation tools.
+        Welcome to <strong>Woodpetra AI</strong>, an AI chatbot and automation
+        platform powered by <strong>woodpetra.in</strong>. This Privacy Policy
+        explains how we collect, use, store, and protect information when you
+        use our platform, services, website, chatbot systems, and automation
+        tools.
+      </p>
+
+      <p>
+        Woodpetra AI provides AI-powered WhatsApp automation, customer support
+        chatbots, booking systems, lead generation tools, and business workflow
+        automation services.
       </p>
 
       <h2>1. Information We Collect</h2>
@@ -35,6 +42,7 @@ export default function PrivacyPolicy() {
         <li>WhatsApp messages and chatbot interaction data</li>
         <li>Automation workflow data and chatbot configurations</li>
         <li>Usage analytics and technical information</li>
+        <li>Device, browser, and log information</li>
       </ul>
 
       <h2>2. How We Use Your Information</h2>
@@ -42,21 +50,22 @@ export default function PrivacyPolicy() {
       <p>Your information is used to:</p>
 
       <ul>
-        <li>Provide chatbot and automation services</li>
+        <li>Provide AI chatbot and automation services</li>
         <li>Improve platform performance and user experience</li>
         <li>Manage WhatsApp integrations and API services</li>
         <li>Provide customer support</li>
         <li>Maintain platform security and prevent abuse</li>
+        <li>Analyze and improve our products and services</li>
       </ul>
 
       <h2>3. Data Sharing</h2>
 
       <p>
         We do not sell or rent your personal information to third parties.
-        Information may only be shared with trusted service providers or
-        platform partners when required to operate our services, comply with
-        legal obligations, or support integrations such as Meta and WhatsApp
-        services.
+        Information may only be shared with trusted service providers, hosting
+        providers, or platform partners when required to operate our services,
+        comply with legal obligations, or support integrations such as Meta,
+        WhatsApp, Facebook, and Instagram services.
       </p>
 
       <h2>4. Data Security</h2>
@@ -71,9 +80,9 @@ export default function PrivacyPolicy() {
 
       <p>
         Our platform may integrate with third-party services including Meta,
-        WhatsApp, Facebook, Instagram, and cloud hosting providers. Your use
-        of these services may also be subject to their respective privacy
-        policies and terms.
+        WhatsApp, Facebook, Instagram, cloud hosting providers, analytics
+        services, and payment providers. Your use of these services may also be
+        subject to their respective privacy policies and terms.
       </p>
 
       <h2>6. Data Retention</h2>
@@ -116,9 +125,11 @@ export default function PrivacyPolicy() {
       </p>
 
       <p>
-        <strong>woodpetra</strong>
+        <strong>Woodpetra AI</strong>
         <br />
-        Email: <strong>aiworkflows@snapcartgo.com</strong>
+        Website: <strong>https://woodpetra.in</strong>
+        <br />
+        Email: <strong>support@woodpetra.in</strong>
       </p>
 
       <hr style={{ marginTop: "40px", borderColor: "#333" }} />
@@ -130,7 +141,7 @@ export default function PrivacyPolicy() {
           marginTop: "20px",
         }}
       >
-        Powered by woodpetra
+        © 2026 Woodpetra AI. All rights reserved.
       </p>
     </div>
   );

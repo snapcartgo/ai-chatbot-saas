@@ -66,7 +66,7 @@ export default function Header() {
     }}>
       <div style={{ display: "flex", alignItems: "center", gap: "30px" }}>
         <Link href="/" style={{ color: "#3b82f6", fontWeight: "bold", textDecoration: "none", fontSize: "1.2rem" }}>
-          AI Chatbot SaaS
+          Woodpetra AI
         </Link>
         
         <div style={{ display: "flex", gap: "20px", fontSize: "14px" }}>

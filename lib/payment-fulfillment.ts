@@ -7,12 +7,32 @@ const supabase = createClient(
 
 const PLAN_CONFIG: Record<
   "starter" | "pro" | "growth" | "enterprise",
-  { amount: number; chatbot_limit: number; message_limit: number }
+  {
+    amount: number;
+    chatbot_limit: number;
+    message_limit: number;
+  }
 > = {
-  starter: { amount: 999, chatbot_limit: 1, message_limit: 1000 },
-  pro: { amount: 1999, chatbot_limit: 2, message_limit: 3000 },
-  growth: { amount: 4999, chatbot_limit: 5, message_limit: 12000 },
-  enterprise: { amount: 15000, chatbot_limit: 10, message_limit: 20000 },
+  starter: {
+    amount: 999,
+    chatbot_limit: 1,
+    message_limit: 1000,
+  },
+  pro: {
+    amount: 1999,
+    chatbot_limit: 2,
+    message_limit: 3000,
+  },
+  growth: {
+    amount: 4999,
+    chatbot_limit: 5,
+    message_limit: 12000,
+  },
+  enterprise: {
+    amount: 15000,
+    chatbot_limit: 5,
+    message_limit: 20000,
+  },
 };
 
 function normalizeEmail(value: string | null | undefined) {
@@ -49,6 +69,18 @@ async function getProfileByEmail(email: string) {
   return data;
 }
 
+function getOneMonthWindow() {
+  const now = new Date();
+  const end = new Date(now);
+  end.setMonth(end.getMonth() + 1);
+
+  return {
+    nowIso: now.toISOString(),
+    endIso: end.toISOString(),
+    endDate: end.toISOString().split("T")[0],
+  };
+}
+
 async function activateWebsitePlan(params: {
   profileId: string;
   email: string;
@@ -56,34 +88,33 @@ async function activateWebsitePlan(params: {
   amount?: number | null;
 }) {
   const cfg = PLAN_CONFIG[params.plan];
-  const amount =
+  const finalAmount =
     typeof params.amount === "number" && params.amount > 0
       ? params.amount
       : cfg.amount;
 
-  const now = new Date();
-  const expiry = new Date(now);
-  expiry.setDate(expiry.getDate() + 30);
+  const { nowIso, endIso, endDate } = getOneMonthWindow();
 
-  const { error } = await supabase.from("subscriptions").upsert(
-    {
-      user_id: params.profileId,
-      email: normalizeEmail(params.email),
-      calendar_id: normalizeEmail(params.email),
-      plan: params.plan,
-      status: "active",
-      amount,
-      chatbot_limit: cfg.chatbot_limit,
-      message_limit: cfg.message_limit,
-      message_used: 0,
-      messages_reset_at: now.toISOString(),
-      billing_cycle_start: now.toISOString(),
-      billing_cycle_end: expiry.toISOString(),
-      plan_expiry: expiry.toISOString(),
-      updated_at: now.toISOString(),
-    },
-    { onConflict: "user_id" }
-  );
+  const payload = {
+    user_id: params.profileId,
+    email: normalizeEmail(params.email),
+    calendar_id: normalizeEmail(params.email),
+    plan: params.plan,
+    status: "active",
+    amount: finalAmount,
+    chatbot_limit: cfg.chatbot_limit,
+    message_limit: cfg.message_limit,
+    message_used: 0,
+    messages_reset_at: nowIso,
+    billing_cycle_start: nowIso,
+    billing_cycle_end: endIso,
+    plan_expiry: endDate,
+    updated_at: nowIso,
+  };
+
+  const { error } = await supabase
+    .from("subscriptions")
+    .upsert(payload, { onConflict: "user_id" });
 
   if (error) {
     console.error("Subscription upsert error:", error);
@@ -92,37 +123,34 @@ async function activateWebsitePlan(params: {
 }
 
 async function activateWhatsAppPlan(profileId: string) {
-  const now = new Date();
-  const expiry = new Date(now);
-  expiry.setMonth(expiry.getMonth() + 1);
+  const { nowIso, endIso } = getOneMonthWindow();
 
-  const [{ error: subscriptionError }, { error: configError }] =
-    await Promise.all([
-      supabase.from("whatsapp_subscriptions").upsert(
-        {
-          user_id: profileId,
-          status: "active",
-          plan: "whatsapp_automation",
-          messages_used: 0,
-          message_limit: 1000,
-          updated_at: now.toISOString(),
-          expires_at: expiry.toISOString(),
-        },
-        { onConflict: "user_id" }
-      ),
-      supabase.from("whatsapp_configs").upsert(
-        {
-          user_id: profileId,
-          automation_enabled: true,
-          workflow_type: "whatsapp_only",
-        },
-        { onConflict: "user_id" }
-      ),
-    ]);
+  const [{ error: subError }, { error: configError }] = await Promise.all([
+    supabase.from("whatsapp_subscriptions").upsert(
+      {
+        user_id: profileId,
+        status: "active",
+        plan: "whatsapp_automation",
+        message_limit: 1000,
+        messages_used: 0,
+        updated_at: nowIso,
+        expires_at: endIso,
+      },
+      { onConflict: "user_id" }
+    ),
+    supabase.from("whatsapp_configs").upsert(
+      {
+        user_id: profileId,
+        automation_enabled: true,
+        workflow_type: "whatsapp_only",
+      },
+      { onConflict: "user_id" }
+    ),
+  ]);
 
-  if (subscriptionError) {
-    console.error("WhatsApp subscription upsert error:", subscriptionError);
-    throw new Error(subscriptionError.message);
+  if (subError) {
+    console.error("WhatsApp subscription upsert error:", subError);
+    throw new Error(subError.message);
   }
 
   if (configError) {
@@ -142,7 +170,9 @@ async function updateReferralAfterPayment(params: {
   const { data: referral, error: referralError } = await supabase
     .from("referrals")
     .select("id, partner_id")
-    .or(`referred_user_id.eq.${params.profileId},referred_email.eq.${normalizedEmail}`)
+    .or(
+      `referred_user_id.eq.${params.profileId},referred_email.eq.${normalizedEmail}`
+    )
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -205,7 +235,7 @@ export async function fulfillSaasBilling(params: {
   }
 
   if (isWhatsAppPlan(params.rawPlan)) {
-    const amount =
+    const finalAmount =
       typeof params.amount === "number" && params.amount > 0
         ? params.amount
         : 999;
@@ -216,10 +246,13 @@ export async function fulfillSaasBilling(params: {
       profileId: profile.id,
       email,
       purchasedPlan: "whatsapp",
-      amount,
+      amount: finalAmount,
     });
 
-    return { type: "whatsapp" as const };
+    return {
+      type: "whatsapp" as const,
+      amount: finalAmount,
+    };
   }
 
   const plan = normalizePlan(params.rawPlan);
@@ -228,7 +261,7 @@ export async function fulfillSaasBilling(params: {
     throw new Error(`Invalid SaaS plan: ${params.rawPlan}`);
   }
 
-  const amount =
+  const finalAmount =
     typeof params.amount === "number" && params.amount > 0
       ? params.amount
       : PLAN_CONFIG[plan].amount;
@@ -237,15 +270,21 @@ export async function fulfillSaasBilling(params: {
     profileId: profile.id,
     email,
     plan,
-    amount,
+    amount: finalAmount,
   });
 
   await updateReferralAfterPayment({
     profileId: profile.id,
     email,
     purchasedPlan: plan,
-    amount,
+    amount: finalAmount,
   });
 
-  return { type: "website" as const, plan };
+  return {
+    type: "website" as const,
+    plan,
+    amount: finalAmount,
+    message_limit: PLAN_CONFIG[plan].message_limit,
+    chatbot_limit: PLAN_CONFIG[plan].chatbot_limit,
+  };
 }

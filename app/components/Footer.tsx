@@ -11,7 +11,7 @@ export default function Footer() {
         {/* Column 1: Brand */}
         <div className="col-span-1 md:col-span-2">
           <Link href="/" className="text-xl font-bold text-white mb-4 block">
-            AI Chatbot <span className="text-blue-500">SaaS</span>
+            Woodpetra <span className="text-blue-500">AI</span>
           </Link>
           <p className="text-gray-500 max-w-sm">
             Automating customer conversations and booking appointments with intelligent AI agents.
@@ -46,7 +46,7 @@ export default function Footer() {
       </div>
 
       <div className="max-w-7xl mx-auto px-6 mt-16 pt-8 border-t border-gray-900 text-center text-gray-600 text-xs">
-        © {currentYear} AI Chatbot SaaS - powered by woodpetra. All rights reserved.
+        © {currentYear} Woodpetra AI - powered by woodpetra. All rights reserved.
       </div>
     </footer>
   );
