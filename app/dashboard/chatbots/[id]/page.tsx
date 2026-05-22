@@ -15,6 +15,9 @@ type BotRow = {
   active?: boolean;
 };
 
+const APP_BASE_URL =
+  process.env.NEXT_PUBLIC_BASE_URL || "https://woodpetra.in";
+
 export default function ChatbotSettings() {
   const router = useRouter();
   const params = useParams();
@@ -117,13 +120,10 @@ export default function ChatbotSettings() {
       return;
     }
 
-    const { error } = await supabase
-      .from("chatbots")
-      .delete()
-      .match({
-        id: id,
-        user_id: user.id,
-      });
+    const { error } = await supabase.from("chatbots").delete().match({
+      id: id,
+      user_id: user.id,
+    });
 
     if (error) {
       console.error("Delete error:", error);
@@ -139,7 +139,7 @@ export default function ChatbotSettings() {
   if (loading) return <p>Loading...</p>;
   if (!bot) return <p>Chatbot not found.</p>;
 
-  const scriptCode = `<script src="https://ai-chatbot-saas-five.vercel.app/widget.js" data-bot-id="${id}"></script>`;
+  const scriptCode = `<script src="${APP_BASE_URL}/widget.js" data-bot-id="${id}"></script>`;
 
   return (
     <div style={{ padding: 40, maxWidth: 700 }}>
