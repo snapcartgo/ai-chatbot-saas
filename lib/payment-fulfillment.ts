@@ -30,7 +30,7 @@ const PLAN_CONFIG: Record<
   },
   enterprise: {
     amount: 15000,
-    chatbot_limit: 5,
+    chatbot_limit: 10,
     message_limit: 20000,
   },
 };
@@ -284,7 +284,7 @@ export async function fulfillSaasBilling(params: {
     type: "website" as const,
     plan,
     amount: finalAmount,
-    message_limit: PLAN_CONFIG[plan].message_limit,
     chatbot_limit: PLAN_CONFIG[plan].chatbot_limit,
+    message_limit: PLAN_CONFIG[plan].message_limit,
   };
 }
