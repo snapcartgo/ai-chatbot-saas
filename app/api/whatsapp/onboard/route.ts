@@ -1,53 +1,61 @@
-import { createServerClient } from '@supabase/ssr';
-import { cookies } from 'next/headers';
-import { NextResponse } from 'next/server';
+import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
 export async function POST(req: Request) {
-  // 1. Initialize the cookie store correctly for Next.js
-  const cookieStore = await cookies();
-
-  // 2. Create the Supabase client using the modern SSR approach
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll();
-        },
-        setAll(cookiesToSet) {
-          try {
-            cookiesToSet.forEach(({ name, value, options }) =>
-              cookieStore.set(name, value, options)
-            );
-          } catch {
-            // The setAll method can be ignored if called from Middleware or Server Components
-          }
-        },
-      },
-    }
-  );
-
   try {
-    // 3. Extract the data from the incoming request
-    const { waba_id, phone_number_id, client_id } = await req.json();
+    const body = await req.json();
 
-    // 4. Perform the upsert with a type-cast ('as any') to bypass local schema errors
+    const client_id = String(body.client_id || "").trim();
+    const waba_id = String(body.waba_id || "").trim();
+    const phone_number_id = String(body.phone_number_id || "").trim();
+    const business_id = String(body.business_id || "").trim();
+
+    if (!client_id) {
+      return NextResponse.json(
+        { error: "Missing client_id" },
+        { status: 400 }
+      );
+    }
+
+    if (!waba_id || !phone_number_id) {
+      return NextResponse.json(
+        { error: "Missing waba_id or phone_number_id" },
+        { status: 400 }
+      );
+    }
+
     const { error } = await supabase
-      .from('whatsapp_configs')
-      .upsert({
-        id: client_id,
-        waba_id: waba_id,
-        wa_phone_number: phone_number_id, // Matches the 'wa_phone_number' column in your image_b5f25e.png
-        status: 'active',
-      } as any);
+      .from("whatsapp_configs")
+      .upsert(
+        {
+          user_id: client_id,
+          waba_id,
+          wa_phone_number: phone_number_id,
+          business_id: business_id || null,
+          status: "active",
+          automation_enabled: true,
+          workflow_type: "whatsapp_only",
+        } as any,
+        { onConflict: "user_id" }
+      );
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
+      return NextResponse.json(
+        { error: error.message },
+        { status: 400 }
+      );
     }
 
     return NextResponse.json({ success: true });
   } catch (err: any) {
-    return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
+    return NextResponse.json(
+      { error: err.message || "Invalid request body" },
+      { status: 400 }
+    );
   }
 }
