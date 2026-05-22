@@ -4,9 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import * as Sentry from "@sentry/nextjs";
-// Path corrected based on your project structure in image_aa77ab.png
 import WhatsAppSetupButton from "../components/WhatsAppSetupButton";
-import Script from "next/script";
 
 export default function DashboardPage() {
   const [stats, setStats] = useState({
@@ -44,14 +42,17 @@ export default function DashboardPage() {
       ]);
 
       const [calRes, botsRes] = await Promise.all([
-        supabase.from("client_calendars").select("calendar_id").eq("user_id", user.id).maybeSingle(),
+        supabase
+          .from("client_calendars")
+          .select("calendar_id")
+          .eq("user_id", user.id)
+          .maybeSingle(),
         supabase.from("chatbots").select("id").eq("user_id", user.id),
       ]);
 
-      const fetchedBotIds = botsRes.data?.map((b: { id: string }) => b.id) || [];
+      const fetchedBotIds =
+        botsRes.data?.map((b: { id: string }) => b.id) || [];
 
-      // Note: Leads count is currently global based on your query. 
-      // If leads should be user-specific, add .eq("user_id", user.id)
       const [leadsRes, bookingsRes] = await Promise.all([
         supabase.from("leads").select("*", { count: "exact", head: true }),
         supabase
@@ -63,7 +64,10 @@ export default function DashboardPage() {
 
       const convosRes =
         fetchedBotIds.length > 0
-          ? await supabase.from("messages").select("*", { count: "exact", head: true }).in("bot_id", fetchedBotIds)
+          ? await supabase
+              .from("messages")
+              .select("*", { count: "exact", head: true })
+              .in("bot_id", fetchedBotIds)
           : { count: 0 };
 
       setStats({
@@ -78,7 +82,10 @@ export default function DashboardPage() {
     initDashboard();
   }, []);
 
-  async function attachReferralFromStorage(user: { id?: string; email?: string | null }) {
+  async function attachReferralFromStorage(user: {
+    id?: string;
+    email?: string | null;
+  }) {
     try {
       const params = new URLSearchParams(window.location.search);
       const refFromUrl = params.get("ref");
@@ -108,7 +115,12 @@ export default function DashboardPage() {
     if (!userId) return;
 
     const { error } = await supabase.from("client_calendars").upsert(
-      { calendar_id: calendarId, client_name: clientName, user_id: userId, status: "pending" },
+      {
+        calendar_id: calendarId,
+        client_name: clientName,
+        user_id: userId,
+        status: "pending",
+      },
       { onConflict: "user_id" }
     );
 
@@ -124,43 +136,45 @@ export default function DashboardPage() {
 
   return (
     <main className="min-h-screen bg-gray-50 p-4 md:p-8 text-gray-900">
-      {/* Inject the Meta SDK directly into the dashboard. 
-        Fixed version parameter from v24.0 to v20.0 to prevent Meta API crash layout.
-      */}
-      <Script
-        id="facebook-jssdk"
-        src="https://connect.facebook.net/en_US/sdk.js"
-        strategy="afterInteractive"
-        onLoad={() => {
-          // @ts-ignore
-          window.fbAsyncInit = function() {
-            // @ts-ignore
-            FB.init({
-              appId: process.env.NEXT_PUBLIC_FACEBOOK_APP_ID,
-              cookie: true,
-              xfbml: true,
-              version: 'v20.0' // ✅ FIXED: Changed from v24.0 to v20.0
-            });
-          };
-        }}
-      />
-
       <div className="max-w-7xl mx-auto">
-        <h1 className="text-3xl font-bold text-gray-800 mb-8">Agency Dashboard</h1>
+        <h1 className="text-3xl font-bold text-gray-800 mb-8">
+          Agency Dashboard
+        </h1>
 
         {loading ? (
-          <p className="text-gray-500 text-lg animate-pulse">Updating stats...</p>
+          <p className="text-gray-500 text-lg animate-pulse">
+            Updating stats...
+          </p>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
-            <StatCard title="Total Leads" value={stats.leads} color="bg-blue-600" href="/dashboard/leads" />
-            <StatCard title="Conversations" value={stats.conversations} color="bg-purple-600" href="/dashboard/conversations" />
-            <StatCard title="Orders" value={stats.bookings} color="bg-green-600" href="/dashboard/orders" />
-            <StatCard title="Conversion Rate" value={`${conversionRate}%`} color="bg-orange-600" href="/dashboard/pipeline" />
+            <StatCard
+              title="Total Leads"
+              value={stats.leads}
+              color="bg-blue-600"
+              href="/dashboard/leads"
+            />
+            <StatCard
+              title="Conversations"
+              value={stats.conversations}
+              color="bg-purple-600"
+              href="/dashboard/conversations"
+            />
+            <StatCard
+              title="Orders"
+              value={stats.bookings}
+              color="bg-green-600"
+              href="/dashboard/orders"
+            />
+            <StatCard
+              title="Conversion Rate"
+              value={`${conversionRate}%`}
+              color="bg-orange-600"
+              href="/dashboard/pipeline"
+            />
           </div>
         )}
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Calendar Sync Card */}
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
             <h2 className="text-xl font-bold mb-4">Calendar Sync</h2>
             <form onSubmit={handleCalendarSync} className="space-y-4">
@@ -184,13 +198,15 @@ export default function DashboardPage() {
             </form>
           </div>
 
-          {/* WhatsApp Onboarding Card */}
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 flex flex-col">
-            <h2 className="text-xl font-bold mb-2 text-gray-800">WhatsApp Onboarding</h2>
+            <h2 className="text-xl font-bold mb-2 text-gray-800">
+              WhatsApp Onboarding
+            </h2>
             <p className="text-sm text-gray-600 mb-6">
-              Connect your official Meta WhatsApp Business Account to enable automated AI messaging.
+              Connect your official Meta WhatsApp Business Account to enable
+              automated AI messaging.
             </p>
-            
+
             <div className="mt-auto">
               {userId ? (
                 <WhatsAppSetupButton clientId={userId} />
@@ -222,9 +238,16 @@ function StatCard({
   href: string;
 }) {
   return (
-    <Link href={href} className={`block p-6 rounded-2xl text-white shadow-sm transition-transform hover:scale-[1.02] ${color}`}>
-      <div className="text-xs font-bold uppercase opacity-70 tracking-wider">{title}</div>
-      <div className="text-4xl font-extrabold mt-2 tracking-tight">{value}</div>
+    <Link
+      href={href}
+      className={`block p-6 rounded-2xl text-white shadow-sm transition-transform hover:scale-[1.02] ${color}`}
+    >
+      <div className="text-xs font-bold uppercase opacity-70 tracking-wider">
+        {title}
+      </div>
+      <div className="text-4xl font-extrabold mt-2 tracking-tight">
+        {value}
+      </div>
     </Link>
   );
 }

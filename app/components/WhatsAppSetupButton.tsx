@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 interface WhatsAppSetupButtonProps {
   clientId: string;
@@ -8,77 +8,186 @@ interface WhatsAppSetupButtonProps {
 
 declare global {
   interface Window {
-    FB: any;
+    FB: {
+      init: (options: Record<string, unknown>) => void;
+      login: (
+        callback: (response: any) => void,
+        options?: Record<string, unknown>
+      ) => void;
+    };
     fbAsyncInit: () => void;
+  }
+}
+
+const FACEBOOK_APP_ID = process.env.NEXT_PUBLIC_FACEBOOK_APP_ID || "";
+const WHATSAPP_CONFIG_ID = process.env.NEXT_PUBLIC_WHATSAPP_CONFIG_ID || "";
+
+function isTrustedMetaOrigin(origin: string) {
+  try {
+    const url = new URL(origin);
+    const hostname = url.hostname.toLowerCase();
+
+    return (
+      hostname === "facebook.com" ||
+      hostname.endsWith(".facebook.com") ||
+      hostname === "fb.com" ||
+      hostname.endsWith(".fb.com")
+    );
+  } catch {
+    return false;
   }
 }
 
 const WhatsAppSetupButton: React.FC<WhatsAppSetupButtonProps> = ({ clientId }) => {
   const [isInitializing, setIsInitializing] = useState(false);
   const [sdkReady, setSdkReady] = useState(false);
+  const hasInitializedRef = useRef(false);
 
   useEffect(() => {
-    // Load Facebook SDK
-    window.fbAsyncInit = function () {
-      window.FB.init({
-  appId      : '4331141513783156',
-  cookie     : true,
-  xfbml      : true,
-  version    : 'v20.0' // <-- Change to v20.0
-});
+    if (!FACEBOOK_APP_ID || !WHATSAPP_CONFIG_ID) {
+      console.error(
+        "Missing NEXT_PUBLIC_FACEBOOK_APP_ID or NEXT_PUBLIC_WHATSAPP_CONFIG_ID"
+      );
+      return;
+    }
 
+    const initializeSdk = () => {
+      if (!window.FB || hasInitializedRef.current) return;
+
+      window.FB.init({
+        appId: FACEBOOK_APP_ID,
+        cookie: true,
+        xfbml: false,
+        version: "v20.0",
+      });
+
+      hasInitializedRef.current = true;
       setSdkReady(true);
       console.log("Facebook SDK initialized");
     };
 
-    // Inject SDK script if not already loaded
-    if (!document.getElementById("facebook-jssdk")) {
-      const js = document.createElement("script");
-      js.id = "facebook-jssdk";
-      js.src = "https://connect.facebook.net/en_US/sdk.js";
-      js.async = true;
-      js.defer = true;
+    const handleEmbeddedMessage = async (event: MessageEvent) => {
+      if (!isTrustedMetaOrigin(event.origin)) return;
 
-      document.body.appendChild(js);
+      try {
+        const data =
+          typeof event.data === "string" ? JSON.parse(event.data) : event.data;
+
+        if (!data) return;
+
+        if (
+          data.type === "WA_EMBEDDED_SIGNUP" &&
+          data.event === "FINISH"
+        ) {
+          const payload = {
+            client_id: clientId,
+            waba_id: data.data?.waba_id || null,
+            phone_number_id: data.data?.phone_number_id || null,
+            business_id: data.data?.business_id || null,
+          };
+
+          console.log("WhatsApp Embedded Signup FINISH:", payload);
+
+          const res = await fetch("/api/whatsapp/onboard", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(payload),
+          });
+
+          const result = await res.json();
+
+          if (!res.ok) {
+            console.error("Onboard save failed:", result);
+            alert(result.error || "Failed to save WhatsApp onboarding data.");
+            setIsInitializing(false);
+            return;
+          }
+
+          alert("WhatsApp onboarding completed successfully.");
+          setIsInitializing(false);
+        }
+
+        if (
+          data.type === "WA_EMBEDDED_SIGNUP" &&
+          data.event === "CANCEL"
+        ) {
+          console.warn("WhatsApp Embedded Signup canceled:", data);
+          setIsInitializing(false);
+        }
+
+        if (
+          data.type === "WA_EMBEDDED_SIGNUP" &&
+          data.event === "ERROR"
+        ) {
+          console.error("WhatsApp Embedded Signup error:", data);
+          alert(
+            data.data?.error_message ||
+              "Meta onboarding failed. Please check your Meta app configuration."
+          );
+          setIsInitializing(false);
+        }
+      } catch {
+        // Ignore non-JSON postMessage payloads
+      }
+    };
+
+    window.addEventListener("message", handleEmbeddedMessage);
+
+    if (window.FB && !hasInitializedRef.current) {
+      initializeSdk();
     } else {
-      setSdkReady(true);
+      window.fbAsyncInit = initializeSdk;
+
+      if (!document.getElementById("facebook-jssdk")) {
+        const js = document.createElement("script");
+        js.id = "facebook-jssdk";
+        js.src = "https://connect.facebook.net/en_US/sdk.js";
+        js.async = true;
+        js.defer = true;
+        document.body.appendChild(js);
+      }
     }
-  }, []);
+
+    return () => {
+      window.removeEventListener("message", handleEmbeddedMessage);
+    };
+  }, [clientId]);
 
   const launchWhatsAppSignup = () => {
-    const fb = window.FB;
-
-    if (!fb) {
+    if (!window.FB) {
       alert("Facebook SDK not loaded yet.");
+      return;
+    }
+
+    if (!WHATSAPP_CONFIG_ID) {
+      alert("WhatsApp Config ID is missing.");
       return;
     }
 
     setIsInitializing(true);
 
-    fb.login(
+    window.FB.login(
       (response: any) => {
-        console.log("FB Login Response:", response);
+        console.log("FB login response:", response);
 
-        if (response.authResponse) {
-          console.log("Successfully authenticated with Meta");
-
-          // Authorization code returned here
-          const code = response.authResponse.code;
-          console.log("Authorization Code:", code);
-
-          // TODO:
-          // Send this code to your backend API
-          // Exchange for access token
-        } else {
-          console.warn("User cancelled login or authorization failed.");
+        if (!response?.authResponse) {
+          console.warn("User cancelled or authorization failed.");
+          setIsInitializing(false);
+          return;
         }
 
-        setIsInitializing(false);
+        console.log("Meta auth success");
       },
       {
-        config_id: "1561772279278060",
+        config_id: WHATSAPP_CONFIG_ID,
         response_type: "code",
         override_default_response_type: true,
+        extras: {
+          feature: "whatsapp_embedded_signup",
+          sessionInfoVersion: "3",
+        },
       }
     );
   };
@@ -108,8 +217,7 @@ const WhatsAppSetupButton: React.FC<WhatsAppSetupButtonProps> = ({ clientId }) =
               r="10"
               stroke="currentColor"
               strokeWidth="4"
-            ></circle>
-
+            />
             <path
               className="opacity-75"
               fill="currentColor"
@@ -119,9 +227,8 @@ const WhatsAppSetupButton: React.FC<WhatsAppSetupButtonProps> = ({ clientId }) =
               014 12H0c0 3.042 
               1.135 5.824 3 
               7.938l3-2.647z"
-            ></path>
+            />
           </svg>
-
           Connecting...
         </span>
       ) : sdkReady ? (
