@@ -168,18 +168,18 @@ export async function POST(req: Request) {
     // =====================================
 
     const N8N_WEBHOOK =
-      process.env
-        .N8N_WHATSAPP_WEBHOOK_URL ||
-      "";
+  process.env
+    .N8N_WHATSAPP_WEBHOOK_URL || "";
 
-    const allowedHost =
-      "https://n8n.snapcartgo.com";
+const parsedUrl = new URL(N8N_WEBHOOK);
 
-    if (
-      N8N_WEBHOOK.startsWith(
-        allowedHost
-      )
-    ) {
+const allowedHost =
+  "n8n.snapcartgo.com";
+
+if (
+  parsedUrl.protocol === "https:" &&
+  parsedUrl.hostname === allowedHost
+) {
       await fetch(
         N8N_WEBHOOK,
         {
