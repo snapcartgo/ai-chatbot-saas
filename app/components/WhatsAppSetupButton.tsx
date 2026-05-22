@@ -22,6 +22,22 @@ declare global {
 const FACEBOOK_APP_ID = process.env.NEXT_PUBLIC_FACEBOOK_APP_ID || "";
 const WHATSAPP_CONFIG_ID = process.env.NEXT_PUBLIC_WHATSAPP_CONFIG_ID || "";
 
+function isTrustedMetaOrigin(origin: string) {
+  try {
+    const url = new URL(origin);
+    const hostname = url.hostname.toLowerCase();
+
+    return (
+      hostname === "facebook.com" ||
+      hostname.endsWith(".facebook.com") ||
+      hostname === "fb.com" ||
+      hostname.endsWith(".fb.com")
+    );
+  } catch {
+    return false;
+  }
+}
+
 const WhatsAppSetupButton: React.FC<WhatsAppSetupButtonProps> = ({ clientId }) => {
   const [isInitializing, setIsInitializing] = useState(false);
   const [sdkReady, setSdkReady] = useState(false);
@@ -51,7 +67,7 @@ const WhatsAppSetupButton: React.FC<WhatsAppSetupButtonProps> = ({ clientId }) =
     };
 
     const handleEmbeddedMessage = async (event: MessageEvent) => {
-      if (!event.origin.includes("facebook.com")) return;
+      if (!isTrustedMetaOrigin(event.origin)) return;
 
       try {
         const data =
@@ -85,10 +101,12 @@ const WhatsAppSetupButton: React.FC<WhatsAppSetupButtonProps> = ({ clientId }) =
           if (!res.ok) {
             console.error("Onboard save failed:", result);
             alert(result.error || "Failed to save WhatsApp onboarding data.");
+            setIsInitializing(false);
             return;
           }
 
           alert("WhatsApp onboarding completed successfully.");
+          setIsInitializing(false);
         }
 
         if (
