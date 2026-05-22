@@ -47,7 +47,9 @@ export async function POST(req: Request) {
 
     const status = String(formData.get("status") || "").toLowerCase();
     const email = String(formData.get("email") || "").toLowerCase().trim();
-    const rawPlan = String(formData.get("udf2") || formData.get("productinfo") || "");
+    const rawPlan = String(
+      formData.get("udf2") || formData.get("productinfo") || ""
+    );
     const amountParam = Number(formData.get("amount") || 0);
 
     if (status !== "success") {
