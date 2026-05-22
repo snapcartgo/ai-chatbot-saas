@@ -45,9 +45,10 @@ const WhatsAppSetupButton: React.FC<WhatsAppSetupButtonProps> = ({ clientId }) =
 
   useEffect(() => {
     if (!FACEBOOK_APP_ID || !WHATSAPP_CONFIG_ID) {
-      console.error(
-        "Missing NEXT_PUBLIC_FACEBOOK_APP_ID or NEXT_PUBLIC_WHATSAPP_CONFIG_ID"
-      );
+      console.error("Missing Meta env values:", {
+        FACEBOOK_APP_ID,
+        WHATSAPP_CONFIG_ID,
+      });
       return;
     }
 
@@ -75,18 +76,15 @@ const WhatsAppSetupButton: React.FC<WhatsAppSetupButtonProps> = ({ clientId }) =
 
         if (!data) return;
 
-        if (
-          data.type === "WA_EMBEDDED_SIGNUP" &&
-          data.event === "FINISH"
-        ) {
+        console.log("Meta postMessage:", data);
+
+        if (data.type === "WA_EMBEDDED_SIGNUP" && data.event === "FINISH") {
           const payload = {
             client_id: clientId,
             waba_id: data.data?.waba_id || null,
             phone_number_id: data.data?.phone_number_id || null,
             business_id: data.data?.business_id || null,
           };
-
-          console.log("WhatsApp Embedded Signup FINISH:", payload);
 
           const res = await fetch("/api/whatsapp/onboard", {
             method: "POST",
@@ -109,27 +107,21 @@ const WhatsAppSetupButton: React.FC<WhatsAppSetupButtonProps> = ({ clientId }) =
           setIsInitializing(false);
         }
 
-        if (
-          data.type === "WA_EMBEDDED_SIGNUP" &&
-          data.event === "CANCEL"
-        ) {
+        if (data.type === "WA_EMBEDDED_SIGNUP" && data.event === "CANCEL") {
           console.warn("WhatsApp Embedded Signup canceled:", data);
           setIsInitializing(false);
         }
 
-        if (
-          data.type === "WA_EMBEDDED_SIGNUP" &&
-          data.event === "ERROR"
-        ) {
+        if (data.type === "WA_EMBEDDED_SIGNUP" && data.event === "ERROR") {
           console.error("WhatsApp Embedded Signup error:", data);
           alert(
             data.data?.error_message ||
-              "Meta onboarding failed. Please check your Meta app configuration."
+              "Meta onboarding failed. Please check Meta configuration."
           );
           setIsInitializing(false);
         }
       } catch {
-        // Ignore non-JSON postMessage payloads
+        // ignore non-json messages
       }
     };
 
@@ -161,10 +153,15 @@ const WhatsAppSetupButton: React.FC<WhatsAppSetupButtonProps> = ({ clientId }) =
       return;
     }
 
-    if (!WHATSAPP_CONFIG_ID) {
-      alert("WhatsApp Config ID is missing.");
+    if (!FACEBOOK_APP_ID || !WHATSAPP_CONFIG_ID) {
+      alert("Meta App ID or WhatsApp Config ID is missing.");
       return;
     }
+
+    console.log("Launching WhatsApp signup with:", {
+      FACEBOOK_APP_ID,
+      WHATSAPP_CONFIG_ID,
+    });
 
     setIsInitializing(true);
 
@@ -173,7 +170,7 @@ const WhatsAppSetupButton: React.FC<WhatsAppSetupButtonProps> = ({ clientId }) =
         console.log("FB login response:", response);
 
         if (!response?.authResponse) {
-          console.warn("User cancelled or authorization failed.");
+          console.warn("User cancelled or Meta authorization failed.");
           setIsInitializing(false);
           return;
         }
