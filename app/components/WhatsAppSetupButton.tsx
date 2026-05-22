@@ -13,72 +13,94 @@ declare global {
   }
 }
 
-const WhatsAppSetupButton: React.FC<WhatsAppSetupButtonProps> = ({ clientId }) => {
+const WhatsAppSetupButton: React.FC<WhatsAppSetupButtonProps> = ({
+  clientId,
+}) => {
   const [isInitializing, setIsInitializing] = useState(false);
   const [sdkReady, setSdkReady] = useState(false);
 
   useEffect(() => {
-    // Load Facebook SDK
     window.fbAsyncInit = function () {
       window.FB.init({
-  appId      : '4331141513783156',
-  cookie     : true,
-  xfbml      : true,
-  version    : 'v20.0' // <-- Change to v20.0
-});
+        appId: process.env.NEXT_PUBLIC_FACEBOOK_APP_ID,
+        cookie: true,
+        xfbml: false,
+        version: "v20.0",
+      });
 
+      console.log("Facebook SDK Initialized");
       setSdkReady(true);
-      console.log("Facebook SDK initialized");
     };
 
-    // Inject SDK script if not already loaded
     if (!document.getElementById("facebook-jssdk")) {
-      const js = document.createElement("script");
-      js.id = "facebook-jssdk";
-      js.src = "https://connect.facebook.net/en_US/sdk.js";
-      js.async = true;
-      js.defer = true;
+      const script = document.createElement("script");
+      script.id = "facebook-jssdk";
+      script.src = "https://connect.facebook.net/en_US/sdk.js";
+      script.async = true;
+      script.defer = true;
 
-      document.body.appendChild(js);
+      document.body.appendChild(script);
     } else {
       setSdkReady(true);
     }
   }, []);
 
   const launchWhatsAppSignup = () => {
-    const fb = window.FB;
-
-    if (!fb) {
-      alert("Facebook SDK not loaded yet.");
+    if (!window.FB) {
+      alert("Facebook SDK not loaded");
       return;
     }
 
     setIsInitializing(true);
 
-    fb.login(
-      (response: any) => {
-        console.log("FB Login Response:", response);
+    window.FB.login(
+      async (response: any) => {
+        console.log("Facebook Response:", response);
 
         if (response.authResponse) {
-          console.log("Successfully authenticated with Meta");
+          try {
+            const code = response.authResponse.code;
 
-          // Authorization code returned here
-          const code = response.authResponse.code;
-          console.log("Authorization Code:", code);
+            console.log("Authorization Code:", code);
 
-          // TODO:
-          // Send this code to your backend API
-          // Exchange for access token
+            // Send code to backend
+            const res = await fetch("/api/whatsapp/exchange-token", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                code,
+                clientId,
+              }),
+            });
+
+            const data = await res.json();
+
+            console.log("Backend Response:", data);
+
+            if (data.success) {
+              alert("WhatsApp connected successfully!");
+            } else {
+              alert(data.error || "Connection failed");
+            }
+          } catch (err) {
+            console.error(err);
+            alert("Something went wrong");
+          }
         } else {
-          console.warn("User cancelled login or authorization failed.");
+          console.warn("User cancelled login");
         }
 
         setIsInitializing(false);
       },
       {
-        config_id: "1561772279278060",
+        config_id: process.env.NEXT_PUBLIC_WHATSAPP_CONFIG_ID,
         response_type: "code",
         override_default_response_type: true,
+        extras: {
+          setup: {},
+        },
       }
     );
   };
@@ -86,49 +108,18 @@ const WhatsAppSetupButton: React.FC<WhatsAppSetupButtonProps> = ({ clientId }) =
   return (
     <button
       onClick={launchWhatsAppSignup}
-      disabled={isInitializing || !sdkReady}
+      disabled={!sdkReady || isInitializing}
       className={`w-full py-3 px-4 rounded-lg font-bold text-white transition-all shadow-md ${
-        isInitializing || !sdkReady
+        !sdkReady || isInitializing
           ? "bg-gray-400 cursor-not-allowed opacity-70"
           : "bg-[#25D366] hover:bg-[#128C7E] active:scale-[0.98] hover:shadow-lg"
       }`}
     >
-      {isInitializing ? (
-        <span className="flex items-center justify-center gap-2">
-          <svg
-            className="animate-spin h-5 w-5 text-white"
-            xmlns="http://www.w3.org/2000/svg"
-            fill="none"
-            viewBox="0 0 24 24"
-          >
-            <circle
-              className="opacity-25"
-              cx="12"
-              cy="12"
-              r="10"
-              stroke="currentColor"
-              strokeWidth="4"
-            ></circle>
-
-            <path
-              className="opacity-75"
-              fill="currentColor"
-              d="M4 12a8 8 0 018-8V0C5.373 
-              0 0 5.373 0 12h4zm2 
-              5.291A7.962 7.962 0 
-              014 12H0c0 3.042 
-              1.135 5.824 3 
-              7.938l3-2.647z"
-            ></path>
-          </svg>
-
-          Connecting...
-        </span>
-      ) : sdkReady ? (
-        "Connect WhatsApp"
-      ) : (
-        "Initializing..."
-      )}
+      {isInitializing
+        ? "Connecting..."
+        : sdkReady
+        ? "Connect WhatsApp"
+        : "Initializing..."}
     </button>
   );
 };
