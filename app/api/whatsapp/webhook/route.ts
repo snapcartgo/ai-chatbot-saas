@@ -113,11 +113,14 @@ export async function POST(req: Request) {
     // SEND TO N8N
     // =====================================
 
-    if (
-      process.env.N8N_WHATSAPP_WEBHOOK_URL
-    ) {
-      await fetch(
-        process.env.N8N_WHATSAPP_WEBHOOK_URL,
+    const N8N_WEBHOOK =
+  process.env.N8N_WHATSAPP_WEBHOOK_URL || "";
+
+const allowedHost =
+  "https://n8n.snapcartgo.com";
+
+if (N8N_WEBHOOK.startsWith(allowedHost)) {
+  await fetch(N8N_WEBHOOK, 
         {
           method: "POST",
           headers: {
