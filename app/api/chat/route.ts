@@ -49,7 +49,7 @@ export async function POST(req: Request) {
 
     const body = await req.json();
 
-    const message = body.message;
+    const rawMessage = String(body.message || "").trim();
     const bot_id = body.bot_id || body.chatbotId || body.activeBotId;
     const conversation_id =
       body.conversation_id || body.sessionId || crypto.randomUUID();
@@ -60,8 +60,19 @@ export async function POST(req: Request) {
     const image_name = body.image_name || null;
     const image_type = body.image_type || null;
     const image_data_url = body.image_data_url || null;
+    const audio_name = body.audio_name || null;
+    const audio_type = body.audio_type || null;
+    const audio_data_url = body.audio_data_url || null;
 
-    if (!message || !bot_id) {
+    const message =
+      rawMessage ||
+      (audio_name
+        ? `Voice message attached: ${audio_name}`
+        : image_name
+        ? `Image attached: ${image_name}`
+        : "");
+
+    if (!bot_id || (!message && !image_data_url && !audio_data_url)) {
       return NextResponse.json(
         { reply: "Error: Message or Bot ID is missing." },
         { status: 400 }
@@ -71,8 +82,7 @@ export async function POST(req: Request) {
     const userMsg = String(message).toLowerCase();
 
     const baseUrl =
-      process.env.NEXT_PUBLIC_BASE_URL ||
-      "https://ai-chatbot-saas-five.vercel.app";
+      process.env.NEXT_PUBLIC_BASE_URL || "https://woodpetra.in";
 
     const detectedUTR = extractUTR(message);
 
@@ -138,6 +148,9 @@ export async function POST(req: Request) {
         image_name,
         image_type,
         image_data_url,
+        audio_name,
+        audio_type,
+        audio_data_url,
       }),
     });
 
@@ -195,10 +208,7 @@ export async function POST(req: Request) {
   } catch (error) {
     console.error("Error:", error);
 
-    return NextResponse.json(
-      { reply: "Server error." },
-      { status: 500 }
-    );
+    return NextResponse.json({ reply: "Server error." }, { status: 500 });
   }
 }
 
