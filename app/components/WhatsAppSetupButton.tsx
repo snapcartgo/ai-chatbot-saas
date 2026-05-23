@@ -166,26 +166,27 @@ const WhatsAppSetupButton: React.FC<WhatsAppSetupButtonProps> = ({ clientId }) =
     setIsInitializing(true);
 
     window.FB.login(
-  (response: any) => {
-    console.log("FB login response:", response);
-    if (!response?.authResponse) {
-      console.warn("User cancelled or Meta authorization failed.");
-      setIsInitializing(false);
-      return;
-    }
-    console.log("Meta auth success");
-  },
-  {
-    config_id: WHATSAPP_CONFIG_ID,
-    response_type: "code",
-    override_default_response_type: true,
-    // Turn the extras object into a JSON string
-    extras: JSON.stringify({
-      feature: "whatsapp_embedded_signup",
-      sessionInfoVersion: "3", 
-    })
-  }
-);
+      (response: any) => {
+        console.log("FB login response:", response);
+
+        if (!response?.authResponse) {
+          console.warn("User cancelled or Meta authorization failed.");
+          setIsInitializing(false);
+          return;
+        }
+
+        console.log("Meta auth success");
+      },
+      {
+        config_id: WHATSAPP_CONFIG_ID,
+        response_type: "code",
+        override_default_response_type: true,
+        extras: JSON.stringify({
+          feature: "whatsapp_embedded_signup",
+          sessionInfoVersion: "3", 
+        }),
+      }
+    );
   };
 
   return (
@@ -217,12 +218,7 @@ const WhatsAppSetupButton: React.FC<WhatsAppSetupButtonProps> = ({ clientId }) =
             <path
               className="opacity-75"
               fill="currentColor"
-              d="M4 12a8 8 0 018-8V0C5.373 
-              0 0 5.373 0 12h4zm2 
-              5.291A7.962 7.962 0 
-              014 12H0c0 3.042 
-              1.135 5.824 3 
-              7.938l3-2.647z"
+              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
             />
           </svg>
           Connecting...
