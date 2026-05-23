@@ -84,6 +84,8 @@
       return;
     }
 
+    iframe.allow = "microphone; clipboard-read; clipboard-write";
+
     function applyStyles() {
       const currentWidth = window.innerWidth;
       isMobile = currentWidth < 768;

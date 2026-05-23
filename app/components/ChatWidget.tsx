@@ -24,9 +24,17 @@ type Message = {
   actionLabel?: string;
   imagePreviewUrl?: string;
   imageName?: string;
+  audioPreviewUrl?: string;
+  audioName?: string;
 };
 
 type EnterpriseImageAttachment = {
+  name: string;
+  type: string;
+  dataUrl: string;
+};
+
+type EnterpriseAudioAttachment = {
   name: string;
   type: string;
   dataUrl: string;
@@ -119,7 +127,7 @@ function processMessageContent(content: string) {
 
       const isExternalGateway = EXTERNAL_PAYMENT_HOSTS.has(host);
       const isInternalPaymentPath =
-        host === "ai-chatbot-saas-five.vercel.app" &&
+        host === "woodpetra.in" &&
         (path.includes("payment") ||
           path.includes("checkout") ||
           path.includes("payu") ||
@@ -166,13 +174,32 @@ function renderTextWithLinks(text: string) {
   return nodes;
 }
 
-async function fileToDataUrl(file: File): Promise<string> {
+async function blobToDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result || ""));
-    reader.onerror = () => reject(new Error("Failed to read image"));
-    reader.readAsDataURL(file);
+    reader.onerror = () => reject(new Error("Failed to read file"));
+    reader.readAsDataURL(blob);
   });
+}
+
+function getBestAudioMimeType() {
+  if (typeof MediaRecorder === "undefined") return "";
+
+  const candidates = [
+    "audio/webm;codecs=opus",
+    "audio/webm",
+    "audio/mp4",
+    "audio/ogg;codecs=opus",
+  ];
+
+  for (const type of candidates) {
+    if (MediaRecorder.isTypeSupported(type)) {
+      return type;
+    }
+  }
+
+  return "";
 }
 
 export default function ChatWidget({
@@ -189,10 +216,16 @@ export default function ChatWidget({
   const [isRecording, setIsRecording] = useState(false);
   const [enterpriseImage, setEnterpriseImage] =
     useState<EnterpriseImageAttachment | null>(null);
+  const [enterpriseAudio, setEnterpriseAudio] =
+    useState<EnterpriseAudioAttachment | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
+  const liveTranscriptRef = useRef("");
 
   const activeBotId = chatbotId || "9ff1f58c-d09d-4449-97cc-a5860b640e2c";
   const isEnterprisePlan = String(plan || "").toLowerCase() === "enterprise";
@@ -237,59 +270,149 @@ export default function ChatWidget({
 
   useEffect(() => {
     return () => {
-      if (recognitionRef.current) {
-        recognitionRef.current.stop();
-      }
+      try {
+        recognitionRef.current?.stop();
+      } catch {}
+      try {
+        mediaRecorderRef.current?.stop();
+      } catch {}
+      mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
     };
   }, []);
 
-  const toggleVoiceRecognition = () => {
-    if (!isEnterprisePlan || isLoading) return;
-
+  const startSpeechTranscript = () => {
     const RecognitionCtor =
       window.SpeechRecognition || window.webkitSpeechRecognition;
 
-    if (!RecognitionCtor) {
-      window.alert("Speech-to-text is not supported in this browser.");
-      return;
-    }
+    if (!RecognitionCtor) return;
 
-    if (isRecording && recognitionRef.current) {
-      recognitionRef.current.stop();
-      return;
-    }
+    try {
+      const recognition = new RecognitionCtor();
+      recognition.lang = "en-IN";
+      recognition.interimResults = true;
+      recognition.continuous = true;
 
-    const recognition = new RecognitionCtor();
-    recognition.lang = "en-IN";
-    recognition.interimResults = true;
-    recognition.continuous = false;
+      recognition.onresult = (event: SpeechRecognitionEventLite) => {
+        const transcript = Array.from(
+          { length: event.results.length },
+          (_, index) => event.results[index]?.[0]?.transcript || ""
+        )
+          .join(" ")
+          .trim();
 
-    recognition.onstart = () => {
+        liveTranscriptRef.current = transcript;
+        setUserInput(transcript);
+      };
+
+      recognition.onerror = () => {};
+      recognition.onend = () => {
+        recognitionRef.current = null;
+      };
+
       recognitionRef.current = recognition;
+      recognition.start();
+    } catch (error) {
+      console.warn("Speech recognition start failed:", error);
+    }
+  };
+
+  const stopSpeechTranscript = () => {
+    try {
+      recognitionRef.current?.stop();
+    } catch {}
+    recognitionRef.current = null;
+  };
+
+  const startVoiceRecording = async () => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      window.alert("Microphone is not supported in this browser.");
+      return;
+    }
+
+    if (typeof MediaRecorder === "undefined") {
+      window.alert("Audio recording is not supported in this browser.");
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
+      recordedChunksRef.current = [];
+      liveTranscriptRef.current = "";
+
+      const mimeType = getBestAudioMimeType();
+      const mediaRecorder = mimeType
+        ? new MediaRecorder(stream, { mimeType })
+        : new MediaRecorder(stream);
+
+      mediaRecorderRef.current = mediaRecorder;
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          recordedChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        const blob = new Blob(recordedChunksRef.current, {
+          type: mediaRecorder.mimeType || "audio/webm",
+        });
+
+        if (blob.size > 0) {
+          const dataUrl = await blobToDataUrl(blob);
+          const extension = blob.type.includes("mp4")
+            ? "m4a"
+            : blob.type.includes("ogg")
+            ? "ogg"
+            : "webm";
+
+          setEnterpriseAudio({
+            name: `voice-message.${extension}`,
+            type: blob.type || "audio/webm",
+            dataUrl,
+          });
+
+          if (!liveTranscriptRef.current.trim()) {
+            setUserInput("Voice message attached");
+          }
+        }
+
+        mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+        mediaStreamRef.current = null;
+        mediaRecorderRef.current = null;
+        setIsRecording(false);
+        stopSpeechTranscript();
+      };
+
+      mediaRecorder.start();
       setIsRecording(true);
-    };
+      startSpeechTranscript();
+    } catch (error) {
+      console.error("Microphone access error:", error);
+      window.alert(
+        "Microphone permission is blocked. Please allow microphone access in your browser."
+      );
+    }
+  };
 
-    recognition.onresult = (event: SpeechRecognitionEventLite) => {
-      const transcript = Array.from(
-        { length: event.results.length },
-        (_, index) => event.results[index]?.[0]?.transcript || ""
-      )
-        .join(" ")
-        .trim();
-
-      setUserInput(transcript);
-    };
-
-    recognition.onerror = () => {
+  const stopVoiceRecording = () => {
+    try {
+      mediaRecorderRef.current?.stop();
+    } catch (error) {
+      console.warn("Failed to stop recorder:", error);
       setIsRecording(false);
-    };
+    }
+  };
 
-    recognition.onend = () => {
-      setIsRecording(false);
-      recognitionRef.current = null;
-    };
+  const toggleVoiceRecording = async () => {
+    if (!isEnterprisePlan || isLoading) return;
 
-    recognition.start();
+    if (isRecording) {
+      stopVoiceRecording();
+      return;
+    }
+
+    await startVoiceRecording();
   };
 
   const attachImageFile = async (file: File) => {
@@ -298,7 +421,7 @@ export default function ChatWidget({
       return;
     }
 
-    const dataUrl = await fileToDataUrl(file);
+    const dataUrl = await blobToDataUrl(file);
 
     setEnterpriseImage({
       name: file.name,
@@ -340,9 +463,22 @@ export default function ChatWidget({
     }
   };
 
+  const clearAudioAttachment = () => {
+    setEnterpriseAudio(null);
+    if (userInput === "Voice message attached") {
+      setUserInput("");
+    }
+  };
+
   const handleSendMessage = async () => {
     const trimmedInput = userInput.trim();
-    if (isLoading || (!trimmedInput && !enterpriseImage)) return;
+
+    if (
+      isLoading ||
+      (!trimmedInput && !enterpriseImage && !enterpriseAudio)
+    ) {
+      return;
+    }
 
     let uniqueSessionId = localStorage.getItem(`chat_session_${activeBotId}`);
     if (!uniqueSessionId) {
@@ -354,7 +490,10 @@ export default function ChatWidget({
     }
 
     const messageText =
-      trimmedInput || `Image attached: ${enterpriseImage?.name || "Untitled image"}`;
+      trimmedInput ||
+      (enterpriseAudio
+        ? `Voice message attached: ${enterpriseAudio.name}`
+        : `Image attached: ${enterpriseImage?.name || "Untitled image"}`);
 
     const payload = {
       message: messageText,
@@ -366,6 +505,9 @@ export default function ChatWidget({
       image_name: enterpriseImage?.name || null,
       image_type: enterpriseImage?.type || null,
       image_data_url: enterpriseImage?.dataUrl || null,
+      audio_name: enterpriseAudio?.name || null,
+      audio_type: enterpriseAudio?.type || null,
+      audio_data_url: enterpriseAudio?.dataUrl || null,
       channel: "website",
     };
 
@@ -376,12 +518,15 @@ export default function ChatWidget({
         content: messageText,
         imagePreviewUrl: enterpriseImage?.dataUrl,
         imageName: enterpriseImage?.name,
+        audioPreviewUrl: enterpriseAudio?.dataUrl,
+        audioName: enterpriseAudio?.name,
       },
     ];
 
     setMessages(newMessages);
     setUserInput("");
     setEnterpriseImage(null);
+    setEnterpriseAudio(null);
     setIsLoading(true);
 
     try {
@@ -485,7 +630,9 @@ export default function ChatWidget({
   const chatPanel = (
     <div
       className={`flex flex-col overflow-hidden border bg-white shadow-2xl transition-all duration-300 ${
-        isEmbed ? "h-full w-full rounded-2xl" : "h-[450px] w-[92vw] sm:w-[350px] rounded-2xl"
+        isEmbed
+          ? "h-full w-full rounded-2xl"
+          : "h-[450px] w-[92vw] sm:w-[350px] rounded-2xl"
       }`}
       style={isEmbed ? { height: "100%" } : {}}
     >
@@ -513,14 +660,21 @@ export default function ChatWidget({
             m.actionLabel || (niche === "ecommerce" ? "Buy Now" : "Open Page");
 
           return (
-            <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+            <div
+              key={i}
+              className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}
+            >
               <div
                 className={`max-w-[85%] whitespace-pre-wrap break-words rounded-xl p-2 text-xs shadow-sm md:text-sm ${
-                  m.role === "user" ? "bg-blue-600 text-white" : "border bg-white text-gray-800"
+                  m.role === "user"
+                    ? "bg-blue-600 text-white"
+                    : "border bg-white text-gray-800"
                 }`}
               >
                 <div>
-                  {safeUrl ? "Click below to complete your order:" : renderTextWithLinks(cleanText)}
+                  {safeUrl
+                    ? "Click below to complete your order:"
+                    : renderTextWithLinks(cleanText)}
                 </div>
 
                 {m.imagePreviewUrl && (
@@ -533,6 +687,19 @@ export default function ChatWidget({
                     {m.imageName && (
                       <div className="border-t border-gray-200 px-2 py-1 text-[10px] text-gray-500">
                         {m.imageName}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {m.audioPreviewUrl && (
+                  <div className="mt-2 rounded-lg border border-gray-200 bg-white p-2">
+                    <audio controls className="w-full">
+                      <source src={m.audioPreviewUrl} type="audio/webm" />
+                    </audio>
+                    {m.audioName && (
+                      <div className="mt-1 text-[10px] text-gray-500">
+                        {m.audioName}
                       </div>
                     )}
                   </div>
@@ -583,8 +750,8 @@ export default function ChatWidget({
             </IconButton>
 
             <IconButton
-              onClick={toggleVoiceRecognition}
-              title={isRecording ? "Stop voice input" : "Voice to text"}
+              onClick={toggleVoiceRecording}
+              title={isRecording ? "Stop recording" : "Record voice"}
               active={isRecording}
             >
               <svg
@@ -610,18 +777,33 @@ export default function ChatWidget({
               onChange={handleImageSelection}
             />
 
-            <div className="text-[11px] text-blue-700">
-              Enterprise tools
-            </div>
+            <div className="text-[11px] text-blue-700">Enterprise tools</div>
           </div>
         )}
 
         {isEnterprisePlan && enterpriseImage && (
           <div className="mb-2 flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-2 py-2 text-[11px] text-gray-600">
-            <span className="truncate pr-2">Attached: {enterpriseImage.name}</span>
+            <span className="truncate pr-2">
+              Attached image: {enterpriseImage.name}
+            </span>
             <button
               type="button"
               onClick={clearImageAttachment}
+              className="rounded bg-white px-2 py-1 text-gray-500 hover:text-red-600"
+            >
+              Remove
+            </button>
+          </div>
+        )}
+
+        {isEnterprisePlan && enterpriseAudio && (
+          <div className="mb-2 flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-2 py-2 text-[11px] text-gray-600">
+            <span className="truncate pr-2">
+              Voice message ready: {enterpriseAudio.name}
+            </span>
+            <button
+              type="button"
+              onClick={clearAudioAttachment}
               className="rounded bg-white px-2 py-1 text-gray-500 hover:text-red-600"
             >
               Remove
@@ -638,7 +820,7 @@ export default function ChatWidget({
             onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
             placeholder={
               isEnterprisePlan
-                ? "Type, paste image, speak, or upload image..."
+                ? "Type, paste image, record voice, or upload image..."
                 : "Type your message..."
             }
             className="flex-1 rounded-md border px-3 py-2 text-xs text-black focus:outline-none focus:ring-2 focus:ring-blue-500 md:text-sm"
@@ -655,7 +837,7 @@ export default function ChatWidget({
           <div className="mt-1 text-center text-[10px] text-gray-400">
             Powered by{" "}
             <a
-              href="https://ai-chatbot-saas-five.vercel.app"
+              href="https://woodpetra.in"
               target="_blank"
               rel="noopener noreferrer"
               className="font-medium hover:text-blue-600"
