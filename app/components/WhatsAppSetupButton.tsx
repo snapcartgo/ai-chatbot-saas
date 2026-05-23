@@ -55,10 +55,11 @@ const WhatsAppSetupButton: React.FC<WhatsAppSetupButtonProps> = ({ clientId }) =
     const initializeSdk = () => {
       if (!window.FB || hasInitializedRef.current) return;
 
+      // Initializing SDK with xfbml set to true for correct modal rendering
       window.FB.init({
         appId: FACEBOOK_APP_ID,
         cookie: true,
-        xfbml: false,
+        xfbml: true, 
         version: "v20.0",
       });
 
@@ -165,6 +166,7 @@ const WhatsAppSetupButton: React.FC<WhatsAppSetupButtonProps> = ({ clientId }) =
 
     setIsInitializing(true);
 
+    // Explicit scope removed to let config_id automatically pass dashboard permissions
     window.FB.login(
       (response: any) => {
         console.log("FB login response:", response);
