@@ -166,33 +166,28 @@ const WhatsAppSetupButton: React.FC<WhatsAppSetupButtonProps> = ({ clientId }) =
     setIsInitializing(true);
 
     window.FB.login(
-  (response: any) => {
-    console.log("FB login response:", response);
+      (response: any) => {
+        console.log("FB login response:", response);
 
-    if (!response?.authResponse) {
-      console.warn("User cancelled or Meta authorization failed.");
-      setIsInitializing(false);
-      return;
-    }
+        if (!response?.authResponse) {
+          console.warn("User cancelled or Meta authorization failed.");
+          setIsInitializing(false);
+          return;
+        }
 
-    console.log("Meta auth success");
-  },
-  {
-    // 1. Pass your configuration ID
-    config_id: WHATSAPP_CONFIG_ID,
-    
-    // 2. YOU MUST ADD THIS LINE TO MATCH THE DASHBOARD LOCK-IN:
-    scope: "whatsapp_business_management,whatsapp_business_messaging",
-    
-    response_type: "code",
-    override_default_response_type: true,
-    extras: {
-      feature: "whatsapp_embedded_signup",
-      // Optional: updated to match Meta's standard payload tracking
-      sessionInfoVersion: "3", 
-    },
-  }
-);
+        console.log("Meta auth success");
+      },
+      {
+        config_id: WHATSAPP_CONFIG_ID,
+        scope: "whatsapp_business_management",
+        response_type: "code",
+        override_default_response_type: true,
+        extras: {
+          feature: "whatsapp_embedded_signup",
+          sessionInfoVersion: "3", 
+        },
+      }
+    );
   };
 
   return (
