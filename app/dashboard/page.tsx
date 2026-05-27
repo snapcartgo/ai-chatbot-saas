@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import * as Sentry from "@sentry/nextjs";
-import WhatsAppSetupButton from "../components/WhatsAppSetupButton";
+// FIXED: Changed to named import using curly braces to match the component's strict types
+import { WhatsAppSetupButton } from "../components/WhatsAppSetupButton";
 
 export default function DashboardPage() {
   const [stats, setStats] = useState({
