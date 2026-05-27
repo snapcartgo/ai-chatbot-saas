@@ -1,67 +1,68 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
-
-const TWILIO_WHATSAPP_DEFAULT_FROM = "whatsapp:+14155238886";
-
-function normalizeWhatsAppNumber(value: string | null | undefined) {
-  if (!value) return "";
-  if (value.startsWith("whatsapp:")) return value;
-  if (value.startsWith("+")) return `whatsapp:${value}`;
-  return `whatsapp:+${value}`;
-}
+import axios from "axios";
 
 export async function POST(req: Request) {
   try {
-    const { user_id, message, recipient_phone } = await req.json();
+    const body = await req.json();
 
-    if (!user_id || !message || !recipient_phone) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
-    }
+    // 1. Extract the parameters sent from Thunder Client
+    const phone_number_id = String(body.phone_number_id || "").trim();
+    const recipient_number = String(body.recipient_number || "").trim();
 
-    const { data: config, error } = await supabase
-      .from("whatsapp_configs")
-      .select("twilio_sid, twilio_auth_token, phone_number")
-      .eq("user_id", user_id)
-      .maybeSingle();
-
-    if (error || !config) {
-      return NextResponse.json({ error: "WhatsApp not configured for this user" }, { status: 404 });
-    }
-
-    if (!config.twilio_sid || !config.twilio_auth_token) {
-      return NextResponse.json({ error: "Twilio credentials are incomplete" }, { status: 400 });
-    }
-
-    const to = normalizeWhatsAppNumber(recipient_phone);
-    const from = normalizeWhatsAppNumber(config.phone_number) || TWILIO_WHATSAPP_DEFAULT_FROM;
-
-    const res = await fetch(
-      `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(config.twilio_sid)}/Messages.json`,
-      {
-        method: "POST",
-        headers: {
-          Authorization:
-            "Basic " +
-            Buffer.from(`${config.twilio_sid}:${config.twilio_auth_token}`).toString("base64"),
-          "Content-Type": "application/x-www-form-urlencoded",
+    // 2. Validate that required fields are present
+    if (!phone_number_id || !recipient_number) {
+      return NextResponse.json(
+        {
+          error: "Missing required fields: phone_number_id or recipient_number",
         },
-        body: new URLSearchParams({
-          To: to,
-          From: from,
-          Body: message,
-        }),
+        { status: 400 }
+      );
+    }
+
+    console.log(`Attempting to send template 'hello_test' to ${recipient_number} via Phone ID ${phone_number_id}...`);
+
+    // 3. Make the request to Meta Graph API
+    // Note: The locale code 'en_US' matches English templates on Meta Business Suite dashboards
+    const response = await axios.post(
+      `https://graph.facebook.com/v23.0/${phone_number_id}/messages`,
+      {
+        messaging_product: "whatsapp",
+        to: recipient_number,
+        type: "template",
+        template: {
+          name: "hello_test", 
+          language: {
+            code: "en_US", 
+          },
+        },
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}`,
+          "Content-Type": "application/json",
+        },
       }
     );
 
-    const result = await res.json();
-    return NextResponse.json({ success: res.ok, result }, { status: res.ok ? 200 : res.status });
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : "Unexpected error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    // 4. Return successful API response details
+    return NextResponse.json({
+      success: true,
+      meta_response: response.data,
+    });
+
+  } catch (err: any) {
+    // Captures structural, network, or Meta account rejection issues clearly in your terminal
+    console.error(
+      "META API REJECTION DETAILED LOG:",
+      err.response?.data || err.message
+    );
+
+    return NextResponse.json(
+      {
+        error: "Failed to send message via Meta API",
+        details: err.response?.data || err.message,
+      },
+      { status: err.response?.status || 500 }
+    );
   }
 }
