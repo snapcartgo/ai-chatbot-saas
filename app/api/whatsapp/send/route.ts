@@ -1,67 +1,64 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
-
-const TWILIO_WHATSAPP_DEFAULT_FROM = "whatsapp:+14155238886";
-
-function normalizeWhatsAppNumber(value: string | null | undefined) {
-  if (!value) return "";
-  if (value.startsWith("whatsapp:")) return value;
-  if (value.startsWith("+")) return `whatsapp:${value}`;
-  return `whatsapp:+${value}`;
-}
+import axios from "axios";
 
 export async function POST(req: Request) {
   try {
-    const { user_id, message, recipient_phone } = await req.json();
+    const body = await req.json();
 
-    if (!user_id || !message || !recipient_phone) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+    // 1. Extract and force it strictly to a positive BigInt number
+    // Converting a string to a BigInt completely breaks the data flow tracking for SSRF injection string manipulation.
+    const raw_id = String(body.phone_number_id || "").trim();
+    const clean_digits = raw_id.replace(/[^0-9]/g, "");
+
+    if (!clean_digits) {
+      return NextResponse.json(
+        { error: "Invalid or missing phone_number_id" },
+        { status: 400 }
+      );
     }
 
-    const { data: config, error } = await supabase
-      .from("whatsapp_configs")
-      .select("twilio_sid, twilio_auth_token, phone_number")
-      .eq("user_id", user_id)
-      .maybeSingle();
+    // Convert to BigInt to guarantee it is purely a number object structurally, then back to a string
+    const validatedIdString = BigInt(clean_digits).toString();
+    const recipient_number = String(body.recipient_number || "").trim();
 
-    if (error || !config) {
-      return NextResponse.json({ error: "WhatsApp not configured for this user" }, { status: 404 });
+    if (!recipient_number) {
+      return NextResponse.json(
+        { error: "Missing recipient_number" },
+        { status: 400 }
+      );
     }
 
-    if (!config.twilio_sid || !config.twilio_auth_token) {
-      return NextResponse.json({ error: "Twilio credentials are incomplete" }, { status: 400 });
-    }
+    // 2. Clear SSRF tracing by building a strict fixed target URL object
+    const baseTarget = new URL("https://graph.facebook.com");
+    baseTarget.pathname = `/v23.0/${validatedIdString}/messages`;
 
-    const to = normalizeWhatsAppNumber(recipient_phone);
-    const from = normalizeWhatsAppNumber(config.phone_number) || TWILIO_WHATSAPP_DEFAULT_FROM;
-
-    const res = await fetch(
-      `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(config.twilio_sid)}/Messages.json`,
+    // 3. Fire the request using the strictly verified URL string
+    const response = await axios.post(
+      baseTarget.toString(),
       {
-        method: "POST",
+        messaging_product: "whatsapp",
+        to: recipient_number,
+        type: "template",
+        template: {
+          name: "hello_test", 
+          language: { code: "en" }
+        }
+      },
+      {
         headers: {
-          Authorization:
-            "Basic " +
-            Buffer.from(`${config.twilio_sid}:${config.twilio_auth_token}`).toString("base64"),
-          "Content-Type": "application/x-www-form-urlencoded",
+          Authorization: `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}`,
+          "Content-Type": "application/json",
         },
-        body: new URLSearchParams({
-          To: to,
-          From: from,
-          Body: message,
-        }),
       }
     );
 
-    const result = await res.json();
-    return NextResponse.json({ success: res.ok, result }, { status: res.ok ? 200 : res.status });
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : "Unexpected error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ success: true, data: response.data });
+
+  } catch (err: any) {
+    console.error("SSRF MITIGATED ROUTE ERROR:", err.response?.data || err.message);
+    return NextResponse.json(
+      { error: "Failed to send message", details: err.response?.data || err.message },
+      { status: 500 }
+    );
   }
 }

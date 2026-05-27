@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import * as Sentry from "@sentry/nextjs";
-// FIXED: Changed to named import using curly braces to match the component's strict types
 import { WhatsAppSetupButton } from "../components/WhatsAppSetupButton";
 
 export default function DashboardPage() {
@@ -16,8 +15,13 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
 
+  // Calendar Sync Form States
   const [calendarId, setCalendarId] = useState("");
   const [clientName, setClientName] = useState("");
+
+  // WhatsApp Config States
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [isSavingPhone, setIsSavingPhone] = useState(false);
 
   useEffect(() => {
     async function initDashboard() {
@@ -42,17 +46,30 @@ export default function DashboardPage() {
         attachReferralFromStorage(user),
       ]);
 
-      const [calRes, botsRes] = await Promise.all([
+      // Fetch existing configs on mount
+      const [calRes, configsRes, botsRes] = await Promise.all([
         supabase
           .from("client_calendars")
-          .select("calendar_id")
+          .select("calendar_id, client_name")
           .eq("user_id", user.id)
           .maybeSingle(),
-        supabase.from("chatbots").select("id").eq("user_id", user.id),
+        supabase
+          .from("whatsapp_configs")
+          .select("phone_number")
+          .eq("user_id", user.id)
+          .maybeSingle(),
+        supabase.from("chatbots").select("id").eq("user_id", user.id)
       ]);
 
-      const fetchedBotIds =
-        botsRes.data?.map((b: { id: string }) => b.id) || [];
+      if (calRes.data) {
+        setCalendarId(calRes.data.calendar_id || "");
+        setClientName(calRes.data.client_name || "");
+      }
+      if (configsRes.data) {
+        setPhoneNumber(configsRes.data.phone_number || "");
+      }
+
+      const fetchedBotIds = botsRes.data?.map((b: { id: string }) => b.id) || [];
 
       const [leadsRes, bookingsRes] = await Promise.all([
         supabase.from("leads").select("*", { count: "exact", head: true }),
@@ -111,6 +128,7 @@ export default function DashboardPage() {
     }
   }
 
+  // Pure Calendar Save Routine
   async function handleCalendarSync(e: React.FormEvent) {
     e.preventDefault();
     if (!userId) return;
@@ -132,6 +150,31 @@ export default function DashboardPage() {
     }
   }
 
+  // Pure WhatsApp Manual Phone Number Row Inserter/Updater
+  async function saveManualPhoneNumber() {
+    if (!userId) return;
+    if (!phoneNumber.trim()) return alert("Please type a phone number first.");
+
+    setIsSavingPhone(true);
+    const { error } = await supabase.from("whatsapp_configs").upsert(
+      {
+        user_id: userId,
+        phone_number: phoneNumber.trim(),
+        automation_enabled: true,
+        workflow_type: "whatsapp_only",
+        status: "active"
+      } as any,
+      { onConflict: "user_id" }
+    );
+
+    setIsSavingPhone(false);
+    if (error) {
+      alert("Database write error: " + error.message);
+    } else {
+      alert("WhatsApp Phone Number saved into configuration table successfully!");
+    }
+  }
+
   const conversionRate =
     stats.leads > 0 ? ((stats.bookings / stats.leads) * 100).toFixed(1) : "0.0";
 
@@ -148,67 +191,76 @@ export default function DashboardPage() {
           </p>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
-            <StatCard
-              title="Total Leads"
-              value={stats.leads}
-              color="bg-blue-600"
-              href="/dashboard/leads"
-            />
-            <StatCard
-              title="Conversations"
-              value={stats.conversations}
-              color="bg-purple-600"
-              href="/dashboard/conversations"
-            />
-            <StatCard
-              title="Orders"
-              value={stats.bookings}
-              color="bg-green-600"
-              href="/dashboard/orders"
-            />
-            <StatCard
-              title="Conversion Rate"
-              value={`${conversionRate}%`}
-              color="bg-orange-600"
-              href="/dashboard/pipeline"
-            />
+            <StatCard title="Total Leads" value={stats.leads} color="bg-blue-600" href="/dashboard/leads" />
+            <StatCard title="Conversations" value={stats.conversations} color="bg-purple-600" href="/dashboard/conversations" />
+            <StatCard title="Orders" value={stats.bookings} color="bg-green-600" href="/dashboard/orders" />
+            <StatCard title="Conversion Rate" value={`${conversionRate}%`} color="bg-orange-600" href="/dashboard/pipeline" />
           </div>
         )}
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          {/* CARD 1: CALENDAR INTEGRATION ONLY */}
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
-            <h2 className="text-xl font-bold mb-4">Calendar Sync</h2>
+            <h2 className="text-xl font-bold mb-4">Account Integration Settings</h2>
             <form onSubmit={handleCalendarSync} className="space-y-4">
-              <input
-                value={clientName}
-                onChange={(e) => setClientName(e.target.value)}
-                placeholder="Client Name"
-                className="w-full border rounded-lg p-3 text-gray-900 bg-white"
-                required
-              />
-              <input
-                value={calendarId}
-                onChange={(e) => setCalendarId(e.target.value)}
-                placeholder="Calendar ID"
-                className="w-full border rounded-lg p-3 text-gray-900 bg-white"
-                required
-              />
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 mb-1">Client Name</label>
+                <input
+                  value={clientName}
+                  onChange={(e) => setClientName(e.target.value)}
+                  placeholder="Client Name"
+                  className="w-full border rounded-lg p-3 text-gray-900 bg-white"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 mb-1">Calendar ID</label>
+                <input
+                  value={calendarId}
+                  onChange={(e) => setCalendarId(e.target.value)}
+                  placeholder="Calendar ID"
+                  className="w-full border rounded-lg p-3 text-gray-900 bg-white"
+                  required
+                />
+              </div>
               <button className="w-full bg-blue-600 text-white rounded-lg p-3 font-semibold hover:bg-blue-700 transition-colors">
-                Sync Calendar
+                Save Configurations
               </button>
             </form>
           </div>
 
+          {/* CARD 2: WHATSAPP INTEGRATION BOX WITH INDEPENDENT INPUT */}
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 flex flex-col">
             <h2 className="text-xl font-bold mb-2 text-gray-800">
               WhatsApp Onboarding
             </h2>
             <p className="text-sm text-gray-600 mb-6">
-              Connect your official Meta WhatsApp Business Account to enable
-              automated AI messaging.
+              Connect your official Meta WhatsApp Business Account to enable automated AI messaging.
             </p>
 
-            <div className="mt-auto">
+            <div className="space-y-4 mt-auto">
+              {/* THE CORRECT PHONE FIELD LOCATION */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">
+                  Actual WhatsApp Phone Number
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    value={phoneNumber}
+                    onChange={(e) => setPhoneNumber(e.target.value)}
+                    placeholder="e.g. +14155238886"
+                    className="flex-1 border rounded-lg p-3 text-sm text-gray-900 bg-white focus:outline-none"
+                  />
+                  <button 
+                    onClick={saveManualPhoneNumber}
+                    disabled={isSavingPhone}
+                    className="bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg px-4 text-xs transition-colors whitespace-nowrap"
+                  >
+                    {isSavingPhone ? "Saving..." : "Save Number"}
+                  </button>
+                </div>
+              </div>
+
               {userId ? (
                 <WhatsAppSetupButton clientId={userId} />
               ) : (
@@ -216,7 +268,7 @@ export default function DashboardPage() {
                   Loading user session...
                 </div>
               )}
-              <p className="text-[10px] text-gray-400 mt-3 text-center">
+              <p className="text-[10px] text-gray-400 mt-1 text-center">
                 Requires Meta Business Verification for full message volume.
               </p>
             </div>
@@ -227,28 +279,11 @@ export default function DashboardPage() {
   );
 }
 
-function StatCard({
-  title,
-  value,
-  color,
-  href,
-}: {
-  title: string;
-  value: string | number;
-  color: string;
-  href: string;
-}) {
+function StatCard({ title, value, color, href }: { title: string; value: string | number; color: string; href: string }) {
   return (
-    <Link
-      href={href}
-      className={`block p-6 rounded-2xl text-white shadow-sm transition-transform hover:scale-[1.02] ${color}`}
-    >
-      <div className="text-xs font-bold uppercase opacity-70 tracking-wider">
-        {title}
-      </div>
-      <div className="text-4xl font-extrabold mt-2 tracking-tight">
-        {value}
-      </div>
+    <Link href={href} className={`block p-6 rounded-2xl text-white shadow-sm transition-transform hover:scale-[1.02] ${color}`}>
+      <div className="text-xs font-bold uppercase opacity-70 tracking-wider">{title}</div>
+      <div className="text-4xl font-extrabold mt-2 tracking-tight">{value}</div>
     </Link>
   );
 }

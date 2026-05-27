@@ -472,38 +472,71 @@ export default function ChatWidget({
 
       const data = await response.json();
 
-      if (!response.ok) {
-        throw new Error(data?.reply || "Server Error");
-      }
+console.log("CHAT RESPONSE:", data);
 
-      const safeActionUrl =
-        typeof data.redirect_url === "string"
-          ? sanitizeHttpUrl(data.redirect_url)
-          : null;
+if (!response.ok) {
+  throw new Error(data?.reply || data?.message || "Server Error");
+}
 
-      let actionLabel: string | undefined;
+/* =========================
+   PRODUCT RESPONSE
+========================= */
 
-      if (safeActionUrl) {
-        const lowerUrl = safeActionUrl.toLowerCase();
+if (data.type === "product") {
 
-        if (niche === "ecommerce") {
-          actionLabel = "Buy Now";
-        } else if (lowerUrl.includes("/contact")) {
-          actionLabel = "Contact Us";
-        } else {
-          actionLabel = "Open Page";
-        }
-      }
+  setMessages([
+    ...newMessages,
+    {
+      role: "assistant",
+      content:
+        `🛍️ ${data.name}\n\n` +
+        `💰 Price: ₹${data.price}\n\n` +
+        `📝 ${data.description}`,
 
-      setMessages([
-        ...newMessages,
-        {
-          role: "assistant",
-          content: data.reply || "I received your message but have no response.",
-          actionUrl: safeActionUrl || undefined,
-          actionLabel,
-        },
-      ]);
+      imagePreviewUrl: data.image_url,
+    },
+  ]);
+
+  return;
+}
+
+/* =========================
+   NORMAL AI RESPONSE
+========================= */
+
+const safeActionUrl =
+  typeof data.redirect_url === "string"
+    ? sanitizeHttpUrl(data.redirect_url)
+    : null;
+
+let actionLabel: string | undefined;
+
+if (safeActionUrl) {
+
+  const lowerUrl = safeActionUrl.toLowerCase();
+
+  if (niche === "ecommerce") {
+    actionLabel = "Buy Now";
+  } else if (lowerUrl.includes("/contact")) {
+    actionLabel = "Contact Us";
+  } else {
+    actionLabel = "Open Page";
+  }
+}
+
+setMessages([
+  ...newMessages,
+  {
+    role: "assistant",
+    content:
+      data.reply ||
+      data.message ||
+      "I received your message but have no response.",
+
+    actionUrl: safeActionUrl || undefined,
+    actionLabel,
+  },
+]);
     } catch (error) {
       console.error("Chat Error:", error);
       setMessages([
