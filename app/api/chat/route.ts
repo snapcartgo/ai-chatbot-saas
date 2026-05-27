@@ -67,7 +67,7 @@ export async function POST(req: Request) {
     const message =
       rawMessage ||
       (audio_name
-        ? `Voice message attached: ${audio_name}`
+        ? "Voice message attached"
         : image_name
         ? `Image attached: ${image_name}`
         : "");

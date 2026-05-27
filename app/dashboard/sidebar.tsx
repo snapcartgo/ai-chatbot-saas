@@ -15,6 +15,7 @@ export default function Sidebar() {
     { name: "Pipeline", href: "/dashboard/pipeline" },
     { name: "Orders", href: "/dashboard/orders" },
     { name: "Knowledge Base", href: "/dashboard/knowledge-base" },
+    { name: "Products", href: "/dashboard/products" },
     { name: "Payment Settings", href: "/dashboard/settings/payments" },
     { name: "Billing", href: "/dashboard/Billing" },
   ];

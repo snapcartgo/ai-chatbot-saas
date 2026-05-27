@@ -24,17 +24,9 @@ type Message = {
   actionLabel?: string;
   imagePreviewUrl?: string;
   imageName?: string;
-  audioPreviewUrl?: string;
-  audioName?: string;
 };
 
 type EnterpriseImageAttachment = {
-  name: string;
-  type: string;
-  dataUrl: string;
-};
-
-type EnterpriseAudioAttachment = {
   name: string;
   type: string;
   dataUrl: string;
@@ -47,6 +39,7 @@ type SpeechRecognitionAlternativeLite = {
 type SpeechRecognitionResultLite = {
   0: SpeechRecognitionAlternativeLite;
   length: number;
+  isFinal?: boolean;
 };
 
 type SpeechRecognitionResultListLite = {
@@ -56,15 +49,17 @@ type SpeechRecognitionResultListLite = {
 
 type SpeechRecognitionEventLite = {
   results: SpeechRecognitionResultListLite;
+  resultIndex?: number;
 };
 
 type BrowserSpeechRecognition = {
   lang: string;
   interimResults: boolean;
   continuous: boolean;
+  maxAlternatives?: number;
   onstart: (() => void) | null;
   onresult: ((event: SpeechRecognitionEventLite) => void) | null;
-  onerror: (() => void) | null;
+  onerror: ((event?: { error?: string }) => void) | null;
   onend: (() => void) | null;
   start: () => void;
   stop: () => void;
@@ -174,32 +169,24 @@ function renderTextWithLinks(text: string) {
   return nodes;
 }
 
-async function blobToDataUrl(blob: Blob): Promise<string> {
+async function fileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result || ""));
-    reader.onerror = () => reject(new Error("Failed to read file"));
-    reader.readAsDataURL(blob);
+    reader.onerror = () => reject(new Error("Failed to read image"));
+    reader.readAsDataURL(file);
   });
 }
 
-function getBestAudioMimeType() {
-  if (typeof MediaRecorder === "undefined") return "";
-
-  const candidates = [
-    "audio/webm;codecs=opus",
-    "audio/webm",
-    "audio/mp4",
-    "audio/ogg;codecs=opus",
-  ];
-
-  for (const type of candidates) {
-    if (MediaRecorder.isTypeSupported(type)) {
-      return type;
-    }
-  }
-
-  return "";
+function normalizeTranscript(text: string) {
+  return text
+    .replace(/\btshirt\b/gi, "T-shirt")
+    .replace(/\bt shirts\b/gi, "T-shirts")
+    .replace(/\bt shirt\b/gi, "T-shirt")
+    .replace(/\bi wanna\b/gi, "I want to")
+    .replace(/\bwana\b/gi, "want to")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 export default function ChatWidget({
@@ -216,16 +203,12 @@ export default function ChatWidget({
   const [isRecording, setIsRecording] = useState(false);
   const [enterpriseImage, setEnterpriseImage] =
     useState<EnterpriseImageAttachment | null>(null);
-  const [enterpriseAudio, setEnterpriseAudio] =
-    useState<EnterpriseAudioAttachment | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const mediaStreamRef = useRef<MediaStream | null>(null);
-  const recordedChunksRef = useRef<Blob[]>([]);
-  const liveTranscriptRef = useRef("");
+  const shouldKeepListeningRef = useRef(false);
+  const finalTranscriptRef = useRef("");
 
   const activeBotId = chatbotId || "9ff1f58c-d09d-4449-97cc-a5860b640e2c";
   const isEnterprisePlan = String(plan || "").toLowerCase() === "enterprise";
@@ -270,149 +253,101 @@ export default function ChatWidget({
 
   useEffect(() => {
     return () => {
+      shouldKeepListeningRef.current = false;
       try {
         recognitionRef.current?.stop();
       } catch {}
-      try {
-        mediaRecorderRef.current?.stop();
-      } catch {}
-      mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
     };
   }, []);
 
-  const startSpeechTranscript = () => {
+  const startRecognition = () => {
     const RecognitionCtor =
       window.SpeechRecognition || window.webkitSpeechRecognition;
 
-    if (!RecognitionCtor) return;
+    if (!RecognitionCtor) {
+      window.alert("Speech-to-text is not supported in this browser.");
+      return;
+    }
 
-    try {
-      const recognition = new RecognitionCtor();
-      recognition.lang = "en-IN";
-      recognition.interimResults = true;
-      recognition.continuous = true;
+    const recognition = new RecognitionCtor();
+    recognition.lang = niche === "ecommerce" ? "en-US" : "en-IN";
+    recognition.interimResults = true;
+    recognition.continuous = true;
+    recognition.maxAlternatives = 1;
 
-      recognition.onresult = (event: SpeechRecognitionEventLite) => {
-        const transcript = Array.from(
-          { length: event.results.length },
-          (_, index) => event.results[index]?.[0]?.transcript || ""
-        )
-          .join(" ")
-          .trim();
-
-        liveTranscriptRef.current = transcript;
-        setUserInput(transcript);
-      };
-
-      recognition.onerror = () => {};
-      recognition.onend = () => {
-        recognitionRef.current = null;
-      };
-
+    recognition.onstart = () => {
       recognitionRef.current = recognition;
-      recognition.start();
-    } catch (error) {
-      console.warn("Speech recognition start failed:", error);
-    }
-  };
-
-  const stopSpeechTranscript = () => {
-    try {
-      recognitionRef.current?.stop();
-    } catch {}
-    recognitionRef.current = null;
-  };
-
-  const startVoiceRecording = async () => {
-    if (!navigator.mediaDevices?.getUserMedia) {
-      window.alert("Microphone is not supported in this browser.");
-      return;
-    }
-
-    if (typeof MediaRecorder === "undefined") {
-      window.alert("Audio recording is not supported in this browser.");
-      return;
-    }
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaStreamRef.current = stream;
-      recordedChunksRef.current = [];
-      liveTranscriptRef.current = "";
-
-      const mimeType = getBestAudioMimeType();
-      const mediaRecorder = mimeType
-        ? new MediaRecorder(stream, { mimeType })
-        : new MediaRecorder(stream);
-
-      mediaRecorderRef.current = mediaRecorder;
-
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0) {
-          recordedChunksRef.current.push(event.data);
-        }
-      };
-
-      mediaRecorder.onstop = async () => {
-        const blob = new Blob(recordedChunksRef.current, {
-          type: mediaRecorder.mimeType || "audio/webm",
-        });
-
-        if (blob.size > 0) {
-          const dataUrl = await blobToDataUrl(blob);
-          const extension = blob.type.includes("mp4")
-            ? "m4a"
-            : blob.type.includes("ogg")
-            ? "ogg"
-            : "webm";
-
-          setEnterpriseAudio({
-            name: `voice-message.${extension}`,
-            type: blob.type || "audio/webm",
-            dataUrl,
-          });
-
-          if (!liveTranscriptRef.current.trim()) {
-            setUserInput("Voice message attached");
-          }
-        }
-
-        mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
-        mediaStreamRef.current = null;
-        mediaRecorderRef.current = null;
-        setIsRecording(false);
-        stopSpeechTranscript();
-      };
-
-      mediaRecorder.start();
       setIsRecording(true);
-      startSpeechTranscript();
-    } catch (error) {
-      console.error("Microphone access error:", error);
-      window.alert(
-        "Microphone permission is blocked. Please allow microphone access in your browser."
+    };
+
+    recognition.onresult = (event: SpeechRecognitionEventLite) => {
+      let newFinalText = "";
+      let interimText = "";
+      const startIndex = event.resultIndex ?? 0;
+
+      for (let i = startIndex; i < event.results.length; i += 1) {
+        const result = event.results[i];
+        const transcript = result?.[0]?.transcript?.trim() || "";
+
+        if (!transcript) continue;
+
+        if (result?.isFinal) {
+          newFinalText += `${transcript} `;
+        } else {
+          interimText += `${transcript} `;
+        }
+      }
+
+      if (newFinalText.trim()) {
+        finalTranscriptRef.current = normalizeTranscript(
+          `${finalTranscriptRef.current} ${newFinalText}`.trim()
+        );
+      }
+
+      const combined = normalizeTranscript(
+        `${finalTranscriptRef.current} ${interimText}`.trim()
       );
-    }
-  };
 
-  const stopVoiceRecording = () => {
-    try {
-      mediaRecorderRef.current?.stop();
-    } catch (error) {
-      console.warn("Failed to stop recorder:", error);
+      setUserInput(combined);
+    };
+
+    recognition.onerror = () => {
       setIsRecording(false);
-    }
+    };
+
+    recognition.onend = () => {
+      recognitionRef.current = null;
+
+      if (shouldKeepListeningRef.current) {
+        setTimeout(() => {
+          if (shouldKeepListeningRef.current) {
+            startRecognition();
+          }
+        }, 150);
+        return;
+      }
+
+      setIsRecording(false);
+      shouldKeepListeningRef.current = false;
+    };
+
+    recognition.start();
   };
 
-  const toggleVoiceRecording = async () => {
+  const toggleVoiceRecognition = () => {
     if (!isEnterprisePlan || isLoading) return;
 
     if (isRecording) {
-      stopVoiceRecording();
+      shouldKeepListeningRef.current = false;
+      try {
+        recognitionRef.current?.stop();
+      } catch {}
       return;
     }
 
-    await startVoiceRecording();
+    finalTranscriptRef.current = userInput.trim();
+    shouldKeepListeningRef.current = true;
+    startRecognition();
   };
 
   const attachImageFile = async (file: File) => {
@@ -421,7 +356,7 @@ export default function ChatWidget({
       return;
     }
 
-    const dataUrl = await blobToDataUrl(file);
+    const dataUrl = await fileToDataUrl(file);
 
     setEnterpriseImage({
       name: file.name,
@@ -463,20 +398,10 @@ export default function ChatWidget({
     }
   };
 
-  const clearAudioAttachment = () => {
-    setEnterpriseAudio(null);
-    if (userInput === "Voice message attached") {
-      setUserInput("");
-    }
-  };
-
   const handleSendMessage = async () => {
     const trimmedInput = userInput.trim();
 
-    if (
-      isLoading ||
-      (!trimmedInput && !enterpriseImage && !enterpriseAudio)
-    ) {
+    if (isLoading || (!trimmedInput && !enterpriseImage)) {
       return;
     }
 
@@ -490,10 +415,7 @@ export default function ChatWidget({
     }
 
     const messageText =
-      trimmedInput ||
-      (enterpriseAudio
-        ? `Voice message attached: ${enterpriseAudio.name}`
-        : `Image attached: ${enterpriseImage?.name || "Untitled image"}`);
+      trimmedInput || `Image attached: ${enterpriseImage?.name || "Untitled image"}`;
 
     const payload = {
       message: messageText,
@@ -505,9 +427,6 @@ export default function ChatWidget({
       image_name: enterpriseImage?.name || null,
       image_type: enterpriseImage?.type || null,
       image_data_url: enterpriseImage?.dataUrl || null,
-      audio_name: enterpriseAudio?.name || null,
-      audio_type: enterpriseAudio?.type || null,
-      audio_data_url: enterpriseAudio?.dataUrl || null,
       channel: "website",
     };
 
@@ -518,16 +437,19 @@ export default function ChatWidget({
         content: messageText,
         imagePreviewUrl: enterpriseImage?.dataUrl,
         imageName: enterpriseImage?.name,
-        audioPreviewUrl: enterpriseAudio?.dataUrl,
-        audioName: enterpriseAudio?.name,
       },
     ];
 
     setMessages(newMessages);
     setUserInput("");
     setEnterpriseImage(null);
-    setEnterpriseAudio(null);
     setIsLoading(true);
+
+    shouldKeepListeningRef.current = false;
+    try {
+      recognitionRef.current?.stop();
+    } catch {}
+    finalTranscriptRef.current = "";
 
     try {
       const response = await fetch("/api/chat", {
@@ -692,19 +614,6 @@ export default function ChatWidget({
                   </div>
                 )}
 
-                {m.audioPreviewUrl && (
-                  <div className="mt-2 rounded-lg border border-gray-200 bg-white p-2">
-                    <audio controls className="w-full">
-                      <source src={m.audioPreviewUrl} type="audio/webm" />
-                    </audio>
-                    {m.audioName && (
-                      <div className="mt-1 text-[10px] text-gray-500">
-                        {m.audioName}
-                      </div>
-                    )}
-                  </div>
-                )}
-
                 {actionUrl && (
                   <div className="mt-2">
                     <button
@@ -750,8 +659,8 @@ export default function ChatWidget({
             </IconButton>
 
             <IconButton
-              onClick={toggleVoiceRecording}
-              title={isRecording ? "Stop recording" : "Record voice"}
+              onClick={toggleVoiceRecognition}
+              title={isRecording ? "Stop voice input" : "Voice to text"}
               active={isRecording}
             >
               <svg
@@ -796,21 +705,6 @@ export default function ChatWidget({
           </div>
         )}
 
-        {isEnterprisePlan && enterpriseAudio && (
-          <div className="mb-2 flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-2 py-2 text-[11px] text-gray-600">
-            <span className="truncate pr-2">
-              Voice message ready: {enterpriseAudio.name}
-            </span>
-            <button
-              type="button"
-              onClick={clearAudioAttachment}
-              className="rounded bg-white px-2 py-1 text-gray-500 hover:text-red-600"
-            >
-              Remove
-            </button>
-          </div>
-        )}
-
         <div className="flex gap-2">
           <input
             type="text"
@@ -820,7 +714,7 @@ export default function ChatWidget({
             onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
             placeholder={
               isEnterprisePlan
-                ? "Type, paste image, record voice, or upload image..."
+                ? "Type, paste image, speak, or upload image..."
                 : "Type your message..."
             }
             className="flex-1 rounded-md border px-3 py-2 text-xs text-black focus:outline-none focus:ring-2 focus:ring-blue-500 md:text-sm"

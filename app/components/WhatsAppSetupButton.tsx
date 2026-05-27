@@ -2,7 +2,8 @@
 
 import React, { useEffect, useRef, useState } from "react";
 
-interface WhatsAppSetupButtonProps {
+// Explicitly defined props interface
+export interface WhatsAppSetupButtonProps {
   clientId: string;
 }
 
@@ -38,7 +39,7 @@ function isTrustedMetaOrigin(origin: string) {
   }
 }
 
-const WhatsAppSetupButton: React.FC<WhatsAppSetupButtonProps> = ({ clientId }) => {
+export const WhatsAppSetupButton: React.FC<WhatsAppSetupButtonProps> = ({ clientId }) => {
   const [isInitializing, setIsInitializing] = useState(false);
   const [sdkReady, setSdkReady] = useState(false);
   const hasInitializedRef = useRef(false);
@@ -55,7 +56,6 @@ const WhatsAppSetupButton: React.FC<WhatsAppSetupButtonProps> = ({ clientId }) =
     const initializeSdk = () => {
       if (!window.FB || hasInitializedRef.current) return;
 
-      // Initializing SDK with xfbml set to true for correct modal rendering
       window.FB.init({
         appId: FACEBOOK_APP_ID,
         cookie: true,
@@ -166,7 +166,6 @@ const WhatsAppSetupButton: React.FC<WhatsAppSetupButtonProps> = ({ clientId }) =
 
     setIsInitializing(true);
 
-    // Explicit scope removed to let config_id automatically pass dashboard permissions
     window.FB.login(
       (response: any) => {
         console.log("FB login response:", response);
@@ -209,19 +208,8 @@ const WhatsAppSetupButton: React.FC<WhatsAppSetupButtonProps> = ({ clientId }) =
             fill="none"
             viewBox="0 0 24 24"
           >
-            <circle
-              className="opacity-25"
-              cx="12"
-              cy="12"
-              r="10"
-              stroke="currentColor"
-              strokeWidth="4"
-            />
-            <path
-              className="opacity-75"
-              fill="currentColor"
-              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-            />
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
           </svg>
           Connecting...
         </span>
@@ -233,5 +221,3 @@ const WhatsAppSetupButton: React.FC<WhatsAppSetupButtonProps> = ({ clientId }) =
     </button>
   );
 };
-
-export default WhatsAppSetupButton;
