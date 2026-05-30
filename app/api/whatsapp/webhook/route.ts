@@ -184,7 +184,7 @@ export async function POST(req: Request) {
         await fetch(metaUrl, {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${config.meta_access_token}`,
+            Authorization: `Bearer ${config.WHATSAPP_ACCESS_TOKEN}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
