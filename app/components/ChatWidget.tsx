@@ -24,6 +24,12 @@ type Message = {
   actionLabel?: string;
   imagePreviewUrl?: string;
   imageName?: string;
+  messageType?: "text" | "product";
+  productName?: string;
+  productDescription?: string;
+  productPrice?: number | string;
+  productImageUrl?: string;
+  productCategory?: string;
 };
 
 type EnterpriseImageAttachment = {
@@ -76,7 +82,7 @@ declare global {
 
 const PROMPTS: Record<string, string> = {
   ecommerce:
-    "You are a Retail Assistant for an eCommerce store. You only sell physical products like T-shirts. If you see a price of ₹2, it is a promotional product price. DO NOT mention SaaS billing, plans, or subscriptions.",
+    "You are a Retail Assistant for an eCommerce store. You only sell physical products like T-shirts. If you see a price of Rs.2, it is a promotional product price. DO NOT mention SaaS billing, plans, or subscriptions.",
   dentist:
     "You are a professional dental assistant for SmileCare. Your goal is to triage dental pain and book cleanings. Be clinical, clean, and reassuring.",
   salon:
@@ -183,10 +189,27 @@ function normalizeTranscript(text: string) {
     .replace(/\btshirt\b/gi, "T-shirt")
     .replace(/\bt shirts\b/gi, "T-shirts")
     .replace(/\bt shirt\b/gi, "T-shirt")
+    .replace(/\bear buds\b/gi, "earbuds")
+    .replace(/\bear buds pro\b/gi, "Earbuds Pro")
     .replace(/\bi wanna\b/gi, "I want to")
     .replace(/\bwana\b/gi, "want to")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function formatPrice(price: number | string | undefined) {
+  if (price === undefined || price === null || price === "") {
+    return null;
+  }
+
+  const numericPrice =
+    typeof price === "number" ? price : Number(String(price).trim());
+
+  if (Number.isFinite(numericPrice)) {
+    return `Rs.${numericPrice}`;
+  }
+
+  return `Rs.${String(price).trim()}`;
 }
 
 export default function ChatWidget({
@@ -207,8 +230,9 @@ export default function ChatWidget({
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
-  const shouldKeepListeningRef = useRef(false);
+  const listeningEnabledRef = useRef(false);
   const finalTranscriptRef = useRef("");
+  const restartTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const activeBotId = chatbotId || "9ff1f58c-d09d-4449-97cc-a5860b640e2c";
   const isEnterprisePlan = String(plan || "").toLowerCase() === "enterprise";
@@ -253,12 +277,31 @@ export default function ChatWidget({
 
   useEffect(() => {
     return () => {
-      shouldKeepListeningRef.current = false;
+      listeningEnabledRef.current = false;
+      if (restartTimeoutRef.current) {
+        clearTimeout(restartTimeoutRef.current);
+      }
       try {
         recognitionRef.current?.stop();
       } catch {}
     };
   }, []);
+
+  const stopRecognition = () => {
+    listeningEnabledRef.current = false;
+
+    if (restartTimeoutRef.current) {
+      clearTimeout(restartTimeoutRef.current);
+      restartTimeoutRef.current = null;
+    }
+
+    try {
+      recognitionRef.current?.stop();
+    } catch {}
+
+    recognitionRef.current = null;
+    setIsRecording(false);
+  };
 
   const startRecognition = () => {
     const RecognitionCtor =
@@ -281,9 +324,9 @@ export default function ChatWidget({
     };
 
     recognition.onresult = (event: SpeechRecognitionEventLite) => {
-      let newFinalText = "";
-      let interimText = "";
       const startIndex = event.resultIndex ?? 0;
+      let appendedFinal = "";
+      let currentInterim = "";
 
       for (let i = startIndex; i < event.results.length; i += 1) {
         const result = event.results[i];
@@ -292,43 +335,54 @@ export default function ChatWidget({
         if (!transcript) continue;
 
         if (result?.isFinal) {
-          newFinalText += `${transcript} `;
+          appendedFinal += `${transcript} `;
         } else {
-          interimText += `${transcript} `;
+          currentInterim += `${transcript} `;
         }
       }
 
-      if (newFinalText.trim()) {
+      if (appendedFinal.trim()) {
         finalTranscriptRef.current = normalizeTranscript(
-          `${finalTranscriptRef.current} ${newFinalText}`.trim()
+          `${finalTranscriptRef.current} ${appendedFinal}`.trim()
         );
       }
 
-      const combined = normalizeTranscript(
-        `${finalTranscriptRef.current} ${interimText}`.trim()
+      const liveText = normalizeTranscript(
+        `${finalTranscriptRef.current} ${currentInterim}`.trim()
       );
 
-      setUserInput(combined);
+      setUserInput(liveText);
     };
 
-    recognition.onerror = () => {
+    recognition.onerror = (event) => {
+      console.error("Speech recognition error:", event?.error);
+
+      if (event?.error === "not-allowed" || event?.error === "service-not-allowed") {
+        stopRecognition();
+        window.alert("Microphone permission is blocked. Please allow microphone access.");
+        return;
+      }
+
+      if (event?.error === "no-speech") {
+        return;
+      }
+
       setIsRecording(false);
     };
 
     recognition.onend = () => {
       recognitionRef.current = null;
 
-      if (shouldKeepListeningRef.current) {
-        setTimeout(() => {
-          if (shouldKeepListeningRef.current) {
-            startRecognition();
-          }
-        }, 150);
+      if (!listeningEnabledRef.current) {
+        setIsRecording(false);
         return;
       }
 
-      setIsRecording(false);
-      shouldKeepListeningRef.current = false;
+      restartTimeoutRef.current = setTimeout(() => {
+        if (listeningEnabledRef.current) {
+          startRecognition();
+        }
+      }, 250);
     };
 
     recognition.start();
@@ -337,16 +391,13 @@ export default function ChatWidget({
   const toggleVoiceRecognition = () => {
     if (!isEnterprisePlan || isLoading) return;
 
-    if (isRecording) {
-      shouldKeepListeningRef.current = false;
-      try {
-        recognitionRef.current?.stop();
-      } catch {}
+    if (isRecording || listeningEnabledRef.current) {
+      stopRecognition();
       return;
     }
 
     finalTranscriptRef.current = userInput.trim();
-    shouldKeepListeningRef.current = true;
+    listeningEnabledRef.current = true;
     startRecognition();
   };
 
@@ -415,7 +466,8 @@ export default function ChatWidget({
     }
 
     const messageText =
-      trimmedInput || `Image attached: ${enterpriseImage?.name || "Untitled image"}`;
+      trimmedInput ||
+      `Image attached: ${enterpriseImage?.name || "Untitled image"}`;
 
     const payload = {
       message: messageText,
@@ -445,10 +497,7 @@ export default function ChatWidget({
     setEnterpriseImage(null);
     setIsLoading(true);
 
-    shouldKeepListeningRef.current = false;
-    try {
-      recognitionRef.current?.stop();
-    } catch {}
+    stopRecognition();
     finalTranscriptRef.current = "";
 
     try {
@@ -457,6 +506,8 @@ export default function ChatWidget({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
+
+      const data = await response.json();
 
       if (response.status === 429) {
         setMessages([
@@ -470,73 +521,83 @@ export default function ChatWidget({
         return;
       }
 
-      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.reply || data?.message || "Server Error");
+      }
 
-console.log("CHAT RESPONSE:", data);
+      const redirectCandidate =
+        typeof data.redirect_url === "string"
+          ? data.redirect_url
+          : typeof data.payment_link === "string"
+          ? data.payment_link
+          : null;
 
-if (!response.ok) {
-  throw new Error(data?.reply || data?.message || "Server Error");
-}
+      const safeActionUrl = redirectCandidate
+        ? sanitizeHttpUrl(redirectCandidate)
+        : null;
 
-/* =========================
-   PRODUCT RESPONSE
-========================= */
+      let actionLabel: string | undefined;
 
-if (data.type === "product") {
+      if (safeActionUrl) {
+        const lowerUrl = safeActionUrl.toLowerCase();
 
-  setMessages([
-    ...newMessages,
-    {
-      role: "assistant",
-      content:
-        `🛍️ ${data.name}\n\n` +
-        `💰 Price: ₹${data.price}\n\n` +
-        `📝 ${data.description}`,
+        if (data.type === "product" || niche === "ecommerce") {
+          actionLabel = "Buy Now";
+        } else if (lowerUrl.includes("/contact")) {
+          actionLabel = "Contact Us";
+        } else {
+          actionLabel = "Open Page";
+        }
+      }
 
-      imagePreviewUrl: data.image_url,
-    },
-  ]);
+      if (data.type === "product") {
+        setMessages([
+          ...newMessages,
+          {
+            role: "assistant",
+            messageType: "product",
+            content:
+              typeof data.message === "string" && data.message.trim()
+                ? data.message.trim()
+                : "Here is a product you may like.",
+            productName:
+              typeof data.name === "string" ? data.name.trim() : undefined,
+            productDescription:
+              typeof data.description === "string"
+                ? data.description.trim()
+                : undefined,
+            productPrice:
+              typeof data.price === "number" || typeof data.price === "string"
+                ? data.price
+                : undefined,
+            productImageUrl:
+              typeof data.image_url === "string"
+                ? data.image_url.trim()
+                : undefined,
+            productCategory:
+              typeof data.category === "string"
+                ? data.category.trim()
+                : undefined,
+            actionUrl: safeActionUrl || undefined,
+            actionLabel,
+          },
+        ]);
+        return;
+      }
 
-  return;
-}
-
-/* =========================
-   NORMAL AI RESPONSE
-========================= */
-
-const safeActionUrl =
-  typeof data.redirect_url === "string"
-    ? sanitizeHttpUrl(data.redirect_url)
-    : null;
-
-let actionLabel: string | undefined;
-
-if (safeActionUrl) {
-
-  const lowerUrl = safeActionUrl.toLowerCase();
-
-  if (niche === "ecommerce") {
-    actionLabel = "Buy Now";
-  } else if (lowerUrl.includes("/contact")) {
-    actionLabel = "Contact Us";
-  } else {
-    actionLabel = "Open Page";
-  }
-}
-
-setMessages([
-  ...newMessages,
-  {
-    role: "assistant",
-    content:
-      data.reply ||
-      data.message ||
-      "I received your message but have no response.",
-
-    actionUrl: safeActionUrl || undefined,
-    actionLabel,
-  },
-]);
+      setMessages([
+        ...newMessages,
+        {
+          role: "assistant",
+          messageType: "text",
+          content:
+            (typeof data.reply === "string" && data.reply.trim()) ||
+            (typeof data.message === "string" && data.message.trim()) ||
+            "I received your message but have no response.",
+          actionUrl: safeActionUrl || undefined,
+          actionLabel,
+        },
+      ]);
     } catch (error) {
       console.error("Chat Error:", error);
       setMessages([
@@ -599,7 +660,7 @@ setMessages([
             className="text-lg leading-none hover:opacity-80"
             aria-label="Close chat"
           >
-            ×
+            x
           </button>
         )}
       </div>
@@ -613,6 +674,7 @@ setMessages([
           const actionUrl = m.actionUrl || safeUrl;
           const actionLabel =
             m.actionLabel || (niche === "ecommerce" ? "Buy Now" : "Open Page");
+          const formattedPrice = formatPrice(m.productPrice);
 
           return (
             <div
@@ -626,37 +688,93 @@ setMessages([
                     : "border bg-white text-gray-800"
                 }`}
               >
-                <div>
-                  {safeUrl
-                    ? "Click below to complete your order:"
-                    : renderTextWithLinks(cleanText)}
-                </div>
+                {m.messageType === "product" ? (
+                  <div className="w-full min-w-[220px] overflow-hidden rounded-xl border border-gray-200 bg-white text-left">
+                    {m.productImageUrl && (
+                      <img
+                        src={m.productImageUrl}
+                        alt={m.productName || "Product"}
+                        className="h-40 w-full object-cover"
+                      />
+                    )}
 
-                {m.imagePreviewUrl && (
-                  <div className="mt-2 overflow-hidden rounded-lg border border-gray-200 bg-white">
-                    <img
-                      src={m.imagePreviewUrl}
-                      alt={m.imageName || "Uploaded image"}
-                      className="max-h-40 w-full object-cover"
-                    />
-                    {m.imageName && (
-                      <div className="border-t border-gray-200 px-2 py-1 text-[10px] text-gray-500">
-                        {m.imageName}
+                    <div className="space-y-2 p-3">
+                      {m.productName && (
+                        <div className="text-base font-bold text-gray-900">
+                          {m.productName}
+                        </div>
+                      )}
+
+                      {formattedPrice && (
+                        <div className="text-sm font-semibold text-blue-700">
+                          {formattedPrice}
+                        </div>
+                      )}
+
+                      {m.productDescription && (
+                        <div className="text-sm leading-relaxed text-gray-600">
+                          {m.productDescription}
+                        </div>
+                      )}
+
+                      {m.productCategory && (
+                        <div className="text-xs text-gray-400">
+                          {m.productCategory}
+                        </div>
+                      )}
+
+                      {m.content && (
+                        <div className="border-t border-gray-100 pt-2 text-sm text-gray-700">
+                          {renderTextWithLinks(m.content)}
+                        </div>
+                      )}
+
+                      {actionUrl && (
+                        <button
+                          type="button"
+                          onClick={() => handleOpen(actionUrl)}
+                          className="mt-2 w-full rounded-lg bg-blue-600 px-4 py-2 text-center font-bold text-white transition hover:bg-blue-700"
+                        >
+                          {actionLabel}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div>
+                      {safeUrl
+                        ? "Click below to complete your order:"
+                        : renderTextWithLinks(cleanText)}
+                    </div>
+
+                    {m.imagePreviewUrl && (
+                      <div className="mt-2 overflow-hidden rounded-lg border border-gray-200 bg-white">
+                        <img
+                          src={m.imagePreviewUrl}
+                          alt={m.imageName || "Uploaded image"}
+                          className="max-h-40 w-full object-cover"
+                        />
+                        {m.imageName && (
+                          <div className="border-t border-gray-200 px-2 py-1 text-[10px] text-gray-500">
+                            {m.imageName}
+                          </div>
+                        )}
                       </div>
                     )}
-                  </div>
-                )}
 
-                {actionUrl && (
-                  <div className="mt-2">
-                    <button
-                      type="button"
-                      onClick={() => handleOpen(actionUrl)}
-                      className="w-full rounded-lg bg-blue-600 px-4 py-2 text-center font-bold text-white transition hover:bg-blue-700"
-                    >
-                      {actionLabel}
-                    </button>
-                  </div>
+                    {actionUrl && (
+                      <div className="mt-2">
+                        <button
+                          type="button"
+                          onClick={() => handleOpen(actionUrl)}
+                          className="w-full rounded-lg bg-blue-600 px-4 py-2 text-center font-bold text-white transition hover:bg-blue-700"
+                        >
+                          {actionLabel}
+                        </button>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </div>
@@ -719,7 +837,9 @@ setMessages([
               onChange={handleImageSelection}
             />
 
-            <div className="text-[11px] text-blue-700">Enterprise tools</div>
+            <div className="text-[11px] text-blue-700">
+              {isRecording ? "Listening..." : "Enterprise tools"}
+            </div>
           </div>
         )}
 
@@ -742,7 +862,10 @@ setMessages([
           <input
             type="text"
             value={userInput}
-            onChange={(e) => setUserInput(e.target.value)}
+            onChange={(e) => {
+              setUserInput(e.target.value);
+              finalTranscriptRef.current = e.target.value;
+            }}
             onPaste={handlePaste}
             onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
             placeholder={
@@ -781,7 +904,7 @@ setMessages([
     return <div className="h-full w-full">{chatPanel}</div>;
   }
 
-  return (
+   return (
     <div className="fixed bottom-4 right-4 z-[9999] font-sans">
       {open && chatPanel}
       <button

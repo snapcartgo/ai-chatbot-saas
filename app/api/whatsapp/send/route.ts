@@ -6,7 +6,6 @@ export async function POST(req: Request) {
     const body = await req.json();
 
     // 1. Extract and force it strictly to a positive BigInt number
-    // Converting a string to a BigInt completely breaks the data flow tracking for SSRF injection string manipulation.
     const raw_id = String(body.phone_number_id || "").trim();
     const clean_digits = raw_id.replace(/[^0-9]/g, "");
 
@@ -19,7 +18,9 @@ export async function POST(req: Request) {
 
     // Convert to BigInt to guarantee it is purely a number object structurally, then back to a string
     const validatedIdString = BigInt(clean_digits).toString();
-    const recipient_number = String(body.recipient_number || "").trim();
+    
+    // Dynamic recipient resolution matching your client-side incoming keys
+    const recipient_number = String(body.recipient_number || body.to || "").trim();
 
     if (!recipient_number) {
       return NextResponse.json(
@@ -27,6 +28,10 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
+
+    // Extract optional template customization details from payload or fallback to testing values
+    const templateName = String(body.template?.name || "onboarding_welcome_v1").trim();
+    const languageCode = String(body.template?.language?.code || "en_US").trim();
 
     // 2. Clear SSRF tracing by building a strict fixed target URL object
     const baseTarget = new URL("https://graph.facebook.com");
@@ -37,11 +42,13 @@ export async function POST(req: Request) {
       baseTarget.toString(),
       {
         messaging_product: "whatsapp",
-        to: recipient_number,
+        to: recipient_number, // Ensure this contains country code without '+' symbols (e.g., 91952...)
         type: "template",
         template: {
-          name: "hello_test", 
-          language: { code: "en" }
+          name: templateName, 
+          language: { 
+            code: languageCode 
+          }
         }
       },
       {

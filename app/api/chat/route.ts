@@ -80,9 +80,7 @@ export async function POST(req: Request) {
     }
 
     const userMsg = String(message).toLowerCase();
-
-    const baseUrl =
-      process.env.NEXT_PUBLIC_BASE_URL || "https://woodpetra.in";
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "https://woodpetra.in";
 
     const detectedUTR = extractUTR(message);
 
@@ -156,17 +154,47 @@ export async function POST(req: Request) {
 
     const data = await webhookResponse.json();
 
-    const botReply = data.reply || data.output || "No response";
-    const paymentLink = data.payment_link || null;
-    let intent = null;
-    let redirectUrl = null;
+    if (!webhookResponse.ok) {
+      return NextResponse.json(
+        {
+          reply:
+            data?.reply ||
+            data?.message ||
+            "Webhook request failed.",
+        },
+        { status: 500 }
+      );
+    }
 
-    if (/plan|billing/.test(userMsg)) {
-      intent = "billing";
-      redirectUrl = `${baseUrl}/dashboard/Billing`;
-    } else if (/contact|support|help/.test(userMsg)) {
-      intent = "support";
-      redirectUrl = `${baseUrl}/contact`;
+    const isProduct = data?.type === "product";
+    const productMessage =
+      typeof data?.message === "string" && data.message.trim()
+        ? data.message.trim()
+        : typeof data?.reply === "string" && data.reply.trim()
+        ? data.reply.trim()
+        : typeof data?.output === "string" && data.output.trim()
+        ? data.output.trim()
+        : isProduct
+        ? "Here is a product you may like."
+        : "No response";
+
+    const paymentLink =
+      typeof data?.payment_link === "string" ? data.payment_link : null;
+
+    let intent = null;
+    let redirectUrl =
+      typeof data?.redirect_url === "string" ? data.redirect_url : null;
+
+    if (!redirectUrl) {
+      if (/plan|billing/.test(userMsg)) {
+        intent = "billing";
+        redirectUrl = `${baseUrl}/dashboard/Billing`;
+      } else if (/contact|support|help/.test(userMsg)) {
+        intent = "support";
+        redirectUrl = `${baseUrl}/contact`;
+      } else if (paymentLink) {
+        redirectUrl = paymentLink;
+      }
     }
 
     await saveMessage({
@@ -183,7 +211,7 @@ export async function POST(req: Request) {
       bot_id,
       conversation_id,
       role: "assistant",
-      content: botReply,
+      content: productMessage,
       channel,
     });
 
@@ -200,14 +228,24 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json({
-      reply: botReply,
+      type: isProduct ? "product" : "text",
+      reply: isProduct ? null : productMessage,
+      message: productMessage,
+      name: typeof data?.name === "string" ? data.name : null,
+      description:
+        typeof data?.description === "string" ? data.description : null,
+      price:
+        typeof data?.price === "number" || typeof data?.price === "string"
+          ? data.price
+          : null,
+      image_url: typeof data?.image_url === "string" ? data.image_url : null,
+      category: typeof data?.category === "string" ? data.category : null,
       payment_link: paymentLink,
       intent,
       redirect_url: redirectUrl,
     });
   } catch (error) {
     console.error("Error:", error);
-
     return NextResponse.json({ reply: "Server error." }, { status: 500 });
   }
 }
