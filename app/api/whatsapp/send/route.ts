@@ -1,70 +1,118 @@
 import { NextResponse } from "next/server";
 import axios from "axios";
+import { createClient } from "@supabase/supabase-js";
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL || "",
+  process.env.SUPABASE_SERVICE_ROLE_KEY || ""
+);
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
 
-    // 1. Extract and force it strictly to a positive BigInt number
-    const raw_id = String(body.phone_number_id || "").trim();
-    const clean_digits = raw_id.replace(/[^0-9]/g, "");
+    const rawId = String(body.phone_number_id || "").trim();
+    const cleanDigits = rawId.replace(/[^0-9]/g, "");
 
-    if (!clean_digits) {
+    if (!cleanDigits) {
       return NextResponse.json(
         { error: "Invalid or missing phone_number_id" },
         { status: 400 }
       );
     }
 
-    // Convert to BigInt to guarantee it is purely a number object structurally, then back to a string
-    const validatedIdString = BigInt(clean_digits).toString();
-    
-    // Dynamic recipient resolution matching your client-side incoming keys
-    const recipient_number = String(body.recipient_number || body.to || "").trim();
+    const validatedIdString = BigInt(cleanDigits).toString();
+    const recipientNumber = String(
+      body.recipient_number || body.to || ""
+    ).trim();
 
-    if (!recipient_number) {
+    if (!recipientNumber) {
       return NextResponse.json(
         { error: "Missing recipient_number" },
         { status: 400 }
       );
     }
 
-    // Extract optional template customization details from payload or fallback to testing values
-    const templateName = String(body.template?.name || "onboarding_welcome_v1").trim();
-    const languageCode = String(body.template?.language?.code || "en_US").trim();
+    const templateName = String(
+      body.template?.name || "hello_test"
+    ).trim();
 
-    // 2. Clear SSRF tracing by building a strict fixed target URL object
+    const languageCode = String(
+      body.template?.language?.code || "en"
+    ).trim();
+
+    // Correct DB lookup column
+    const { data: config, error: dbError } = await supabase
+      .from("whatsapp_configs")
+      .select("meta_access_token, wa_phone_number_id, status")
+      .eq("wa_phone_number_id", validatedIdString)
+      .maybeSingle();
+
+    if (dbError) {
+      console.error("Supabase lookup error:", dbError.message);
+      return NextResponse.json(
+        { error: dbError.message },
+        { status: 500 }
+      );
+    }
+
+    if (!config) {
+      return NextResponse.json(
+        {
+          error: `Configuration not found in Supabase database for ID: ${validatedIdString}`,
+        },
+        { status: 404 }
+      );
+    }
+
+    // IMPORTANT: use env token first because that is what was working earlier
+    const activeToken =
+      String(process.env.WHATSAPP_ACCESS_TOKEN || "").trim() ||
+      String(config.meta_access_token || "").trim();
+
+    if (!activeToken) {
+      return NextResponse.json(
+        { error: "Missing WhatsApp access token" },
+        { status: 401 }
+      );
+    }
+
     const baseTarget = new URL("https://graph.facebook.com");
-    baseTarget.pathname = `/v23.0/${validatedIdString}/messages`;
+    baseTarget.pathname = `/v24.0/${validatedIdString}/messages`;
 
-    // 3. Fire the request using the strictly verified URL string
     const response = await axios.post(
       baseTarget.toString(),
       {
         messaging_product: "whatsapp",
-        to: recipient_number, // Ensure this contains country code without '+' symbols (e.g., 91952...)
+        to: recipientNumber,
         type: "template",
         template: {
-          name: templateName, 
-          language: { 
-            code: languageCode 
-          }
-        }
+          name: templateName,
+          language: {
+            code: languageCode,
+          },
+        },
       },
       {
         headers: {
-          Authorization: `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}`,
+          Authorization: `Bearer ${activeToken}`,
           "Content-Type": "application/json",
         },
       }
     );
 
-    return NextResponse.json({ success: true, data: response.data });
-
+    return NextResponse.json({
+      success: true,
+      data: response.data,
+    });
   } catch (err: any) {
-    console.error("SSRF MITIGATED ROUTE ERROR:", err.response?.data || err.message);
+    console.error("WHATSAPP SEND ERROR:", err.response?.data || err.message);
+
     return NextResponse.json(
-      { error: "Failed to send message", details: err.response?.data || err.message },
+      {
+        error: "Failed to send message",
+        details: err.response?.data || err.message,
+      },
       { status: 500 }
     );
   }
