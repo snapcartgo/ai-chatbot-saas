@@ -1,10 +1,11 @@
 'use client'
 
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
 export default function AddProductPage() {
-
+  const router = useRouter()
   const [name, setName] = useState('')
   const [price, setPrice] = useState('')
   const [description, setDescription] = useState('')
@@ -13,18 +14,23 @@ export default function AddProductPage() {
   const [loading, setLoading] = useState(false)
 
   const handleSave = async () => {
-
     try {
-
       setLoading(true)
 
-      // Validation
       if (!name || !price || !description || !category || !image) {
         alert('Please fill all fields')
         return
       }
 
-      // Upload image to Supabase Storage
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+
+      if (!user) {
+        alert('User session not found. Please log in again.')
+        return
+      }
+
       const fileName = `${Date.now()}-${image.name}`
 
       const { error: uploadError } = await supabase.storage
@@ -37,24 +43,23 @@ export default function AddProductPage() {
         return
       }
 
-      // Get public URL
       const { data: publicUrlData } = supabase.storage
         .from('product-images')
         .getPublicUrl(fileName)
 
       const imageUrl = publicUrlData.publicUrl
 
-      // Save product in database
       const { error: dbError } = await supabase
         .from('products')
         .insert([
           {
+            user_id: user.id,
             name,
             price: Number(price),
             description,
             category,
-            image_url: imageUrl
-          }
+            image_url: imageUrl,
+          },
         ])
 
       if (dbError) {
@@ -65,35 +70,29 @@ export default function AddProductPage() {
 
       alert('Product saved successfully')
 
-      // Reset form
       setName('')
       setPrice('')
       setDescription('')
       setCategory('')
       setImage(null)
 
+      router.push('/dashboard/products')
+      router.refresh()
     } catch (error) {
-
       console.log(error)
       alert('Something went wrong')
-
     } finally {
-
       setLoading(false)
-
     }
   }
 
   return (
     <div className="p-6 max-w-2xl">
-
       <h1 className="text-3xl font-bold mb-6">
         Add Product
       </h1>
 
       <div className="space-y-4">
-
-        {/* Product Name */}
         <div>
           <label className="block mb-2 font-medium">
             Product Name
@@ -108,7 +107,6 @@ export default function AddProductPage() {
           />
         </div>
 
-        {/* Price */}
         <div>
           <label className="block mb-2 font-medium">
             Price
@@ -123,7 +121,6 @@ export default function AddProductPage() {
           />
         </div>
 
-        {/* Description */}
         <div>
           <label className="block mb-2 font-medium">
             Description
@@ -137,7 +134,6 @@ export default function AddProductPage() {
           />
         </div>
 
-        {/* Category */}
         <div>
           <label className="block mb-2 font-medium">
             Category
@@ -152,7 +148,6 @@ export default function AddProductPage() {
           />
         </div>
 
-        {/* Product Image */}
         <div>
           <label className="block mb-2 font-medium">
             Product Image
@@ -167,7 +162,6 @@ export default function AddProductPage() {
           />
         </div>
 
-        {/* Save Button */}
         <button
           onClick={handleSave}
           disabled={loading}
@@ -175,9 +169,7 @@ export default function AddProductPage() {
         >
           {loading ? 'Saving...' : 'Save Product'}
         </button>
-
       </div>
-
     </div>
   )
 }
