@@ -10,6 +10,11 @@ export default function Sidebar() {
   const menuItems = [
     { name: "Dashboard", href: "/dashboard" },
     { name: "Chatbots", href: "/dashboard/chatbots" },
+    {
+      name: "WhatsApp Bot",
+      href: "https://marketing.woodpetra.in/auth/register/vendor",
+      external: true,
+    },
     { name: "Conversations", href: "/dashboard/conversations" },
     { name: "Leads", href: "/dashboard/leads" },
     { name: "Pipeline", href: "/dashboard/pipeline" },
@@ -22,31 +27,43 @@ export default function Sidebar() {
 
   return (
     <div className="flex flex-col h-full justify-between">
-
-      {/* 🔥 TOP MENU */}
       <div className="mt-4 space-y-1">
         {menuItems.map((item) => {
-          const isActive = pathname === item.href;
+          const isExternal = Boolean((item as any).external);
+          const isActive = !isExternal && pathname === item.href;
+
+          const className = `
+            block px-4 py-3 rounded-lg mx-2 text-sm md:text-base
+            transition-all duration-200
+            ${
+              isActive
+                ? "bg-blue-600 text-white"
+                : "text-gray-300 hover:bg-gray-800 hover:text-white"
+            }
+          `;
+
+          if (isExternal) {
+            return (
+              <a
+                key={item.name}
+                href={item.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={className}
+              >
+                {item.name}
+              </a>
+            );
+          }
 
           return (
-            <Link
-              key={item.name}
-              href={item.href}
-              className={`
-                block px-4 py-3 rounded-lg mx-2 text-sm md:text-base
-                transition-all duration-200
-                ${isActive 
-                  ? "bg-blue-600 text-white" 
-                  : "text-gray-300 hover:bg-gray-800 hover:text-white"}
-              `}
-            >
+            <Link key={item.name} href={item.href} className={className}>
               {item.name}
             </Link>
           );
         })}
       </div>
 
-      {/* 🔥 LOGOUT */}
       <div className="p-4 border-t border-gray-800">
         <LogoutButton />
       </div>
