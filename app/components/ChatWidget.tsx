@@ -526,29 +526,31 @@ export default function ChatWidget({
       }
 
       const redirectCandidate =
-        typeof data.redirect_url === "string"
-          ? data.redirect_url
-          : typeof data.payment_link === "string"
-          ? data.payment_link
-          : null;
+  typeof data.product_url === "string" && data.product_url.trim()
+    ? data.product_url
+    : typeof data.redirect_url === "string" && data.redirect_url.trim()
+    ? data.redirect_url
+    : typeof data.payment_link === "string" && data.payment_link.trim()
+    ? data.payment_link
+    : null;
 
-      const safeActionUrl = redirectCandidate
-        ? sanitizeHttpUrl(redirectCandidate)
-        : null;
+const safeActionUrl = redirectCandidate
+  ? sanitizeHttpUrl(redirectCandidate)
+  : null;
 
-      let actionLabel: string | undefined;
+let actionLabel: string | undefined;
 
-      if (safeActionUrl) {
-        const lowerUrl = safeActionUrl.toLowerCase();
+if (safeActionUrl) {
+  const lowerUrl = safeActionUrl.toLowerCase();
 
-        if (data.type === "product" || niche === "ecommerce") {
-          actionLabel = "Buy Now";
-        } else if (lowerUrl.includes("/contact")) {
-          actionLabel = "Contact Us";
-        } else {
-          actionLabel = "Open Page";
-        }
-      }
+  if (data.type === "product" || niche === "ecommerce") {
+    actionLabel = "View Product";
+  } else if (lowerUrl.includes("/contact")) {
+    actionLabel = "Contact Us";
+  } else {
+    actionLabel = "Open Page";
+  }
+}
 
       if (data.type === "product") {
         setMessages([
