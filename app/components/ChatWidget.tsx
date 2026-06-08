@@ -30,6 +30,7 @@ type Message = {
   productPrice?: number | string;
   productImageUrl?: string;
   productCategory?: string;
+  productUrl?: string;
 };
 
 type EnterpriseImageAttachment = {
@@ -106,7 +107,7 @@ const PLAIN_URL_REGEX = /\bhttps?:\/\/[^\s<>"']+/gi;
 
 function sanitizeHttpUrl(raw: string): string | null {
   try {
-    const url = new URL(raw);
+    const url = new URL(raw.trim());
     if (url.protocol !== "http:" && url.protocol !== "https:") return null;
     return url.toString();
   } catch {
@@ -161,7 +162,7 @@ function renderTextWithLinks(text: string) {
             href={safeHref}
             target="_blank"
             rel="noopener noreferrer"
-            className="underline text-blue-600 hover:text-blue-700 break-all"
+            className="break-all text-blue-600 underline hover:text-blue-700"
           >
             {safeHref}
           </a>
@@ -210,6 +211,22 @@ function formatPrice(price: number | string | undefined) {
   }
 
   return `Rs.${String(price).trim()}`;
+}
+
+function normalizeApiPayload(input: unknown): Record<string, any> {
+  if (Array.isArray(input)) {
+    const firstItem = input[0];
+    if (firstItem && typeof firstItem === "object") {
+      return firstItem as Record<string, any>;
+    }
+    return {};
+  }
+
+  if (input && typeof input === "object") {
+    return input as Record<string, any>;
+  }
+
+  return {};
 }
 
 export default function ChatWidget({
@@ -507,7 +524,8 @@ export default function ChatWidget({
         body: JSON.stringify(payload),
       });
 
-      const data = await response.json();
+      const rawData = await response.json();
+      const data = normalizeApiPayload(rawData);
 
       if (response.status === 429) {
         setMessages([
@@ -526,31 +544,33 @@ export default function ChatWidget({
       }
 
       const redirectCandidate =
-  typeof data.product_url === "string" && data.product_url.trim()
-    ? data.product_url
-    : typeof data.redirect_url === "string" && data.redirect_url.trim()
-    ? data.redirect_url
-    : typeof data.payment_link === "string" && data.payment_link.trim()
-    ? data.payment_link
-    : null;
+        typeof data.product_url === "string" && data.product_url.trim()
+          ? data.product_url.trim()
+          : typeof data.website_url === "string" && data.website_url.trim()
+          ? data.website_url.trim()
+          : typeof data.redirect_url === "string" && data.redirect_url.trim()
+          ? data.redirect_url.trim()
+          : typeof data.payment_link === "string" && data.payment_link.trim()
+          ? data.payment_link.trim()
+          : null;
 
-const safeActionUrl = redirectCandidate
-  ? sanitizeHttpUrl(redirectCandidate)
-  : null;
+      const safeActionUrl = redirectCandidate
+        ? sanitizeHttpUrl(redirectCandidate)
+        : null;
 
-let actionLabel: string | undefined;
+      let actionLabel: string | undefined;
 
-if (safeActionUrl) {
-  const lowerUrl = safeActionUrl.toLowerCase();
+      if (safeActionUrl) {
+        const lowerUrl = safeActionUrl.toLowerCase();
 
-  if (data.type === "product" || niche === "ecommerce") {
-    actionLabel = "View Product";
-  } else if (lowerUrl.includes("/contact")) {
-    actionLabel = "Contact Us";
-  } else {
-    actionLabel = "Open Page";
-  }
-}
+        if (data.type === "product" || niche === "ecommerce") {
+          actionLabel = "View Product";
+        } else if (lowerUrl.includes("/contact")) {
+          actionLabel = "Contact Us";
+        } else {
+          actionLabel = "Open Page";
+        }
+      }
 
       if (data.type === "product") {
         setMessages([
@@ -580,6 +600,7 @@ if (safeActionUrl) {
               typeof data.category === "string"
                 ? data.category.trim()
                 : undefined,
+            productUrl: safeActionUrl || undefined,
             actionUrl: safeActionUrl || undefined,
             actionLabel,
           },
@@ -650,7 +671,7 @@ if (safeActionUrl) {
       className={`flex flex-col overflow-hidden border bg-white shadow-2xl transition-all duration-300 ${
         isEmbed
           ? "h-full w-full rounded-2xl"
-          : "h-[450px] w-[92vw] sm:w-[350px] rounded-2xl"
+          : "h-[450px] w-[92vw] rounded-2xl sm:w-[350px]"
       }`}
       style={isEmbed ? { height: "100%" } : {}}
     >
@@ -674,6 +695,7 @@ if (safeActionUrl) {
         {messages.map((m, i) => {
           const { safeUrl, cleanText } = processMessageContent(m.content);
           const actionUrl = m.actionUrl || safeUrl;
+          const productActionUrl = m.productUrl || actionUrl;
           const actionLabel =
             m.actionLabel || (niche === "ecommerce" ? "Buy Now" : "Open Page");
           const formattedPrice = formatPrice(m.productPrice);
@@ -731,13 +753,13 @@ if (safeActionUrl) {
                         </div>
                       )}
 
-                      {actionUrl && (
+                      {productActionUrl && (
                         <button
                           type="button"
-                          onClick={() => handleOpen(actionUrl)}
+                          onClick={() => handleOpen(productActionUrl)}
                           className="mt-2 w-full rounded-lg bg-blue-600 px-4 py-2 text-center font-bold text-white transition hover:bg-blue-700"
                         >
-                          {actionLabel}
+                          {m.actionLabel || "View Product"}
                         </button>
                       )}
                     </div>
@@ -906,7 +928,7 @@ if (safeActionUrl) {
     return <div className="h-full w-full">{chatPanel}</div>;
   }
 
-   return (
+  return (
     <div className="fixed bottom-4 right-4 z-[9999] font-sans">
       {open && chatPanel}
       <button
