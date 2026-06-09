@@ -66,7 +66,8 @@ export default function BillingPage() {
         return;
       }
 
-      window.location.href = razorpayUrl;
+      // FIX: Force open in a new clean window tab to let deep-linking trigger GPay app safely
+      window.open(razorpayUrl, "_blank", "noopener,noreferrer");
       return;
     }
 
@@ -94,7 +95,8 @@ export default function BillingPage() {
         return;
       }
 
-      window.location.href = razorpayUrl;
+      // FIX: Force open in a new clean window tab to let deep-linking trigger GPay app safely
+      window.open(razorpayUrl, "_blank", "noopener,noreferrer");
       return;
     }
 
