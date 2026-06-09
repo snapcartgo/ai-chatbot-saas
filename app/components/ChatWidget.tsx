@@ -574,7 +574,11 @@ export default function ChatWidget({
       }
 
       // Force structure fallback layout matching if any property confirms it is a product
+      // Force structure fallback layout matching if any property confirms it is a product
       if (data.type === "product" || data.name || data.price || data.product_url) {
+        // FIX: Ensure actionLabel always falls back to "View Product" if undefined
+        const finalActionLabel = actionLabel || "View Product";
+
         setMessages([
           ...newMessages,
           {
@@ -604,7 +608,7 @@ export default function ChatWidget({
                 : undefined,
             productUrl: safeActionUrl || undefined,
             actionUrl: safeActionUrl || undefined,
-            actionLabel: actionLabel || "View Product",
+            actionLabel: finalActionLabel, // Fixed property mapping assignment
           },
         ]);
         return;
