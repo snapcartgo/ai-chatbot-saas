@@ -610,10 +610,10 @@ export default function ChatWidget({
                 ? data.category.trim()
                 : undefined,
             
-            // Assign explicitly to every valid property variation your state tracking permits
-        productUrl: absoluteProductUrl || undefined,
-        actionUrl: absoluteProductUrl || undefined,
-        actionLabel: finalActionLabel,
+            // Fix: Map explicitly to both variables checked by your JSX loops
+            productUrl: absoluteProductUrl || undefined,
+            actionUrl: absoluteProductUrl || undefined,
+            actionLabel: finalActionLabel,
           },
         ]);
         return;
@@ -706,8 +706,11 @@ export default function ChatWidget({
       >
         {messages.map((m, i) => {
           const { safeUrl, cleanText } = processMessageContent(m.content);
+          
+          // FIX: Prioritize explicit message values over text regex extraction lookups
           const actionUrl = m.actionUrl || safeUrl;
-          const productActionUrl = m.productUrl || actionUrl;
+          const productActionUrl = m.productUrl || m.actionUrl || actionUrl;
+          
           const actionLabel =
             m.actionLabel || (niche === "ecommerce" ? "Buy Now" : "Open Page");
           const formattedPrice = formatPrice(m.productPrice);
