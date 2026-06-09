@@ -3,6 +3,16 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 
+type GatewayType = "payu" | "paypal" | "razorpay";
+
+const RAZORPAY_LINKS: Record<string, string> = {
+  starter: "https://rzp.io/rzp/0aAoQoux",
+  pro: "https://rzp.io/rzp/0aAoQoux",
+  growth: "https://rzp.io/rzp/0aAoQoux",
+  enterprise: "https://rzp.io/rzp/0aAoQoux",
+  whatsapp: "https://rzp.io/rzp/0aAoQoux",
+};
+
 export default function BillingPage() {
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [isIndia, setIsIndia] = useState(true);
@@ -36,7 +46,7 @@ export default function BillingPage() {
   const handlePayment = (
     planId: string,
     price: number,
-    gateway: "payu" | "paypal"
+    gateway: GatewayType
   ) => {
     if (!userEmail) {
       alert("User not logged in");
@@ -48,10 +58,24 @@ export default function BillingPage() {
       return;
     }
 
-    window.location.href = `/api/${gateway}?plan=${planId}&email=${userEmail}&amount=${price}`;
+    if (gateway === "razorpay") {
+      const razorpayUrl = RAZORPAY_LINKS[planId];
+
+      if (!razorpayUrl) {
+        alert("Razorpay payment link not added for this plan");
+        return;
+      }
+
+      window.location.href = razorpayUrl;
+      return;
+    }
+
+    window.location.href = `/api/${gateway}?plan=${planId}&email=${encodeURIComponent(
+      userEmail
+    )}&amount=${price}`;
   };
 
-  const handleWhatsAppPayment = (gateway: "payu" | "paypal") => {
+  const handleWhatsAppPayment = (gateway: GatewayType) => {
     if (!userEmail) {
       alert("User not logged in");
       return;
@@ -62,9 +86,21 @@ export default function BillingPage() {
       return;
     }
 
-    window.location.href = `/api/${gateway}?plan=whatsapp&email=${userEmail}&amount=${
-      isIndia ? 999 : 29
-    }`;
+    if (gateway === "razorpay") {
+      const razorpayUrl = RAZORPAY_LINKS.whatsapp;
+
+      if (!razorpayUrl) {
+        alert("Razorpay payment link not added for WhatsApp");
+        return;
+      }
+
+      window.location.href = razorpayUrl;
+      return;
+    }
+
+    window.location.href = `/api/${gateway}?plan=whatsapp&email=${encodeURIComponent(
+      userEmail
+    )}&amount=${isIndia ? 999 : 29}`;
   };
 
   const plans = [
@@ -125,7 +161,7 @@ export default function BillingPage() {
       currency: isIndia ? "₹" : "$",
       description: "Advanced Multimodal AI Solution",
       messages: "20000 AI Messages / month",
-      bots: "5 AI Chatbots",
+      bots: "10 AI Chatbots",
       knowledgeBase: "200 MB",
       features: [
         "Instant Image & Voice Understanding",
@@ -141,38 +177,41 @@ export default function BillingPage() {
   ];
 
   return (
-    <div className="p-4 md:p-8 bg-black min-h-screen text-white w-full">
-      <h1 className="text-xl md:text-3xl font-bold mb-2">Billing Plans</h1>
+    <div className="min-h-screen w-full bg-black p-4 text-white md:p-8">
+      <h1 className="mb-2 text-xl font-bold md:text-3xl">Billing Plans</h1>
 
-      <p className="text-gray-400 mb-6 md:mb-8 text-sm md:text-base">
+      <p className="mb-6 text-sm text-gray-400 md:mb-8 md:text-base">
         Choose the plan that fits your business needs.
       </p>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 mb-10">
+      <div className="mb-10 grid grid-cols-1 gap-4 md:grid-cols-2 md:gap-6 lg:grid-cols-4">
         {plans.map((plan) => (
           <div
             key={plan.name}
-            className={`border ${
-              plan.highlight ? "border-blue-500 shadow-lg shadow-blue-500/20" : "border-gray-800"
-            } rounded-2xl p-5 md:p-6 bg-gray-900 flex flex-col relative`}
+            className={`relative flex flex-col rounded-2xl border bg-gray-900 p-5 md:p-6 ${
+              plan.highlight
+                ? "border-blue-500 shadow-lg shadow-blue-500/20"
+                : "border-gray-800"
+            }`}
           >
             {plan.highlight && (
-              <span className="absolute -top-3 left-1/2 -translate-x-1/2 bg-blue-600 text-white text-[10px] px-3 py-1 rounded-full font-bold uppercase tracking-wider">
+              <span className="absolute left-1/2 top-[-12px] -translate-x-1/2 rounded-full bg-blue-600 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-white">
                 Most Powerful
               </span>
             )}
-            <h2 className="text-lg md:text-2xl font-bold mb-1">{plan.name}</h2>
 
-            <p className="text-blue-500 font-bold text-lg md:text-xl mb-3">
+            <h2 className="mb-1 text-lg font-bold md:text-2xl">{plan.name}</h2>
+
+            <p className="mb-3 text-lg font-bold text-blue-500 md:text-xl">
               {plan.currency}
               {plan.price}
             </p>
 
-            <p className="text-gray-400 mb-5 text-xs md:text-sm">
+            <p className="mb-5 text-xs text-gray-400 md:text-sm">
               {plan.description}
             </p>
 
-            <div className="space-y-2 mb-6 text-xs md:text-sm text-gray-300 flex-grow">
+            <div className="mb-6 flex-grow space-y-2 text-xs text-gray-300 md:text-sm">
               <p className="font-semibold text-white">✅ {plan.messages}</p>
               <p>✅ {plan.bots}</p>
               <p>✅ Knowledge Base: {plan.knowledgeBase}</p>
@@ -182,12 +221,20 @@ export default function BillingPage() {
               ))}
             </div>
 
+            {/* Razorpay is now displayed for all countries */}
+            <button
+              onClick={() => handlePayment(plan.planId, plan.price, "razorpay")}
+              className="mb-2 w-full rounded-xl bg-green-600 py-2 font-bold hover:bg-green-700 md:py-3"
+            >
+              Pay with Razorpay
+            </button>
+
             {isIndia && (
               <button
                 onClick={() => handlePayment(plan.planId, plan.price, "payu")}
-                className={`w-full ${
+                className={`mb-2 w-full rounded-xl py-2 font-bold transition-opacity md:py-3 ${
                   plan.highlight ? "bg-blue-500" : "bg-blue-600"
-                } py-2 md:py-3 rounded-xl font-bold mb-2 hover:opacity-90 transition-opacity`}
+                } hover:opacity-90`}
               >
                 Pay with PayU
               </button>
@@ -195,7 +242,7 @@ export default function BillingPage() {
 
             <button
               onClick={() => handlePayment(plan.planId, plan.price, "paypal")}
-              className="w-full border border-gray-700 py-2 md:py-3 rounded-xl font-bold hover:bg-gray-800 transition-colors"
+              className="w-full rounded-xl border border-gray-700 py-2 font-bold transition-colors hover:bg-gray-800 md:py-3"
             >
               Pay with PayPal
             </button>
@@ -203,31 +250,38 @@ export default function BillingPage() {
         ))}
       </div>
 
-      {/* WhatsApp Section */}
-      <div className="max-w-xl mx-auto border border-green-700 rounded-2xl p-6 bg-gray-900">
-        <h2 className="text-2xl font-bold mb-2 text-green-400">
+      <div className="mx-auto max-w-xl rounded-2xl border border-green-700 bg-gray-900 p-6">
+        <h2 className="mb-2 text-2xl font-bold text-green-400">
           WhatsApp Automation
         </h2>
 
-        <p className="text-green-400 font-bold text-xl mb-3">
+        <p className="mb-3 text-xl font-bold text-green-400">
           {isIndia ? "₹999" : "$29"}
         </p>
 
-        <p className="text-gray-400 mb-4 text-sm">
+        <p className="mb-4 text-sm text-gray-400">
           Add WhatsApp chatbot automation to capture leads and automate conversations.
         </p>
 
-        <div className="space-y-2 text-sm text-gray-300 mb-6">
+        <div className="mb-6 space-y-2 text-sm text-gray-300">
           <p>✅ WhatsApp Chatbot Integration</p>
           <p>✅ Auto Lead Capture</p>
           <p>✅ Auto Replies & Follow-ups</p>
           <p>✅ Conversation Tracking</p>
         </div>
 
+        {/* Razorpay WhatsApp button is now displayed for all countries */}
+        <button
+          onClick={() => handleWhatsAppPayment("razorpay")}
+          className="mb-2 w-full rounded-xl bg-green-500 py-3 font-bold hover:bg-green-600"
+        >
+          Enable via Razorpay
+        </button>
+
         {isIndia && (
           <button
             onClick={() => handleWhatsAppPayment("payu")}
-            className="w-full bg-green-600 py-3 rounded-xl font-bold mb-2 hover:bg-green-700"
+            className="mb-2 w-full rounded-xl bg-green-600 py-3 font-bold hover:bg-green-700"
           >
             Enable via PayU
           </button>
@@ -235,7 +289,7 @@ export default function BillingPage() {
 
         <button
           onClick={() => handleWhatsAppPayment("paypal")}
-          className="w-full border border-gray-700 py-3 rounded-xl font-bold hover:bg-gray-800"
+          className="w-full rounded-xl border border-gray-700 py-3 font-bold hover:bg-gray-800"
         >
           Enable via PayPal
         </button>
