@@ -576,8 +576,11 @@ export default function ChatWidget({
       // Force structure fallback layout matching if any property confirms it is a product
       // Force structure fallback layout matching if any property confirms it is a product
       if (data.type === "product" || data.name || data.price || data.product_url) {
-        // FIX: Ensure actionLabel always falls back to "View Product" if undefined
+        // Fallback for action text
         const finalActionLabel = actionLabel || "View Product";
+        
+        // Extract the URL safely from either naming variation
+        const absoluteProductUrl = data.product_url || data.productUrl || data.actionUrl || safeActionUrl;
 
         setMessages([
           ...newMessages,
@@ -606,9 +609,11 @@ export default function ChatWidget({
               typeof data.category === "string"
                 ? data.category.trim()
                 : undefined,
-            productUrl: safeActionUrl || undefined,
-            actionUrl: safeActionUrl || undefined,
-            actionLabel: finalActionLabel, // Fixed property mapping assignment
+            
+            // Assign explicitly to every valid property variation your state tracking permits
+        productUrl: absoluteProductUrl || undefined,
+        actionUrl: absoluteProductUrl || undefined,
+        actionLabel: finalActionLabel,
           },
         ]);
         return;
