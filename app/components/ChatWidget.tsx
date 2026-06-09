@@ -543,6 +543,7 @@ export default function ChatWidget({
         throw new Error(data?.reply || data?.message || "Server Error");
       }
 
+      // Secure product layout and routing link detection
       const redirectCandidate =
         typeof data.product_url === "string" && data.product_url.trim()
           ? data.product_url.trim()
@@ -563,7 +564,7 @@ export default function ChatWidget({
       if (safeActionUrl) {
         const lowerUrl = safeActionUrl.toLowerCase();
 
-        if (data.type === "product" || niche === "ecommerce") {
+        if (data.type === "product" || data.name || niche === "ecommerce") {
           actionLabel = "View Product";
         } else if (lowerUrl.includes("/contact")) {
           actionLabel = "Contact Us";
@@ -572,7 +573,8 @@ export default function ChatWidget({
         }
       }
 
-      if (data.type === "product") {
+      // Force structure fallback layout matching if any property confirms it is a product
+      if (data.type === "product" || data.name || data.price || data.product_url) {
         setMessages([
           ...newMessages,
           {
@@ -602,12 +604,13 @@ export default function ChatWidget({
                 : undefined,
             productUrl: safeActionUrl || undefined,
             actionUrl: safeActionUrl || undefined,
-            actionLabel,
+            actionLabel: actionLabel || "View Product",
           },
         ]);
         return;
       }
 
+      // Default Standard Text Rendering State
       setMessages([
         ...newMessages,
         {
