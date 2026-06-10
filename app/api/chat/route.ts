@@ -181,6 +181,11 @@ export async function POST(req: Request) {
     const paymentLink =
       typeof data?.payment_link === "string" ? data.payment_link : null;
 
+    const productUrl =
+  typeof data?.product_url === "string"
+    ? data.product_url
+    : null;
+
     let intent = null;
     let redirectUrl =
       typeof data?.redirect_url === "string" ? data.redirect_url : null;
@@ -240,6 +245,7 @@ export async function POST(req: Request) {
           : null,
       image_url: typeof data?.image_url === "string" ? data.image_url : null,
       category: typeof data?.category === "string" ? data.category : null,
+      product_url: productUrl,   // ADD THIS
       payment_link: paymentLink,
       intent,
       redirect_url: redirectUrl,
