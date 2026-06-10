@@ -547,12 +547,16 @@ export default function ChatWidget({
       const redirectCandidate =
         typeof data.product_url === "string" && data.product_url.trim()
           ? data.product_url.trim()
+          : typeof data.productUrl === "string" && data.productUrl.trim()
+          ? data.productUrl.trim()
           : typeof data.website_url === "string" && data.website_url.trim()
           ? data.website_url.trim()
           : typeof data.redirect_url === "string" && data.redirect_url.trim()
           ? data.redirect_url.trim()
           : typeof data.payment_link === "string" && data.payment_link.trim()
           ? data.payment_link.trim()
+          : typeof data.actionUrl === "string" && data.actionUrl.trim()
+          ? data.actionUrl.trim()
           : null;
 
       const safeActionUrl = redirectCandidate
@@ -574,13 +578,9 @@ export default function ChatWidget({
       }
 
       // Force structure fallback layout matching if any property confirms it is a product
-      // Force structure fallback layout matching if any property confirms it is a product
-      if (data.type === "product" || data.name || data.price || data.product_url) {
-        // Fallback for action text
+      if (data.type === "product" || data.name || data.price || data.product_url || data.productUrl) {
         const finalActionLabel = actionLabel || "View Product";
-        
-        // Extract the URL safely from either naming variation
-        const absoluteProductUrl = data.product_url || data.productUrl || data.actionUrl || safeActionUrl;
+        const absoluteProductUrl = safeActionUrl || redirectCandidate;
 
         setMessages([
           ...newMessages,
@@ -604,13 +604,15 @@ export default function ChatWidget({
             productImageUrl:
               typeof data.image_url === "string"
                 ? data.image_url.trim()
+                : typeof data.productImageUrl === "string"
+                ? data.productImageUrl.trim()
                 : undefined,
             productCategory:
               typeof data.category === "string"
                 ? data.category.trim()
                 : undefined,
             
-            // Fix: Map explicitly to both variables checked by your JSX loops
+            // Fix: Map reliably sanitized fallback links to state values
             productUrl: absoluteProductUrl || undefined,
             actionUrl: absoluteProductUrl || undefined,
             actionLabel: finalActionLabel,
@@ -634,18 +636,19 @@ export default function ChatWidget({
         },
       ]);
     } catch (error) {
-      console.error("Chat Error:", error);
-      setMessages([
-        ...newMessages,
-        {
-          role: "assistant",
-          content: "I am having trouble connecting right now. Please try again later.",
-        },
-      ]);
+        console.error("Chat Error:", error);
+        setMessages([
+            ...newMessages,
+            {
+                role: "assistant",
+                messageType: "text",
+                content: "I am having trouble connecting right now. Please try again later."
+            }
+        ]);
     } finally {
-      setIsLoading(false);
+        setIsLoading(false);
     }
-  };
+};
 
   const handleOpen = (url: string) => {
     const safe = sanitizeHttpUrl(url);
@@ -707,7 +710,6 @@ export default function ChatWidget({
         {messages.map((m, i) => {
           const { safeUrl, cleanText } = processMessageContent(m.content);
           
-          // FIX: Prioritize explicit message values over text regex extraction lookups
           const actionUrl = m.actionUrl || safeUrl;
           const productActionUrl = m.productUrl || m.actionUrl || actionUrl;
           
