@@ -296,26 +296,6 @@ export default function BillingPage() {
           Enable via PayPal
         </button>
       </div>
-      {process.env.NODE_ENV === "development" && (
-  <button
-    onClick={async () => {
-      const res = await fetch("/api/test-bypass", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: userEmail, planId: "starter" }),
-      });
-      if (res.ok) {
-        alert("Success! Table updated without paying. Refresh the page.");
-        window.location.reload();
-      } else {
-        alert("Bypass failed. Check server terminal logs.");
-      }
-    }}
-    className="mt-4 p-2 bg-red-600 text-white rounded text-xs font-bold"
-  >
-    ⚠️ Developer Test Bypass: Force Activate Starter Plan
-  </button>
-)}
     </div>
   );
 }
