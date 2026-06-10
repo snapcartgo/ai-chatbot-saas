@@ -772,9 +772,7 @@ export default function ChatWidget({
 
                       {productActionUrl ? (
   <>
-    <div className="text-red-500">
-      DEBUG URL: {productActionUrl}
-    </div>
+    
 
     <a
       href={productActionUrl}
