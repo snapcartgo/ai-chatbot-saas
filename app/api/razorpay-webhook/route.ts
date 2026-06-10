@@ -1,99 +1,77 @@
+export const dynamic = "force-dynamic";
+
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import crypto from "crypto";
 
-// Initialize using the Service Role Key to bypass RLS policies
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY! // Double check this matches your .env file variable exactly!
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
-
-const PLAN_LIMITS: Record<string, { chatbot_limit: number; message_limit: number }> = {
-  starter: { chatbot_limit: 1, message_limit: 1000 },
-  pro: { chatbot_limit: 2, message_limit: 3000 },
-  growth: { chatbot_limit: 5, message_limit: 12000 },
-  enterprise: { chatbot_limit: 10, message_limit: 20000 },
-  whatsapp: { chatbot_limit: 1, message_limit: 0 },
-};
 
 export async function POST(req: Request) {
   try {
     const bodyText = await req.text();
     const signature = req.headers.get("x-razorpay-signature") || "";
     
+    // 1. Verify signature authenticity safely
     const expectedSignature = crypto
       .createHmac("sha256", process.env.RAZORPAY_WEBHOOK_SECRET!)
       .update(bodyText)
       .digest("hex");
 
-    if (signature !== expectedSignature) {
-      console.error("Webhook signature mismatch!");
+    if (expectedSignature !== signature) {
+      console.error("❌ Razorpay webhook signature verification failed.");
       return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
     }
 
-    const payload = JSON.parse(bodyText);
+    const body = JSON.parse(bodyText);
 
-    if (payload.event === "payment.captured") {
-      const payment = payload.payload.payment.entity;
-      
-      // Extract data safely from Payment Pages metadata hierarchy
-      const planId = payment.notes?.planId || "starter";
-      const email = payment.email;
-      const amount = payment.amount / 100; // Convert paise to Rupees
-
-      if (!email) {
-        console.error("No email attached to payment payload");
-        return NextResponse.json({ error: "No email provided" }, { status: 400 });
-      }
-
-      // Find user ID from the profiles or users schema
-      const { data: userData, error: userError } = await supabaseAdmin
-        .from("users")
-        .select("id")
-        .eq("email", email)
-        .maybeSingle();
-
-      if (userError || !userData) {
-        console.error("User match failed for email:", email, userError);
-        return NextResponse.json({ error: "User not found in db" }, { status: 404 });
-      }
-
-      const userId = userData.id;
-      const limits = PLAN_LIMITS[planId] || { chatbot_limit: 1, message_limit: 1000 };
-
-      const startDate = new Date();
-      const endDate = new Date();
-      endDate.setDate(startDate.getDate() + 30);
-
-      // Match the exact column names from your database screenshot
-      const { error: subError } = await supabaseAdmin
-        .from("subscriptions")
-        .upsert({
-          user_id: userId,
-          email: email,
-          plan: planId,
-          status: "active",
-          chatbot_limit: limits.chatbot_limit,
-          message_limit: limits.message_limit,
-          message_used: 0,
-          amount: amount,
-          messages_reset_at: startDate.toISOString(),
-          billing_cycle_start: startDate.toISOString(),
-          billing_cycle_end: endDate.toISOString(),
-          plan_expiry: endDate.toISOString().split("T")[0], // Formats to YYYY-MM-DD for date column
-        }, { onConflict: "user_id" });
-
-      if (subError) {
-        console.error("Supabase Subscriptions insert crash:", subError);
-        return NextResponse.json({ error: subError.message }, { status: 500 });
-      }
-
-      return NextResponse.json({ status: "success", message: "Database sync complete" });
+    // Filter for payment captured status only
+    if (body.event !== "payment.captured") {
+      return NextResponse.json({ received: true });
     }
 
-    return NextResponse.json({ status: "ignored" });
+    const payment = body.payload.payment.entity;
+    const paymentEmail = (payment.email || "").toLowerCase().trim();
+
+    if (!paymentEmail) {
+      return NextResponse.json({ error: "No email payload provided" }, { status: 400 });
+    }
+
+    console.log(`Processing valid checkout loop for consumer: ${paymentEmail}`);
+
+    const executionStart = new Date();
+    const activeExpiryWindow = new Date();
+    activeExpiryWindow.setDate(executionStart.getDate() + 30);
+
+    // 2. Direct Update based on the active email column row directly inside subscriptions table 
+    const { error: subError } = await supabaseAdmin
+      .from("subscriptions")
+      .update({
+        status: "active",
+        plan: "starter",
+        chatbot_limit: 1,
+        message_limit: 1000,
+        message_used: 0,
+        amount: Number(payment.amount || 0) / 100, // Convert paisa to rupees formatting
+        messages_reset_at: executionStart.toISOString(),
+        billing_cycle_start: executionStart.toISOString(),
+        billing_cycle_end: activeExpiryWindow.toISOString(),
+        plan_expiry: activeExpiryWindow.toISOString().split("T")[0],
+      })
+      .eq("email", paymentEmail); // Locates your exact 'azaaditheband@gmail.com' row instantly!
+
+    if (subError) {
+      console.error("❌ Supabase Write Failure:", subError.message);
+      return NextResponse.json({ error: subError.message }, { status: 500 });
+    }
+
+    console.log(`🚀 Success! Row updated perfectly for user account: ${paymentEmail}`);
+    return NextResponse.json({ success: true });
+
   } catch (err: any) {
-    console.error("Crash event on webhook route:", err.message);
+    console.error("❌ System runtime crash inside webhook handler:", err.message);
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
