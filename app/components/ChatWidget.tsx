@@ -770,15 +770,26 @@ export default function ChatWidget({
                         </div>
                       )}
 
-                      {productActionUrl && (
-                        <button
-                          type="button"
-                          onClick={() => handleOpen(productActionUrl)}
-                          className="mt-2 w-full rounded-lg bg-blue-600 px-4 py-2 text-center font-bold text-white transition hover:bg-blue-700"
-                        >
-                          {m.actionLabel || "View Product"}
-                        </button>
-                      )}
+                      {productActionUrl ? (
+  <>
+    <div className="text-red-500">
+      DEBUG URL: {productActionUrl}
+    </div>
+
+    <a
+      href={productActionUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-blue-600 underline break-all block"
+    >
+      {productActionUrl}
+    </a>
+  </>
+) : (
+  <div className="text-red-500">
+    URL NOT FOUND
+  </div>
+)}
                     </div>
                   </div>
                 ) : (
