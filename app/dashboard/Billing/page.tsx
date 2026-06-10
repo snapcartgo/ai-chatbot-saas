@@ -6,11 +6,11 @@ import { supabase } from "@/lib/supabase";
 type GatewayType = "payu" | "paypal" | "razorpay";
 
 const RAZORPAY_LINKS: Record<string, string> = {
-  starter: "https://rzp.io/rzp/0aAoQoux",
-  pro: "https://rzp.io/rzp/0aAoQoux",
-  growth: "https://rzp.io/rzp/0aAoQoux",
-  enterprise: "https://rzp.io/rzp/0aAoQoux",
-  whatsapp: "https://rzp.io/rzp/0aAoQoux",
+  starter: "https://rzp.io/rzp/WS1oIbCc",
+  pro: "https://rzp.io/rzp/WS1oIbCc",
+  growth: "https://rzp.io/rzp/WS1oIbCc",
+  enterprise: "https://rzp.io/rzp/WS1oIbCc",
+  whatsapp: "https://rzp.io/rzp/WS1oIbCc",
 };
 
 export default function BillingPage() {
