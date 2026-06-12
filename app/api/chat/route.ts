@@ -165,21 +165,36 @@ export async function POST(req: Request) {
       }),
     });
 
-    const data = await webhookResponse.json();
+    const rawData = await webhookResponse.json();
 
     if (!webhookResponse.ok) {
       return NextResponse.json(
         {
           reply:
-            data?.reply ||
-            data?.message ||
+            rawData?.reply ||
+            rawData?.message ||
             "Webhook request failed.",
         },
         { status: 500 }
       );
     }
 
-    const isProduct = data?.type === "product";
+    // 1. Safe extraction logic to flatten any nested arrays/objects coming out of n8n
+    let data: any = {};
+    if (Array.isArray(rawData)) {
+      const firstLevel = rawData[0];
+      if (Array.isArray(firstLevel)) {
+        data = firstLevel[0]?.json || firstLevel[0] || {};
+      } else if (firstLevel && typeof firstLevel === "object") {
+        data = firstLevel.json || firstLevel || {};
+      }
+    } else if (rawData && typeof rawData === "object") {
+      data = rawData.json || rawData;
+    }
+
+    // 2. Compute isProduct validation and build message properties on the clean data object
+    const isProduct = data?.type === "product" || !!data?.name || !!data?.product_name;
+    
     const productMessage =
       typeof data?.message === "string" && data.message.trim()
         ? data.message.trim()
@@ -188,14 +203,18 @@ export async function POST(req: Request) {
         : typeof data?.output === "string" && data.output.trim()
         ? data.output.trim()
         : isProduct
-        ? "Here is a product you may like."
+        ? "Here is a product from our collection:"
         : "No response";
 
     const paymentLink =
       typeof data?.payment_link === "string" ? data.payment_link : null;
 
     const productUrl =
-      typeof data?.product_url === "string" ? data.product_url : null;
+      typeof data?.product_url === "string" 
+        ? data.product_url 
+        : typeof data?.productUrl === "string"
+        ? data.productUrl
+        : null;
 
     let intent = null;
     let redirectUrl =
@@ -251,13 +270,13 @@ export async function POST(req: Request) {
       type: isProduct ? "product" : "text",
       reply: isProduct ? null : productMessage,
       message: productMessage,
-      name: typeof data?.name === "string" ? data.name : null,
+      name: typeof data?.name === "string" ? data.name : typeof data?.product_name === "string" ? data.product_name : null,
       description: typeof data?.description === "string" ? data.description : null,
       price:
         typeof data?.price === "number" || typeof data?.price === "string"
           ? data.price
           : null,
-      image_url: typeof data?.image_url === "string" ? data.image_url : null,
+      image_url: typeof data?.image_url === "string" ? data.image_url : typeof data?.productImageUrl === "string" ? data.productImageUrl : null,
       category: typeof data?.category === "string" ? data.category : null,
       product_url: productUrl,
       payment_link: paymentLink,
