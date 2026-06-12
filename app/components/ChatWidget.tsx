@@ -332,9 +332,11 @@ export default function ChatWidget({
     const recognition = new RecognitionCtor();
     recognition.lang = niche === "ecommerce" ? "en-US" : "en-IN";
     recognition.interimResults = true;
-    // Keep continuous true if you want it to keep listening, but we process carefully now
     recognition.continuous = true;
     recognition.maxAlternatives = 1;
+
+    // Reset tracking references when starting a new session
+    finalTranscriptRef.current = userInput.trim();
 
     recognition.onstart = () => {
       recognitionRef.current = recognition;
@@ -342,35 +344,35 @@ export default function ChatWidget({
     };
 
     recognition.onresult = (event: SpeechRecognitionEventLite) => {
-      let fullTranscript = "";
+      let interimSegment = "";
+      let finalizedSegment = "";
 
-      // 1. Gather all speech fragments currently detected
-      for (let i = 0; i < event.results.length; i++) {
-        const transcript = event.results[i]?.[0]?.transcript || "";
-        fullTranscript += transcript + " ";
+      // Look only at the current changing results index to avoid the mobile loop trap
+      for (let i = event.resultIndex ?? 0; i < event.results.length; i++) {
+        const result = event.results[i];
+        const transcript = result?.[0]?.transcript || "";
+
+        if (result?.isFinal) {
+          finalizedSegment += transcript + " ";
+        } else {
+          interimSegment += transcript + " ";
+        }
       }
 
-      // 2. Clean up any weird spacing
-      const rawText = fullTranscript.trim();
+      // If a segment is finalized by the engine, lock it into our master reference
+      if (finalizedSegment.trim()) {
+        finalTranscriptRef.current = `${finalTranscriptRef.current} ${finalizedSegment}`.trim();
+      }
 
-      if (rawText) {
-        // 3. Fix the mobile "last word only" and "duplicate" bug:
-        // Split sentence into words to inspect sequential repeats
-        const words = rawText.split(/\s+/);
-        const deduplicatedWords: string[] = [];
+      // Build the live preview text seamlessly
+      const totalLiveText = `${finalTranscriptRef.current} ${interimSegment}`.trim();
 
-        for (let i = 0; i < words.length; i++) {
-          // Only add the word if it doesn't match the immediate previous word
-          if (i === 0 || words[i].toLowerCase() !== words[i - 1].toLowerCase()) {
-            deduplicatedWords.push(words[i]);
-          }
-        }
+      if (totalLiveText) {
+        // Run a clean-up regex to clear any immediate duplicate multi-word phrases that mobile spits out
+        const cleanPhrases = totalLiveText.replace(/\b(\w+\s+\w+)(\s+\1)+\b/gi, "$1");
+        const normalizedText = normalizeTranscript(cleanPhrases);
 
-        // 4. Rebuild the string and run your custom replacements (T-shirt, etc.)
-        const finalCleanText = normalizeTranscript(deduplicatedWords.join(" "));
-
-        setUserInput(finalCleanText);
-        finalTranscriptRef.current = finalCleanText;
+        setUserInput(normalizedText);
       }
     };
 
