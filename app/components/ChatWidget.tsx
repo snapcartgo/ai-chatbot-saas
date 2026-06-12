@@ -342,42 +342,35 @@ export default function ChatWidget({
     };
 
     recognition.onresult = (event: SpeechRecognitionEventLite) => {
-      let finalTranscript = "";
-      let interimTranscript = "";
+      let fullTranscript = "";
 
-      for (let i = event.resultIndex ?? 0; i < event.results.length; i += 1) {
-        const result = event.results[i];
-        const transcript = result?.[0]?.transcript || "";
-
-        if (result?.isFinal) {
-          finalTranscript += transcript + " ";
-        } else {
-          interimTranscript += transcript + " ";
-        }
+      // 1. Gather all speech fragments currently detected
+      for (let i = 0; i < event.results.length; i++) {
+        const transcript = event.results[i]?.[0]?.transcript || "";
+        fullTranscript += transcript + " ";
       }
 
-      // Combine them
-      const rawCombined = `${finalTranscript} ${interimTranscript}`.trim();
+      // 2. Clean up any weird spacing
+      const rawText = fullTranscript.trim();
 
-      if (rawCombined) {
-        // --- MOBILE DEDUPLICATION ENGINE ---
-        // Split the text into individual words
-        const words = rawCombined.split(/\s+/);
-        const uniqueWords: string[] = [];
+      if (rawText) {
+        // 3. Fix the mobile "last word only" and "duplicate" bug:
+        // Split sentence into words to inspect sequential repeats
+        const words = rawText.split(/\s+/);
+        const deduplicatedWords: string[] = [];
 
-        // Filter out any word that repeats itself back-to-back 
         for (let i = 0; i < words.length; i++) {
-          if (words[i] !== words[i - 1]) {
-            uniqueWords.push(words[i]);
+          // Only add the word if it doesn't match the immediate previous word
+          if (i === 0 || words[i].toLowerCase() !== words[i - 1].toLowerCase()) {
+            deduplicatedWords.push(words[i]);
           }
         }
 
-        // Rejoin and normalize
-        const cleanCombined = uniqueWords.join(" ");
-        const liveText = normalizeTranscript(cleanCombined);
+        // 4. Rebuild the string and run your custom replacements (T-shirt, etc.)
+        const finalCleanText = normalizeTranscript(deduplicatedWords.join(" "));
 
-        setUserInput(liveText);
-        finalTranscriptRef.current = liveText;
+        setUserInput(finalCleanText);
+        finalTranscriptRef.current = finalCleanText;
       }
     };
 
