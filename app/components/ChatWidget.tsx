@@ -332,6 +332,7 @@ export default function ChatWidget({
     const recognition = new RecognitionCtor();
     recognition.lang = niche === "ecommerce" ? "en-US" : "en-IN";
     recognition.interimResults = true;
+    // Keep continuous true if you want it to keep listening, but we process carefully now
     recognition.continuous = true;
     recognition.maxAlternatives = 1;
 
@@ -341,34 +342,29 @@ export default function ChatWidget({
     };
 
     recognition.onresult = (event: SpeechRecognitionEventLite) => {
-      const startIndex = event.resultIndex ?? 0;
-      let appendedFinal = "";
-      let currentInterim = "";
+      let finalTranscript = "";
+      let interimTranscript = "";
 
-      for (let i = startIndex; i < event.results.length; i += 1) {
+      // Re-evaluate the entire results array from scratch on each update 
+      // to avoid duplication bugs on mobile webkit engines.
+      for (let i = 0; i < event.results.length; ++i) {
         const result = event.results[i];
-        const transcript = result?.[0]?.transcript?.trim() || "";
-
-        if (!transcript) continue;
+        const transcript = result?.[0]?.transcript || "";
 
         if (result?.isFinal) {
-          appendedFinal += `${transcript} `;
+          finalTranscript += transcript;
         } else {
-          currentInterim += `${transcript} `;
+          interimTranscript += transcript;
         }
       }
 
-      if (appendedFinal.trim()) {
-        finalTranscriptRef.current = normalizeTranscript(
-          `${finalTranscriptRef.current} ${appendedFinal}`.trim()
-        );
+      // Combine and normalize the text securely
+      const combinedText = finalTranscript || interimTranscript;
+      if (combinedText.trim()) {
+        const liveText = normalizeTranscript(combinedText);
+        setUserInput(liveText);
+        finalTranscriptRef.current = liveText;
       }
-
-      const liveText = normalizeTranscript(
-        `${finalTranscriptRef.current} ${currentInterim}`.trim()
-      );
-
-      setUserInput(liveText);
     };
 
     recognition.onerror = (event) => {
