@@ -236,12 +236,7 @@ export async function POST(req: Request) {
       type: isProduct ? "product" : "text",
       reply: isProduct ? null : productMessage,
       message: productMessage,
-      name:
-  typeof data?.name === "string"
-    ? data.name
-    : typeof data?.product_name === "string"
-    ? data.product_name
-    : null,
+      name: typeof data?.name === "string" ? data.name : null,
       description:
         typeof data?.description === "string" ? data.description : null,
       price:
