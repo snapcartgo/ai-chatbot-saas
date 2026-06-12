@@ -345,23 +345,37 @@ export default function ChatWidget({
       let finalTranscript = "";
       let interimTranscript = "";
 
-      // Re-evaluate the entire results array from scratch on each update 
-      // to avoid duplication bugs on mobile webkit engines.
-      for (let i = 0; i < event.results.length; ++i) {
+      for (let i = event.resultIndex ?? 0; i < event.results.length; i += 1) {
         const result = event.results[i];
         const transcript = result?.[0]?.transcript || "";
 
         if (result?.isFinal) {
-          finalTranscript += transcript;
+          finalTranscript += transcript + " ";
         } else {
-          interimTranscript += transcript;
+          interimTranscript += transcript + " ";
         }
       }
 
-      // Combine and normalize the text securely
-      const combinedText = finalTranscript || interimTranscript;
-      if (combinedText.trim()) {
-        const liveText = normalizeTranscript(combinedText);
+      // Combine them
+      const rawCombined = `${finalTranscript} ${interimTranscript}`.trim();
+
+      if (rawCombined) {
+        // --- MOBILE DEDUPLICATION ENGINE ---
+        // Split the text into individual words
+        const words = rawCombined.split(/\s+/);
+        const uniqueWords: string[] = [];
+
+        // Filter out any word that repeats itself back-to-back 
+        for (let i = 0; i < words.length; i++) {
+          if (words[i] !== words[i - 1]) {
+            uniqueWords.push(words[i]);
+          }
+        }
+
+        // Rejoin and normalize
+        const cleanCombined = uniqueWords.join(" ");
+        const liveText = normalizeTranscript(cleanCombined);
+
         setUserInput(liveText);
         finalTranscriptRef.current = liveText;
       }
