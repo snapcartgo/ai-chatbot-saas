@@ -526,6 +526,7 @@ export default function ChatWidget({
 
       const rawData = await response.json();
       const data = normalizeApiPayload(rawData);
+      console.log("API RESPONSE", data);
 
       if (response.status === 429) {
         setMessages([
@@ -592,7 +593,11 @@ export default function ChatWidget({
                 ? data.message.trim()
                 : "Here is a product you may like.",
             productName:
-              typeof data.name === "string" ? data.name.trim() : undefined,
+  typeof data.name === "string"
+    ? data.name.trim()
+    : typeof data.product_name === "string"
+    ? data.product_name.trim()
+    : undefined,
             productDescription:
               typeof data.description === "string"
                 ? data.description.trim()
