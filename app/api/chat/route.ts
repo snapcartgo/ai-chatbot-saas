@@ -192,9 +192,10 @@ export async function POST(req: Request) {
       data = rawData.json || rawData;
     }
 
-    // 2. Compute isProduct validation and build message properties on the clean data object
-    const isProduct = data?.type === "product" || !!data?.name || !!data?.product_name;
-    
+    // 2. Compute intent validations
+    const isProductIntent = data?.type === "product" || !!data?.product_name || !!data?.name;
+    const isCategoryIntent = data?.type === "category" || /category|show collection|browse/i.test(userMsg);
+
     const productMessage =
       typeof data?.message === "string" && data.message.trim()
         ? data.message.trim()
@@ -202,8 +203,8 @@ export async function POST(req: Request) {
         ? data.reply.trim()
         : typeof data?.output === "string" && data.output.trim()
         ? data.output.trim()
-        : isProduct
-        ? "Here is a product from our collection:"
+        : isProductIntent || isCategoryIntent
+        ? "Here is what we found in our collection:"
         : "No response";
 
     const paymentLink =
@@ -266,23 +267,56 @@ export async function POST(req: Request) {
       }
     }
 
+    // --- SAFELY EXTRACT IMAGE SOURCE (Only if it's NOT a pure category request) ---
+    let finalImageUrl = null;
+    if (!isCategoryIntent) {
+      if (typeof data?.image_url === "string") {
+        finalImageUrl = data.image_url;
+      } else if (typeof data?.productImageUrl === "string") {
+        finalImageUrl = data.productImageUrl;
+      } else if (typeof data?.image === "string") {
+        finalImageUrl = data.image;
+      } else if (Array.isArray(data?.images) && data.images[0]?.src) {
+        finalImageUrl = data.images[0].src;
+      }
+    }
+
+    // --- DYNAMIC WEBSITE URL GENERATOR ---
+    const extractedCategory = typeof data?.category === "string" ? data.category.trim() : null;
+    let finalProductUrl = productUrl;
+
+    if (extractedCategory) {
+      // Build clean web URL format matching your site layout (e.g. "home-decor")
+      const categorySlug = extractedCategory.toLowerCase().replace(/\s+/g, "-");
+      
+      if (isCategoryIntent) {
+        // Direct users to the correct global catalog page layout
+        finalProductUrl = `${baseUrl}/product-category/${categorySlug}/`;
+      } else if (data?.slug) {
+        // Precise item mapping page
+        finalProductUrl = `${baseUrl}/product/${data.slug}`;
+      } else {
+        finalProductUrl = `${baseUrl}/product-category/${categorySlug}/`;
+      }
+    }
+
+    // --- RENDER STRUCTURAL LAYOUT RULES ---
     return NextResponse.json({
-      type: isProduct ? "product" : "text",
-      reply: isProduct ? null : productMessage,
+      type: (isProductIntent || isCategoryIntent) ? "product" : "text",
+      reply: (isProductIntent || isCategoryIntent) ? null : productMessage,
       message: productMessage,
-      name: typeof data?.name === "string" ? data.name : typeof data?.product_name === "string" ? data.product_name : null,
+      name: typeof data?.name === "string" ? data.name : typeof data?.product_name === "string" ? data.product_name : (extractedCategory || "Our Collection"),
       description: typeof data?.description === "string" ? data.description : null,
-      price:
-        typeof data?.price === "number" || typeof data?.price === "string"
-          ? data.price
-          : null,
-      image_url: typeof data?.image_url === "string" ? data.image_url : typeof data?.productImageUrl === "string" ? data.productImageUrl : null,
-      category: typeof data?.category === "string" ? data.category : null,
-      product_url: productUrl,
+      price: isCategoryIntent ? null : (typeof data?.price === "number" || typeof data?.price === "string" ? data.price : null),
+      image_url: finalImageUrl, // Will be completely null for catalog/category views
+      imageUrl: finalImageUrl,
+      category: extractedCategory,
+      product_url: finalProductUrl, // Corrected category URL layout mapping
       payment_link: paymentLink,
       intent,
       redirect_url: redirectUrl,
     });
+
   } catch (error) {
     console.error("Fatal Route Failure:", error);
     return NextResponse.json({ reply: "Server error encountered." }, { status: 500 });
