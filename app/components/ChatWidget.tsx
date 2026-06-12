@@ -70,6 +70,7 @@ type BrowserSpeechRecognition = {
   onend: (() => void) | null;
   start: () => void;
   stop: () => void;
+  abort: () => void;
 };
 
 type SpeechRecognitionCtor = new () => BrowserSpeechRecognition;
@@ -249,7 +250,6 @@ export default function ChatWidget({
   const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
   const listeningEnabledRef = useRef(false);
   
-  // These references safely track your text blocks across automatic mobile engine restarts
   const finalTranscriptRef = useRef("");
   const currentTurnTextRef = useRef("");
   const restartTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -302,7 +302,9 @@ export default function ChatWidget({
         clearTimeout(restartTimeoutRef.current);
       }
       try {
-        recognitionRef.current?.stop();
+        if (recognitionRef.current) {
+          recognitionRef.current.abort();
+        }
       } catch {}
     };
   }, []);
@@ -316,7 +318,9 @@ export default function ChatWidget({
     }
 
     try {
-      recognitionRef.current?.stop();
+      if (recognitionRef.current) {
+        recognitionRef.current.abort(); // Clears hardware locks immediately
+      }
     } catch {}
 
     recognitionRef.current = null;
@@ -324,108 +328,79 @@ export default function ChatWidget({
   };
 
   const startRecognition = () => {
+    if (!listeningEnabledRef.current) return;
+
     const RecognitionCtor =
-      window.SpeechRecognition || window.webkitSpeechRecognition;
+      typeof window !== "undefined" &&
+      (window.SpeechRecognition || window.webkitSpeechRecognition);
 
     if (!RecognitionCtor) {
-      window.alert("Speech-to-text is not supported in this browser.");
       return;
     }
 
+    // Protect against stacking duplicate engine creations
+    try {
+      if (recognitionRef.current) {
+        recognitionRef.current.abort();
+      }
+    } catch {}
+
     const recognition = new RecognitionCtor();
     recognition.lang = niche === "ecommerce" ? "en-US" : "en-IN";
-    recognition.interimResults = true;
-    recognition.continuous = false; // Prevents the continuous loop buffer duplication bug on Android
+    
+    // Changing this to false strictly solves mobile duplication bugs
+    recognition.interimResults = false; 
+    recognition.continuous = false;
     recognition.maxAlternatives = 1;
 
     recognition.onstart = () => {
+      if (!listeningEnabledRef.current) {
+        try { recognition.abort(); } catch {}
+        return;
+      }
       recognitionRef.current = recognition;
       setIsRecording(true);
-      currentTurnTextRef.current = "";
     };
 
     recognition.onresult = (event: SpeechRecognitionEventLite) => {
-      let interimTranscript = "";
-      let finalizedTranscript = "";
+      const speechToText = event.results[0]?.[0]?.transcript || "";
+      if (!speechToText) return;
 
-      for (let i = 0; i < event.results.length; i++) {
-        const result = event.results[i];
-        const transcript = result?.[0]?.transcript || "";
+      // Clean text sequence normalization
+      const cleanSentence = normalizeTranscript(speechToText);
 
-        if (result?.isFinal) {
-          finalizedTranscript += transcript + " ";
-        } else {
-          interimTranscript += transcript + " ";
-        }
-      }
-
-      const activeSegment = (finalizedTranscript || interimTranscript).trim();
-      currentTurnTextRef.current = activeSegment;
-
-      const baseText = finalTranscriptRef.current ? finalTranscriptRef.current + " " : "";
-      
-      if (activeSegment) {
-        const combinedRaw = (baseText + activeSegment).trim();
-        
-        // Mobile array deduplication filter
-        const words = combinedRaw.split(/\s+/);
-        const uniqueWords: string[] = [];
-        for (let i = 0; i < words.length; i++) {
-          if (i === 0 || words[i].toLowerCase() !== words[i - 1].toLowerCase()) {
-            uniqueWords.push(words[i]);
-          }
-        }
-
-        const cleanSentence = normalizeTranscript(uniqueWords.join(" "));
-        setUserInput(cleanSentence);
-      }
+      setUserInput((prev) => {
+        const base = prev.trim();
+        const updated = base ? `${base} ${cleanSentence}` : cleanSentence;
+        finalTranscriptRef.current = updated;
+        return updated;
+      });
     };
 
     recognition.onerror = (event) => {
       console.error("Speech recognition error:", event?.error);
-
       if (event?.error === "not-allowed" || event?.error === "service-not-allowed") {
         stopRecognition();
         window.alert("Microphone permission is blocked. Please allow microphone access.");
-        return;
       }
-
-      if (event?.error === "no-speech") {
-        return;
-      }
-
-      setIsRecording(false);
     };
 
     recognition.onend = () => {
       recognitionRef.current = null;
-
       if (listeningEnabledRef.current) {
-        // Safe Ref-based accumulation saves previously processed phrases securely
-        if (currentTurnTextRef.current) {
-          const updatedBaseline = (finalTranscriptRef.current + " " + currentTurnTextRef.current).trim();
-          
-          const words = updatedBaseline.split(/\s+/);
-          const uniqueWords: string[] = [];
-          for (let i = 0; i < words.length; i++) {
-            if (i === 0 || words[i].toLowerCase() !== words[i - 1].toLowerCase()) {
-              uniqueWords.push(words[i]);
-            }
-          }
-          finalTranscriptRef.current = uniqueWords.join(" ");
-        }
-
         restartTimeoutRef.current = setTimeout(() => {
-          if (listeningEnabledRef.current) {
-            startRecognition();
-          }
-        }, 30); // Seamlessly restarts input
+          startRecognition();
+        }, 100);
       } else {
         setIsRecording(false);
       }
     };
 
-    recognition.start();
+    try {
+      recognition.start();
+    } catch (e) {
+      console.error("Speech startup failed running task:", e);
+    }
   };
 
   const toggleVoiceRecognition = () => {
@@ -436,7 +411,6 @@ export default function ChatWidget({
       return;
     }
 
-    finalTranscriptRef.current = userInput.trim();
     listeningEnabledRef.current = true;
     startRecognition();
   };
@@ -496,6 +470,8 @@ export default function ChatWidget({
       return;
     }
 
+    stopRecognition(); // Stop execution before running API routes
+
     let uniqueSessionId = localStorage.getItem(`chat_session_${activeBotId}`);
     if (!uniqueSessionId) {
       const array = new Uint32Array(1);
@@ -537,7 +513,6 @@ export default function ChatWidget({
     setEnterpriseImage(null);
     setIsLoading(true);
 
-    stopRecognition();
     finalTranscriptRef.current = "";
     currentTurnTextRef.current = "";
 

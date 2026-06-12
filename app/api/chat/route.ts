@@ -12,6 +12,7 @@ const extractUTR = (text: string) => {
   return match ? match[0] : null;
 };
 
+// Fixed error logging pattern for Supabase
 async function saveMessage(data: {
   user_id: string | null;
   bot_id: string | null;
@@ -20,14 +21,14 @@ async function saveMessage(data: {
   content: string;
   channel: "website" | "whatsapp";
 }) {
-  try {
-    await supabase.from("messages").insert({
-      ...data,
-      phone_number: null,
-      external_user_id: null,
-    });
-  } catch (err) {
-    console.error("Message save error:", err);
+  const { error } = await supabase.from("messages").insert({
+    ...data,
+    phone_number: null,
+    external_user_id: null,
+  });
+
+  if (error) {
+    console.error("Supabase Message Save Error Details:", error.message, error.details);
   }
 }
 
@@ -47,7 +48,13 @@ export async function POST(req: Request) {
       );
     }
 
-    const body = await req.json();
+    // Safely parse JSON body to prevent crashes if body is missing
+    let body;
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json({ reply: "Invalid or empty JSON body." }, { status: 400 });
+    }
 
     const rawMessage = String(body.message || "").trim();
     const bot_id = body.bot_id || body.chatbotId || body.activeBotId;
@@ -64,12 +71,13 @@ export async function POST(req: Request) {
     const audio_type = body.audio_type || null;
     const audio_data_url = body.audio_data_url || null;
 
+    // Use raw text input if available; prioritize showing attachments if input string is clean text fallback
     const message =
       rawMessage ||
-      (audio_name
-        ? "Voice message attached"
-        : image_name
-        ? `Image attached: ${image_name}`
+      (audio_data_url
+        ? `[Audio Attached: ${audio_name || "voice_msg"}]`
+        : image_data_url
+        ? `[Image Attached: ${image_name || "upload"}]`
         : "");
 
     if (!bot_id || (!message && !image_data_url && !audio_data_url)) {
@@ -82,10 +90,11 @@ export async function POST(req: Request) {
     const userMsg = String(message).toLowerCase();
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "https://woodpetra.in";
 
+    // UTR Verification Engine
     const detectedUTR = extractUTR(message);
 
     if (detectedUTR) {
-      await supabase
+      const { error: orderError } = await supabase
         .from("orders")
         .update({
           utr_reference: detectedUTR,
@@ -94,6 +103,10 @@ export async function POST(req: Request) {
           channel,
         })
         .eq("id", order_id);
+
+      if (orderError) {
+        console.error("Supabase Order Update Error:", orderError.message);
+      }
 
       const confirmReply = `Detected UTR: ${detectedUTR}. Verification started.`;
 
@@ -182,9 +195,7 @@ export async function POST(req: Request) {
       typeof data?.payment_link === "string" ? data.payment_link : null;
 
     const productUrl =
-  typeof data?.product_url === "string"
-    ? data.product_url
-    : null;
+      typeof data?.product_url === "string" ? data.product_url : null;
 
     let intent = null;
     let redirectUrl =
@@ -221,7 +232,7 @@ export async function POST(req: Request) {
     });
 
     if (paymentLink && product_name && price) {
-      await supabase.from("orders").insert({
+      const { error: insertOrderError } = await supabase.from("orders").insert({
         user_id,
         bot_id,
         product_name,
@@ -230,6 +241,10 @@ export async function POST(req: Request) {
         customer_email: email,
         channel,
       });
+      
+      if (insertOrderError) {
+        console.error("Supabase Order Creation Error:", insertOrderError.message);
+      }
     }
 
     return NextResponse.json({
@@ -237,22 +252,21 @@ export async function POST(req: Request) {
       reply: isProduct ? null : productMessage,
       message: productMessage,
       name: typeof data?.name === "string" ? data.name : null,
-      description:
-        typeof data?.description === "string" ? data.description : null,
+      description: typeof data?.description === "string" ? data.description : null,
       price:
         typeof data?.price === "number" || typeof data?.price === "string"
           ? data.price
           : null,
       image_url: typeof data?.image_url === "string" ? data.image_url : null,
       category: typeof data?.category === "string" ? data.category : null,
-      product_url: productUrl,   // ADD THIS
+      product_url: productUrl,
       payment_link: paymentLink,
       intent,
       redirect_url: redirectUrl,
     });
   } catch (error) {
-    console.error("Error:", error);
-    return NextResponse.json({ reply: "Server error." }, { status: 500 });
+    console.error("Fatal Route Failure:", error);
+    return NextResponse.json({ reply: "Server error encountered." }, { status: 500 });
   }
 }
 
