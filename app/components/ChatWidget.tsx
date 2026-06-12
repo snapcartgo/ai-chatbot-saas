@@ -526,7 +526,6 @@ export default function ChatWidget({
 
       const rawData = await response.json();
       const data = normalizeApiPayload(rawData);
-      console.log("API RESPONSE", data);
 
       if (response.status === 429) {
         setMessages([
@@ -579,7 +578,7 @@ export default function ChatWidget({
       }
 
       // Force structure fallback layout matching if any property confirms it is a product
-      if (data.type === "product" || data.name ||data.product_name || data.price || data.product_url || data.productUrl) {
+      if (data.type === "product" || data.name || data.price || data.product_url || data.productUrl) {
         const finalActionLabel = actionLabel || "View Product";
         const absoluteProductUrl = safeActionUrl || redirectCandidate;
 
@@ -593,11 +592,7 @@ export default function ChatWidget({
                 ? data.message.trim()
                 : "Here is a product you may like.",
             productName:
-  typeof data.name === "string"
-    ? data.name.trim()
-    : typeof data.product_name === "string"
-    ? data.product_name.trim()
-    : undefined,
+              typeof data.name === "string" ? data.name.trim() : undefined,
             productDescription:
               typeof data.description === "string"
                 ? data.description.trim()
