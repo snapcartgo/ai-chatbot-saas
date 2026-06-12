@@ -248,7 +248,10 @@ export default function ChatWidget({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
   const listeningEnabledRef = useRef(false);
+  
+  // These references safely track your text blocks across automatic mobile engine restarts
   const finalTranscriptRef = useRef("");
+  const currentTurnTextRef = useRef("");
   const restartTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const activeBotId = chatbotId || "9ff1f58c-d09d-4449-97cc-a5860b640e2c";
@@ -332,47 +335,49 @@ export default function ChatWidget({
     const recognition = new RecognitionCtor();
     recognition.lang = niche === "ecommerce" ? "en-US" : "en-IN";
     recognition.interimResults = true;
-    recognition.continuous = true;
+    recognition.continuous = false; // Prevents the continuous loop buffer duplication bug on Android
     recognition.maxAlternatives = 1;
-
-    // Reset tracking references when starting a new session
-    finalTranscriptRef.current = userInput.trim();
 
     recognition.onstart = () => {
       recognitionRef.current = recognition;
       setIsRecording(true);
+      currentTurnTextRef.current = "";
     };
 
     recognition.onresult = (event: SpeechRecognitionEventLite) => {
-      let interimSegment = "";
-      let finalizedSegment = "";
+      let interimTranscript = "";
+      let finalizedTranscript = "";
 
-      // Look only at the current changing results index to avoid the mobile loop trap
-      for (let i = event.resultIndex ?? 0; i < event.results.length; i++) {
+      for (let i = 0; i < event.results.length; i++) {
         const result = event.results[i];
         const transcript = result?.[0]?.transcript || "";
 
         if (result?.isFinal) {
-          finalizedSegment += transcript + " ";
+          finalizedTranscript += transcript + " ";
         } else {
-          interimSegment += transcript + " ";
+          interimTranscript += transcript + " ";
         }
       }
 
-      // If a segment is finalized by the engine, lock it into our master reference
-      if (finalizedSegment.trim()) {
-        finalTranscriptRef.current = `${finalTranscriptRef.current} ${finalizedSegment}`.trim();
-      }
+      const activeSegment = (finalizedTranscript || interimTranscript).trim();
+      currentTurnTextRef.current = activeSegment;
 
-      // Build the live preview text seamlessly
-      const totalLiveText = `${finalTranscriptRef.current} ${interimSegment}`.trim();
+      const baseText = finalTranscriptRef.current ? finalTranscriptRef.current + " " : "";
+      
+      if (activeSegment) {
+        const combinedRaw = (baseText + activeSegment).trim();
+        
+        // Mobile array deduplication filter
+        const words = combinedRaw.split(/\s+/);
+        const uniqueWords: string[] = [];
+        for (let i = 0; i < words.length; i++) {
+          if (i === 0 || words[i].toLowerCase() !== words[i - 1].toLowerCase()) {
+            uniqueWords.push(words[i]);
+          }
+        }
 
-      if (totalLiveText) {
-        // Run a clean-up regex to clear any immediate duplicate multi-word phrases that mobile spits out
-        const cleanPhrases = totalLiveText.replace(/\b(\w+\s+\w+)(\s+\1)+\b/gi, "$1");
-        const normalizedText = normalizeTranscript(cleanPhrases);
-
-        setUserInput(normalizedText);
+        const cleanSentence = normalizeTranscript(uniqueWords.join(" "));
+        setUserInput(cleanSentence);
       }
     };
 
@@ -395,16 +400,29 @@ export default function ChatWidget({
     recognition.onend = () => {
       recognitionRef.current = null;
 
-      if (!listeningEnabledRef.current) {
-        setIsRecording(false);
-        return;
-      }
-
-      restartTimeoutRef.current = setTimeout(() => {
-        if (listeningEnabledRef.current) {
-          startRecognition();
+      if (listeningEnabledRef.current) {
+        // Safe Ref-based accumulation saves previously processed phrases securely
+        if (currentTurnTextRef.current) {
+          const updatedBaseline = (finalTranscriptRef.current + " " + currentTurnTextRef.current).trim();
+          
+          const words = updatedBaseline.split(/\s+/);
+          const uniqueWords: string[] = [];
+          for (let i = 0; i < words.length; i++) {
+            if (i === 0 || words[i].toLowerCase() !== words[i - 1].toLowerCase()) {
+              uniqueWords.push(words[i]);
+            }
+          }
+          finalTranscriptRef.current = uniqueWords.join(" ");
         }
-      }, 250);
+
+        restartTimeoutRef.current = setTimeout(() => {
+          if (listeningEnabledRef.current) {
+            startRecognition();
+          }
+        }, 30); // Seamlessly restarts input
+      } else {
+        setIsRecording(false);
+      }
     };
 
     recognition.start();
@@ -521,6 +539,7 @@ export default function ChatWidget({
 
     stopRecognition();
     finalTranscriptRef.current = "";
+    currentTurnTextRef.current = "";
 
     try {
       const response = await fetch("/api/chat", {
@@ -548,7 +567,6 @@ export default function ChatWidget({
         throw new Error(data?.reply || data?.message || "Server Error");
       }
 
-      // Secure product layout and routing link detection
       const redirectCandidate =
         typeof data.product_url === "string" && data.product_url.trim()
           ? data.product_url.trim()
@@ -582,8 +600,7 @@ export default function ChatWidget({
         }
       }
 
-      // Force structure fallback layout matching if any property confirms it is a product
-      if (data.type === "product" || data.name ||data.product_name || data.price || data.product_url || data.productUrl) {
+      if (data.type === "product" || data.name || data.product_name || data.price || data.product_url || data.productUrl) {
         const finalActionLabel = actionLabel || "View Product";
         const absoluteProductUrl = safeActionUrl || redirectCandidate;
 
@@ -616,8 +633,6 @@ export default function ChatWidget({
               typeof data.category === "string"
                 ? data.category.trim()
                 : undefined,
-            
-            // Fix: Map reliably sanitized fallback links to state values
             productUrl: absoluteProductUrl || undefined,
             actionUrl: absoluteProductUrl || undefined,
             actionLabel: finalActionLabel,
@@ -626,7 +641,6 @@ export default function ChatWidget({
         return;
       }
 
-      // Default Standard Text Rendering State
       setMessages([
         ...newMessages,
         {
@@ -653,7 +667,7 @@ export default function ChatWidget({
     } finally {
         setIsLoading(false);
     }
-};
+  };
 
   const handleOpen = (url: string) => {
     const safe = sanitizeHttpUrl(url);
@@ -776,23 +790,19 @@ export default function ChatWidget({
                       )}
 
                       {productActionUrl ? (
-  <>
-    
-
-    <a
-      href={productActionUrl}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="text-blue-600 underline break-all block"
-    >
-      {productActionUrl}
-    </a>
-  </>
-) : (
-  <div className="text-red-500">
-    URL NOT FOUND
-  </div>
-)}
+                        <a
+                          href={productActionUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 underline break-all block"
+                        >
+                          {productActionUrl}
+                        </a>
+                      ) : (
+                        <div className="text-red-500">
+                          URL NOT FOUND
+                        </div>
+                      )}
                     </div>
                   </div>
                 ) : (
