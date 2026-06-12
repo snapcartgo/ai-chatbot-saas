@@ -578,7 +578,7 @@ export default function ChatWidget({
       }
 
       // Force structure fallback layout matching if any property confirms it is a product
-      if (data.type === "product" || data.name || data.price || data.product_url || data.productUrl) {
+      if (data.type === "product" || data.name ||data.product_name || data.price || data.product_url || data.productUrl) {
         const finalActionLabel = actionLabel || "View Product";
         const absoluteProductUrl = safeActionUrl || redirectCandidate;
 
