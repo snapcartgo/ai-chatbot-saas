@@ -281,19 +281,16 @@ export async function POST(req: Request) {
       }
     }
 
-    // --- DYNAMIC WEBSITE URL GENERATOR ---
+    // --- DIRECT LINK PASS-THROUGH (CRITICAL FIX) ---
     const extractedCategory = typeof data?.category === "string" ? data.category.trim() : null;
     let finalProductUrl = productUrl;
 
-    if (extractedCategory) {
-      // Build clean web URL format matching your site layout (e.g. "home-decor")
+    // Only construct a backup URL if n8n didn't give us a valid url path
+    if (!finalProductUrl && extractedCategory) {
       const categorySlug = extractedCategory.toLowerCase().replace(/\s+/g, "-");
-      
       if (isCategoryIntent) {
-        // Direct users to the correct global catalog page layout
         finalProductUrl = `${baseUrl}/product-category/${categorySlug}/`;
       } else if (data?.slug) {
-        // Precise item mapping page
         finalProductUrl = `${baseUrl}/product/${data.slug}`;
       } else {
         finalProductUrl = `${baseUrl}/product-category/${categorySlug}/`;
@@ -308,10 +305,10 @@ export async function POST(req: Request) {
       name: typeof data?.name === "string" ? data.name : typeof data?.product_name === "string" ? data.product_name : (extractedCategory || "Our Collection"),
       description: typeof data?.description === "string" ? data.description : null,
       price: isCategoryIntent ? null : (typeof data?.price === "number" || typeof data?.price === "string" ? data.price : null),
-      image_url: finalImageUrl, // Will be completely null for catalog/category views
+      image_url: finalImageUrl, 
       imageUrl: finalImageUrl,
       category: extractedCategory,
-      product_url: finalProductUrl, // Corrected category URL layout mapping
+      product_url: finalProductUrl, // Sends the correct, unaltered Lovable App link now!
       payment_link: paymentLink,
       intent,
       redirect_url: redirectUrl,
