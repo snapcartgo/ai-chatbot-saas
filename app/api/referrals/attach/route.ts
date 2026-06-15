@@ -20,6 +20,12 @@ export async function POST(req: Request) {
     const ref = String(body.ref || "").trim();
     const userId = String(body.userId || "").trim();
     const email = normalizeEmail(String(body.email || ""));
+    
+    // Pass product_type from your payment/webhook handlers (e.g., 'website_chatbot' or 'whatsapp_plan')
+    const productType = String(body.productType || "website_chatbot").trim(); 
+    const purchasedPlan = body.purchasedPlan ? String(body.purchasedPlan).trim() : null;
+    const amount = Number(body.amount || 0);
+    const commissionAmount = amount > 0 ? amount * 0.20 : null; // Example: 20% commission calculation
 
     if (!ref || !userId || !email) {
       return NextResponse.json(
@@ -49,7 +55,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // Block this specific email completely
     if (BLOCKED_REFERRAL_EMAILS.has(email)) {
       return NextResponse.json(
         { error: "This email is blocked for referral signup" },
@@ -57,7 +62,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // Block self-referral by account id
     if (partner.user_id === userId) {
       return NextResponse.json(
         { error: "You cannot refer yourself" },
@@ -65,7 +69,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // Block self-referral by email match
     const { data: partnerProfile } = await supabase
       .from("profiles")
       .select("email")
@@ -80,11 +83,12 @@ export async function POST(req: Request) {
       );
     }
 
-    // Prevent duplicates by user OR email
-    const { data: existing, error: existingError } = await supabase
+    // UPDATED: Check if this specific user has already linked this specific product type
+    const { data: existingProductRow, error: existingError } = await supabase
       .from("referrals")
-      .select("id")
-      .or(`referred_user_id.eq.${userId},referred_email.eq.${email}`)
+      .select("id, status")
+      .eq("referred_email", email)
+      .eq("product_type", productType)
       .maybeSingle();
 
     if (existingError) {
@@ -95,29 +99,64 @@ export async function POST(req: Request) {
       );
     }
 
-    if (existing) {
+    // If they already have a record tracking this exact product, prevent duplicates
+    if (existingProductRow) {
       return NextResponse.json(
-        { error: "Referral already applied" },
+        { error: `Referral for ${productType} already recorded.` },
         { status: 400 }
       );
     }
 
-    const { error: insertError } = await supabase
+    // Check if they have an initial generic row from their original sign-up click
+    const { data: initialPendingRow } = await supabase
       .from("referrals")
-      .insert([
-        {
-          partner_id: partner.id,
-          source_referral_code: partner.referral_code,
-          referred_email: email,
-          referred_user_id: userId,
-          status: "pending",
-          payment_status: "pending",
-        },
-      ]);
+      .select("id, product_type")
+      .eq("referred_email", email)
+      .is("product_type", null)
+      .eq("status", "pending")
+      .maybeSingle();
 
-    if (insertError) {
-      Sentry.captureException(insertError);
-      return NextResponse.json({ error: insertError.message }, { status: 500 });
+    if (initialPendingRow) {
+      // Convert their original landing row into this product's purchase record
+      const { error: updateError } = await supabase
+        .from("referrals")
+        .update({
+          product_type: productType,
+          purchased_plan: purchasedPlan,
+          amount: amount,
+          commission_amount: commissionAmount,
+          status: amount > 0 ? "active" : "pending",
+          payment_status: amount > 0 ? "paid" : "pending"
+        })
+        .eq("id", initialPendingRow.id);
+
+      if (updateError) {
+        Sentry.captureException(updateError);
+        return NextResponse.json({ error: updateError.message }, { status: 500 });
+      }
+    } else {
+      // If they are buying a completely second product under the same email, create a new row for the partner
+      const { error: insertError } = await supabase
+        .from("referrals")
+        .insert([
+          {
+            partner_id: partner.id,
+            source_referral_code: partner.referral_code,
+            referred_email: email,
+            referred_user_id: userId,
+            product_type: productType,
+            purchased_plan: purchasedPlan,
+            amount: amount,
+            commission_amount: commissionAmount,
+            status: amount > 0 ? "active" : "pending",
+            payment_status: amount > 0 ? "paid" : "pending",
+          },
+        ]);
+
+      if (insertError) {
+        Sentry.captureException(insertError);
+        return NextResponse.json({ error: insertError.message }, { status: 500 });
+      }
     }
 
     return NextResponse.json({ ok: true });

@@ -14,18 +14,13 @@ export default function DashboardPage() {
   });
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
-  const [userEmail, setUserEmail] = useState<string | null>(null); // Added to keep track of user email
+  const [userEmail, setUserEmail] = useState<string | null>(null);
 
   const [calendarId, setCalendarId] = useState("");
   const [clientName, setClientName] = useState("");
 
   const [phoneNumber, setPhoneNumber] = useState("");
   const [isSavingPhone, setIsSavingPhone] = useState(false);
-
-  // Dynamic URL builder to safely attach email parameter for Laravel
-  const dynamicVendorConsoleUrl = userEmail 
-    ? `https://marketing.woodpetra.in/auth/register/vendor?email=${encodeURIComponent(userEmail)}`
-    : "https://marketing.woodpetra.in/auth/register/vendor";
 
   useEffect(() => {
     async function initDashboard() {
@@ -41,7 +36,7 @@ export default function DashboardPage() {
       }
 
       setUserId(user.id);
-      setUserEmail(user.email.toLowerCase()); // Save current user email state cleanly
+      setUserEmail(user.email.toLowerCase());
 
       await Promise.all([
         supabase.from("profiles").upsert({
@@ -133,6 +128,43 @@ export default function DashboardPage() {
       Sentry.captureException(error);
     }
   }
+
+  // Next.js function that opens Laravel and manually pre-fills the email field directly from the DOM
+  const handleLaravelRedirectAndFill = (e: React.MouseEvent) => {
+    e.preventDefault();
+    
+    const targetUrl = "https://marketing.woodpetra.in/auth/register/vendor";
+    
+    // 1. Open Laravel in a new window tab
+    const newWindow = window.open(targetUrl, "_blank");
+
+    if (newWindow && userEmail) {
+      // 2. Wait briefly for the Laravel page elements to load completely
+      const checkInterval = setInterval(() => {
+        try {
+          if (newWindow.document && newWindow.document.readyState === "complete") {
+            // 3. Find the email input element by its ID or name attributes
+            const emailInput = 
+              newWindow.document.getElementById("email") as HTMLInputElement || 
+              newWindow.document.querySelector('input[name="email"]') as HTMLInputElement;
+
+            if (emailInput) {
+              // 4. Inject the Next.js user email directly into the Laravel field
+              emailInput.value = userEmail;
+              
+              // Trigger input events so any reactive frameworks or validations acknowledge the change
+              emailInput.dispatchEvent(new Event('input', { bubbles: true }));
+              
+              clearInterval(checkInterval); // Done filling, clear the check
+            }
+          }
+        } catch (error) {
+          // If browser cross-origin flags block direct window script access, clear interval
+          clearInterval(checkInterval);
+        }
+      }, 500); // Checks every half second
+    }
+  };
 
   async function handleCalendarSync(e: React.FormEvent) {
     e.preventDefault();
@@ -242,15 +274,13 @@ export default function DashboardPage() {
               </p>
             </div>
 
-            {/* Changed from vendorConsoleUrl to dynamicVendorConsoleUrl */}
-            <a
-              href={dynamicVendorConsoleUrl}
-              target="_blank"
-              rel="noopener noreferrer"
+            {/* Replaced standard href with cross-window script injector */}
+            <button
+              onClick={handleLaravelRedirectAndFill}
               className="inline-flex items-center justify-center rounded-2xl bg-white px-7 py-4 text-sm font-bold text-emerald-950 shadow-lg shadow-black/20 transition-all duration-200 hover:-translate-y-0.5 hover:bg-emerald-50 hover:shadow-xl"
             >
               WhatsApp Bot
-            </a>
+            </button>
           </div>
         </div>
 
