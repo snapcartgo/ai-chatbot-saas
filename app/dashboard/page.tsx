@@ -7,8 +7,6 @@ import * as Sentry from "@sentry/nextjs";
 import { WhatsAppSetupButton } from "../components/WhatsAppSetupButton";
 
 export default function DashboardPage() {
-  const vendorConsoleUrl = "https://marketing.woodpetra.in/auth/register/vendor";
-
   const [stats, setStats] = useState({
     leads: 0,
     conversations: 0,
@@ -16,12 +14,18 @@ export default function DashboardPage() {
   });
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
+  const [userEmail, setUserEmail] = useState<string | null>(null); // Added to keep track of user email
 
   const [calendarId, setCalendarId] = useState("");
   const [clientName, setClientName] = useState("");
 
   const [phoneNumber, setPhoneNumber] = useState("");
   const [isSavingPhone, setIsSavingPhone] = useState(false);
+
+  // Dynamic URL builder to safely attach email parameter for Laravel
+  const dynamicVendorConsoleUrl = userEmail 
+    ? `https://marketing.woodpetra.in/auth/register/vendor?email=${encodeURIComponent(userEmail)}`
+    : "https://marketing.woodpetra.in/auth/register/vendor";
 
   useEffect(() => {
     async function initDashboard() {
@@ -37,6 +41,7 @@ export default function DashboardPage() {
       }
 
       setUserId(user.id);
+      setUserEmail(user.email.toLowerCase()); // Save current user email state cleanly
 
       await Promise.all([
         supabase.from("profiles").upsert({
@@ -237,8 +242,9 @@ export default function DashboardPage() {
               </p>
             </div>
 
+            {/* Changed from vendorConsoleUrl to dynamicVendorConsoleUrl */}
             <a
-              href={vendorConsoleUrl}
+              href={dynamicVendorConsoleUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center justify-center rounded-2xl bg-white px-7 py-4 text-sm font-bold text-emerald-950 shadow-lg shadow-black/20 transition-all duration-200 hover:-translate-y-0.5 hover:bg-emerald-50 hover:shadow-xl"
