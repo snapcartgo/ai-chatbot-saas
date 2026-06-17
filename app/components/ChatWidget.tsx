@@ -564,16 +564,23 @@ export default function ChatWidget({
       let actionLabel: string | undefined;
 
       if (safeActionUrl) {
-        const lowerUrl = safeActionUrl.toLowerCase();
+  const lowerUrl = safeActionUrl.toLowerCase();
 
-        if (data.type === "product" || data.name || niche === "ecommerce") {
-          actionLabel = "View Product";
-        } else if (lowerUrl.includes("/contact")) {
-          actionLabel = "Contact Us";
-        } else {
-          actionLabel = "Open Page";
-        }
-      }
+  if (
+    lowerUrl.includes("/pay") ||
+    lowerUrl.includes("payu") ||
+    lowerUrl.includes("paypal") ||
+    lowerUrl.includes("payment")
+  ) {
+    actionLabel = "Pay Now";
+  } else if (data.type === "product" || data.name) {
+    actionLabel = "View Product";
+  } else if (lowerUrl.includes("/contact")) {
+    actionLabel = "Contact Us";
+  } else {
+    actionLabel = "Open Page";
+  }
+}
 
       if (data.type === "product" || data.name || data.product_name || data.price || data.product_url || data.productUrl) {
         const finalActionLabel = actionLabel || "View Product";
@@ -708,7 +715,7 @@ export default function ChatWidget({
           const productActionUrl = m.productUrl || m.actionUrl || actionUrl;
           
           const actionLabel =
-            m.actionLabel || (niche === "ecommerce" ? "Buy Now" : "Open Page");
+            m.actionLabel || (niche === "ecommerce" ? "Pay Now" : "Open Page");
           const formattedPrice = formatPrice(m.productPrice);
 
           return (
