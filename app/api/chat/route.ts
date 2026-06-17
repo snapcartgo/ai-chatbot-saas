@@ -282,62 +282,89 @@ export async function POST(req: Request) {
     }
 
     // --- DIRECT LINK PASS-THROUGH (CRITICAL FIX) ---
-    const extractedCategory = typeof data?.category === "string" ? data.category.trim() : null;
-    let finalProductUrl = productUrl;
+    // --- DIRECT LINK PASS-THROUGH (FIXED) ---
+        const extractedCategory =
+          typeof data?.category === "string"
+            ? data.category.trim()
+            : null;
 
-    // Only construct a backup URL if n8n didn't give us a valid url path
-    if (!finalProductUrl && extractedCategory) {
-      const categorySlug = extractedCategory.toLowerCase().replace(/\s+/g, "-");
-      if (isCategoryIntent) {
-        finalProductUrl = `${baseUrl}/product-category/${categorySlug}/`;
-      } else if (data?.slug) {
-        finalProductUrl = `${baseUrl}/product/${data.slug}`;
-      } else {
-        finalProductUrl = `${baseUrl}/product-category/${categorySlug}/`;
-      }
-    }
+        // NEVER generate product URLs.
+        // ONLY use what comes from n8n / AI / Knowledge Base.
+        let finalProductUrl = "";
+
+        if (typeof productUrl === "string") {
+          finalProductUrl = productUrl.trim();
+        }
+
+        // If AI did not provide a URL, leave it empty.
+        // Do NOT generate:
+        /*
+          /product-category/...
+          /product/...
+        */
 
     return NextResponse.json({
-  // Only mark as product when it really is a product/category response
   type: isProductIntent || isCategoryIntent ? "product" : "text",
 
-  // Plain chat replies
-  reply: isProductIntent || isCategoryIntent ? null : productMessage,
+  reply:
+    isProductIntent || isCategoryIntent
+      ? null
+      : productMessage,
+
   message: productMessage,
 
-  // Only include product fields for product/category responses
   name:
     isProductIntent || isCategoryIntent
-      ? (typeof data?.name === "string"
-          ? data.name
-          : typeof data?.product_name === "string"
-          ? data.product_name
-          : extractedCategory)
+      ? (
+          typeof data?.name === "string"
+            ? data.name
+            : typeof data?.product_name === "string"
+            ? data.product_name
+            : extractedCategory
+        )
       : null,
 
   description:
     isProductIntent || isCategoryIntent
-      ? (typeof data?.description === "string" ? data.description : null)
+      ? (
+          typeof data?.description === "string"
+            ? data.description
+            : null
+        )
       : null,
 
   price:
     isProductIntent
-      ? (typeof data?.price === "number" || typeof data?.price === "string"
-          ? data.price
-          : null)
+      ? (
+          typeof data?.price === "string" ||
+          typeof data?.price === "number"
+            ? data.price
+            : null
+        )
       : null,
 
   image_url:
-    isProductIntent || isCategoryIntent ? finalImageUrl : null,
+    isProductIntent || isCategoryIntent
+      ? finalImageUrl
+      : null,
 
   imageUrl:
-    isProductIntent || isCategoryIntent ? finalImageUrl : null,
+    isProductIntent || isCategoryIntent
+      ? finalImageUrl
+      : null,
 
   category:
-    isProductIntent || isCategoryIntent ? extractedCategory : null,
+    isProductIntent || isCategoryIntent
+      ? extractedCategory
+      : null,
 
+  // IMPORTANT:
+  // Return ONLY the URL supplied by the AI/KB.
+  // Never manufacture one.
   product_url:
-    isProductIntent || isCategoryIntent ? finalProductUrl : null,
+    isProductIntent || isCategoryIntent
+      ? finalProductUrl
+      : "",
 
   payment_link: paymentLink,
   intent,
