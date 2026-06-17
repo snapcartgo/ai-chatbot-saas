@@ -297,22 +297,52 @@ export async function POST(req: Request) {
       }
     }
 
-    // --- RENDER STRUCTURAL LAYOUT RULES ---
     return NextResponse.json({
-      type: (isProductIntent || isCategoryIntent) ? "product" : "text",
-      reply: (isProductIntent || isCategoryIntent) ? null : productMessage,
-      message: productMessage,
-      name: typeof data?.name === "string" ? data.name : typeof data?.product_name === "string" ? data.product_name : (extractedCategory || "Our Collection"),
-      description: typeof data?.description === "string" ? data.description : null,
-      price: isCategoryIntent ? null : (typeof data?.price === "number" || typeof data?.price === "string" ? data.price : null),
-      image_url: finalImageUrl, 
-      imageUrl: finalImageUrl,
-      category: extractedCategory,
-      product_url: finalProductUrl, // Sends the correct, unaltered Lovable App link now!
-      payment_link: paymentLink,
-      intent,
-      redirect_url: redirectUrl,
-    });
+  // Only mark as product when it really is a product/category response
+  type: isProductIntent || isCategoryIntent ? "product" : "text",
+
+  // Plain chat replies
+  reply: isProductIntent || isCategoryIntent ? null : productMessage,
+  message: productMessage,
+
+  // Only include product fields for product/category responses
+  name:
+    isProductIntent || isCategoryIntent
+      ? (typeof data?.name === "string"
+          ? data.name
+          : typeof data?.product_name === "string"
+          ? data.product_name
+          : extractedCategory)
+      : null,
+
+  description:
+    isProductIntent || isCategoryIntent
+      ? (typeof data?.description === "string" ? data.description : null)
+      : null,
+
+  price:
+    isProductIntent
+      ? (typeof data?.price === "number" || typeof data?.price === "string"
+          ? data.price
+          : null)
+      : null,
+
+  image_url:
+    isProductIntent || isCategoryIntent ? finalImageUrl : null,
+
+  imageUrl:
+    isProductIntent || isCategoryIntent ? finalImageUrl : null,
+
+  category:
+    isProductIntent || isCategoryIntent ? extractedCategory : null,
+
+  product_url:
+    isProductIntent || isCategoryIntent ? finalProductUrl : null,
+
+  payment_link: paymentLink,
+  intent,
+  redirect_url: redirectUrl,
+});
 
   } catch (error) {
     console.error("Fatal Route Failure:", error);
