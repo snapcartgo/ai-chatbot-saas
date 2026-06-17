@@ -714,8 +714,23 @@ export default function ChatWidget({
           const actionUrl = m.actionUrl || safeUrl;
           const productActionUrl = m.productUrl || m.actionUrl || actionUrl;
           
-          const actionLabel =
-            m.actionLabel || (niche === "ecommerce" ? "Pay Now" : "Open Page");
+          const isPaymentButton =
+  actionUrl &&
+  (
+    actionUrl.toLowerCase().includes("pay") ||
+    actionUrl.toLowerCase().includes("payu") ||
+    actionUrl.toLowerCase().includes("paypal") ||
+    actionUrl.toLowerCase().includes("checkout") ||
+    actionUrl.toLowerCase().includes("payment")
+  );
+
+const actionLabel =
+  m.actionLabel ||
+  (isPaymentButton
+    ? "Pay Now"
+    : m.messageType === "product"
+    ? "View Product"
+    : "Open Page");
           const formattedPrice = formatPrice(m.productPrice);
 
           return (
