@@ -63,7 +63,7 @@ export async function POST(req: Request) {
     const category = body.category || "general";
     const channel = body.channel === "whatsapp" ? "whatsapp" : "website";
 
-    const { user_id, price, email, order_id } = body;
+    const { user_id, product_name, price, email, order_id } = body;
     const image_name = body.image_name || null;
     const image_type = body.image_type || null;
     const image_data_url = body.image_data_url || null;
@@ -71,6 +71,7 @@ export async function POST(req: Request) {
     const audio_type = body.audio_type || null;
     const audio_data_url = body.audio_data_url || null;
 
+    // Use raw text input if available; prioritize showing attachments if input string is clean text fallback
     const message =
       rawMessage ||
       (audio_data_url
@@ -172,14 +173,13 @@ export async function POST(req: Request) {
           reply:
             rawData?.reply ||
             rawData?.message ||
-            rawData?.output ||
             "Webhook request failed.",
         },
         { status: 500 }
       );
     }
 
-    // Extraction logic to flatten nested items coming out of n8n
+    // 1. Safe extraction logic to flatten any nested arrays/objects coming out of n8n
     let data: any = {};
     if (Array.isArray(rawData)) {
       const firstLevel = rawData[0];
@@ -192,12 +192,10 @@ export async function POST(req: Request) {
       data = rawData.json || rawData;
     }
 
-    // Identify target product name from AI response
-    const matchedProductName = data?.product_name || data?.name || body?.product_name;
+    // 2. Compute intent validations
+    const isProductIntent = data?.type === "product" || !!data?.product_name || !!data?.name;
+    const isCategoryIntent = data?.type === "category" || /category|show collection|browse/i.test(userMsg);
 
-    let currentIntent = data?.intent || null;
-    let paymentLink = typeof data?.payment_link === "string" ? data.payment_link : null;
-    
     let productMessage =
       typeof data?.message === "string" && data.message.trim()
         ? data.message.trim()
@@ -205,85 +203,12 @@ export async function POST(req: Request) {
         ? data.reply.trim()
         : typeof data?.output === "string" && data.output.trim()
         ? data.output.trim()
+        : isProductIntent || isCategoryIntent
+        ? "Here is what we found in our collection:"
         : "No response";
 
-    // ---------------------------------------------------------
-    // FIXED CRITICAL STOCK AND QUANTITY INTELLIGENCE UPGRADE
-    // ---------------------------------------------------------
-    let requestedQty = 1;
-    const allNumbers = userMsg.match(/\b\d+\b/g);
-    if (allNumbers) {
-      // Find numbers that are 3 digits or less to protect 10-digit phone entries
-      const validQtyString = allNumbers.find((num) => num.length <= 3);
-      if (validQtyString) {
-        requestedQty = parseInt(validQtyString, 10);
-      }
-    }
-    
-    let availableStock = 15; // Safe default match fallback aligned with your exact variant catalog limits
-
-    if (matchedProductName) {
-      const { data: dbProduct, error: dbError } = await supabase
-        .from("products")
-        .select("stock")
-        .ilike("name", `%${matchedProductName}%`)
-        .single();
-
-      if (!dbError && dbProduct && dbProduct.stock !== null) {
-        availableStock = Number(dbProduct.stock);
-      } else {
-        const inventoryContext = typeof data?.context === "string" ? data.context : "";
-        if (inventoryContext) {
-          if (userMsg.includes("white")) {
-            const whiteStockMatch = inventoryContext.match(/White\s+(\d+)/i);
-            if (whiteStockMatch) availableStock = parseInt(whiteStockMatch[1], 10);
-          } else if (userMsg.includes("black")) {
-            const blackStockMatch = inventoryContext.match(/Black\s+(\d+)/i);
-            if (blackStockMatch) availableStock = parseInt(blackStockMatch[1], 10);
-          }
-        }
-      }
-    } else {
-      // Step Interception Fallback: Parse available limits from agent conversational message text
-      const embeddedStockMatch = productMessage.match(/only\s+(\d+)\s+pieces?\s+left/i);
-      if (embeddedStockMatch) {
-        availableStock = parseInt(embeddedStockMatch[1], 10);
-      }
-    }
-
-    // Forceful reduction downgrade if requested quantity eclipses available real stock
-    if (requestedQty > availableStock) {
-      currentIntent = "chat";
-      paymentLink = null;
-      productMessage = `Sorry, only ${availableStock} item(s) are available in stock. We cannot process an order for ${requestedQty}.`;
-      data.stock_ok = false;
-    } else {
-      data.stock_ok = true;
-    }
-
-    // CONTACT VARIABLES COLLECTION INTEGRITY PROTECTION
-    const clientName = data?.name || body?.name;
-    const clientEmail = data?.email || body?.email || email;
-    const clientPhone = data?.phone || body?.phone;
-
-    const isMissingDetails = 
-      !clientName || !clientEmail || !clientPhone || 
-      clientEmail === "no-email@provided.com" || 
-      clientPhone === "9999999999";
-
-    if ((currentIntent === "buy" || paymentLink) && isMissingDetails) {
-      currentIntent = "collect";
-      paymentLink = null;
-      productMessage = "To proceed with your order, please provide your name, email, and phone number first.";
-    }
-    // ---------------------------------------------------------
-
-    const isProductIntent = data?.type === "product" || !!data?.product_name || !!data?.name;
-    const isCategoryIntent = data?.type === "category" || /category|show collection|browse/i.test(userMsg);
-
-    if (productMessage === "No response" && (isProductIntent || isCategoryIntent)) {
-      productMessage = "Here is what we found in our collection:";
-    }
+    let paymentLink =
+      typeof data?.payment_link === "string" ? data.payment_link : null;
 
     const productUrl =
       typeof data?.product_url === "string" 
@@ -292,14 +217,54 @@ export async function POST(req: Request) {
         ? data.productUrl
         : null;
 
-    let redirectUrl = typeof data?.redirect_url === "string" ? data.redirect_url : null;
+    let intent = data?.intent || null;
+    let redirectUrl =
+      typeof data?.redirect_url === "string" ? data.redirect_url : null;
+
+    // -------------------------------------------------------------------------
+    // CLEAN STOCK GATEWAY: ONLY intercepts if stock is actually insufficient
+    // -------------------------------------------------------------------------
+    let requestedQty = 1;
+    const allNumbers = userMsg.match(/\b\d+\b/g);
+    if (allNumbers) {
+      // Find numbers that are 3 digits or less to ignore 10-digit phone numbers safely
+      const validQtyString = allNumbers.find((num) => num.length <= 3);
+      if (validQtyString) {
+        requestedQty = parseInt(validQtyString, 10);
+      }
+    }
+
+    const targetProduct = data?.product_name || data?.name || product_name;
+    let availableStock = 15; // Your default t-shirt catalog limit fallback
+
+    if (targetProduct) {
+      const { data: dbProduct } = await supabase
+        .from("products")
+        .select("stock")
+        .ilike("name", `%${targetProduct}%`)
+        .single();
+
+      if (dbProduct && dbProduct.stock !== null) {
+        availableStock = Number(dbProduct.stock);
+      }
+    }
+
+    let stock_ok = true;
+    if (requestedQty > availableStock) {
+      intent = "chat";
+      paymentLink = null;
+      redirectUrl = null;
+      productMessage = `Sorry, we do not have that many items available. We only have ${availableStock} pieces left in stock for this selection.`;
+      stock_ok = false;
+    }
+    // -------------------------------------------------------------------------
 
     if (!redirectUrl) {
       if (/plan|billing/.test(userMsg)) {
-        currentIntent = "billing";
+        intent = "billing";
         redirectUrl = `${baseUrl}/dashboard/Billing`;
       } else if (/contact|support|help/.test(userMsg)) {
-        currentIntent = "support";
+        intent = "support";
         redirectUrl = `${baseUrl}/contact`;
       } else if (paymentLink) {
         redirectUrl = paymentLink;
@@ -324,14 +289,14 @@ export async function POST(req: Request) {
       channel,
     });
 
-    if (paymentLink && matchedProductName && price) {
+    if (paymentLink && product_name && price) {
       const { error: insertOrderError } = await supabase.from("orders").insert({
         user_id,
         bot_id,
-        product_name: matchedProductName,
+        product_name,
         price,
         payment_status: "pending",
-        customer_email: clientEmail,
+        customer_email: email,
         channel,
       });
       
@@ -340,6 +305,7 @@ export async function POST(req: Request) {
       }
     }
 
+    // --- SAFELY EXTRACT IMAGE SOURCE (Only if it's NOT a pure category request) ---
     let finalImageUrl = null;
     if (!isCategoryIntent) {
       if (typeof data?.image_url === "string") {
@@ -353,6 +319,7 @@ export async function POST(req: Request) {
       }
     }
 
+    // --- DIRECT LINK PASS-THROUGH (FIXED) ---
     const extractedCategory =
       typeof data?.category === "string"
         ? data.category.trim()
@@ -365,23 +332,68 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       type: isProductIntent || isCategoryIntent ? "product" : "text",
-      reply: isProductIntent || isCategoryIntent ? null : productMessage,
+
+      reply:
+        isProductIntent || isCategoryIntent
+          ? null
+          : productMessage,
+
       message: productMessage,
-      name: matchedProductName,
-      description: isProductIntent || isCategoryIntent
-        ? (typeof data?.description === "string" ? data.description : null)
-        : null,
-      price: isProductIntent
-        ? (typeof data?.price === "string" || typeof data?.price === "number" ? data.price : null)
-        : null,
-      image_url: finalImageUrl,
-      imageUrl: finalImageUrl,
-      category: extractedCategory,
-      product_url: finalProductUrl,
+
+      name:
+        isProductIntent || isCategoryIntent
+          ? (
+              typeof data?.name === "string"
+                ? data.name
+                : typeof data?.product_name === "string"
+                ? data.product_name
+                : extractedCategory
+            )
+          : null,
+
+      description:
+        isProductIntent || isCategoryIntent
+          ? (
+              typeof data?.description === "string"
+                ? data.description
+                : null
+            )
+          : null,
+
+      price:
+        isProductIntent
+          ? (
+              typeof data?.price === "string" ||
+              typeof data?.price === "number"
+                ? data.price
+                : null
+            )
+          : null,
+
+      image_url:
+        isProductIntent || isCategoryIntent
+          ? finalImageUrl
+          : null,
+
+      imageUrl:
+        isProductIntent || isCategoryIntent
+          ? finalImageUrl
+          : null,
+
+      category:
+        isProductIntent || isCategoryIntent
+          ? extractedCategory
+          : null,
+
+      product_url:
+        isProductIntent || isCategoryIntent
+          ? finalProductUrl
+          : "",
+
       payment_link: paymentLink,
-      intent: currentIntent,
+      intent,
       redirect_url: redirectUrl,
-      stock_ok: data.stock_ok
+      stock_ok
     });
 
   } catch (error) {
