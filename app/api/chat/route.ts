@@ -208,14 +208,20 @@ export async function POST(req: Request) {
         : "No response";
 
     // ---------------------------------------------------------
-    // CRITICAL ADAPTATION: REAL-TIME SUPABASE INVENTORY GATEWAY
+    // FIXED CRITICAL STOCK AND QUANTITY INTELLIGENCE UPGRADE
     // ---------------------------------------------------------
-    const quantityMatch = userMsg.match(/\b(\d+)\b/);
-    const requestedQty = quantityMatch ? parseInt(quantityMatch[1], 10) : 1;
+    let requestedQty = 1;
+    const allNumbers = userMsg.match(/\b\d+\b/g);
+    if (allNumbers) {
+      // Find numbers that are 3 digits or less to protect 10-digit phone entries
+      const validQtyString = allNumbers.find((num) => num.length <= 3);
+      if (validQtyString) {
+        requestedQty = parseInt(validQtyString, 10);
+      }
+    }
     
-    let availableStock = 999; 
+    let availableStock = 15; // Safe default match fallback aligned with your exact variant catalog limits
 
-    // If we have a valid product name, fetch the definitive stock directly from your table!
     if (matchedProductName) {
       const { data: dbProduct, error: dbError } = await supabase
         .from("products")
@@ -226,7 +232,6 @@ export async function POST(req: Request) {
       if (!dbError && dbProduct && dbProduct.stock !== null) {
         availableStock = Number(dbProduct.stock);
       } else {
-        // Fallback string matching on context text data if DB query fails or product isn't uniquely identified
         const inventoryContext = typeof data?.context === "string" ? data.context : "";
         if (inventoryContext) {
           if (userMsg.includes("white")) {
@@ -237,6 +242,12 @@ export async function POST(req: Request) {
             if (blackStockMatch) availableStock = parseInt(blackStockMatch[1], 10);
           }
         }
+      }
+    } else {
+      // Step Interception Fallback: Parse available limits from agent conversational message text
+      const embeddedStockMatch = productMessage.match(/only\s+(\d+)\s+pieces?\s+left/i);
+      if (embeddedStockMatch) {
+        availableStock = parseInt(embeddedStockMatch[1], 10);
       }
     }
 
