@@ -148,6 +148,12 @@ export default function ProductsPage() {
           <button className="rounded-xl bg-black px-5 py-3 font-bold text-white transition hover:bg-gray-900">
             Add Product
           </button>
+          
+        </Link>
+        <Link href="/dashboard/products/upload">
+          <button className="rounded-xl bg-green-600 px-5 py-3 font-bold text-white">
+            Upload CSV
+          </button>
         </Link>
       </div>
 
