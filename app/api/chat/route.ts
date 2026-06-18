@@ -12,7 +12,6 @@ const extractUTR = (text: string) => {
   return match ? match[0] : null;
 };
 
-// Fixed error logging pattern for Supabase
 async function saveMessage(data: {
   user_id: string | null;
   bot_id: string | null;
@@ -48,7 +47,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // Safely parse JSON body to prevent crashes if body is missing
     let body;
     try {
       body = await req.json();
@@ -71,7 +69,6 @@ export async function POST(req: Request) {
     const audio_type = body.audio_type || null;
     const audio_data_url = body.audio_data_url || null;
 
-    // Use raw text input if available; prioritize showing attachments if input string is clean text fallback
     const message =
       rawMessage ||
       (audio_data_url
@@ -90,7 +87,6 @@ export async function POST(req: Request) {
     const userMsg = String(message).toLowerCase();
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "https://woodpetra.in";
 
-    // UTR Verification Engine
     const detectedUTR = extractUTR(message);
 
     if (detectedUTR) {
@@ -179,7 +175,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // 1. Safe extraction logic to flatten any nested arrays/objects coming out of n8n
     let data: any = {};
     if (Array.isArray(rawData)) {
       const firstLevel = rawData[0];
@@ -192,7 +187,6 @@ export async function POST(req: Request) {
       data = rawData.json || rawData;
     }
 
-    // 2. Compute intent validations
     const isProductIntent = data?.type === "product" || !!data?.product_name || !!data?.name;
     const isCategoryIntent = data?.type === "category" || /category|show collection|browse/i.test(userMsg);
 
@@ -222,14 +216,24 @@ export async function POST(req: Request) {
       typeof data?.redirect_url === "string" ? data.redirect_url : null;
 
     // -------------------------------------------------------------------------
-    // STOCK GATEWAY AND QUANTITY DETERMINATION
+    // CRITICAL: DUAL-WAY QUANTITY EXTRACTION ENGINE
     // -------------------------------------------------------------------------
     let requestedQty = 1;
-    const allNumbers = userMsg.match(/\b\d+\b/g);
-    if (allNumbers) {
-      const validQtyString = allNumbers.find((num) => num.length <= 3);
-      if (validQtyString) {
-        requestedQty = parseInt(validQtyString, 10);
+    
+    // Fallback Step A: Look inside the AI Agent text string itself for patterns like "order of 10" or "buy 15"
+    const aiTextContext = String(productMessage).toLowerCase();
+    const aiMatch = aiTextContext.match(/(?:order of|buy|quantity of|qty:?)\s*(\d+)/i);
+    
+    if (aiMatch && aiMatch[1]) {
+      requestedQty = parseInt(aiMatch[1], 10);
+    } else {
+      // Fallback Step B: Pull values out of user message context safely
+      const allNumbers = userMsg.match(/\b\d+\b/g);
+      if (allNumbers) {
+        const validQtyString = allNumbers.find((num) => num.length <= 3);
+        if (validQtyString) {
+          requestedQty = parseInt(validQtyString, 10);
+        }
       }
     }
 
@@ -265,14 +269,12 @@ export async function POST(req: Request) {
     // -------------------------------------------------------------------------
 
     // -------------------------------------------------------------------------
-    // MATHEMATICALLY EXACT CALCULATION ENGINE
+    // ACCURATE INLINE INDIAN SHIPPING MATH CALCULATION Engine
     // -------------------------------------------------------------------------
-    // Fallback order parsing chain: n8n parsed data object -> incoming initialization request body -> database single unit price
     const rawExtractedPrice = data?.price || initialPrice || baseUnitPrice;
     let fallbackUnitPrice = 0;
 
     if (rawExtractedPrice) {
-      // Clean non-numeric characters like "Rs.", "₹", or commas out of price strings safely
       const parsedNum = typeof rawExtractedPrice === "string" 
         ? parseFloat(rawExtractedPrice.replace(/[^\d.]/g, "")) 
         : Number(rawExtractedPrice);
@@ -282,13 +284,14 @@ export async function POST(req: Request) {
       }
     }
 
-    // If payload contains an accumulated massive bulk cost from n8n text strings, parse down back to unit value 
     if (fallbackUnitPrice > baseUnitPrice && baseUnitPrice > 0 && fallbackUnitPrice % baseUnitPrice === 0) {
       fallbackUnitPrice = baseUnitPrice;
     }
 
-    // Always calculate totals accurately directly inside Next.js execution thread
-    const calculatedFinalPrice = fallbackUnitPrice > 0 ? fallbackUnitPrice * requestedQty : 0;
+    // Exact Math Calculation Formula: (Unit Price * Quantity) + Shipping Fee (1)
+    const totalProductCost = fallbackUnitPrice > 0 ? fallbackUnitPrice * requestedQty : 0;
+    const shippingFee = totalProductCost > 0 ? 1 : 0; 
+    const calculatedFinalPrice = totalProductCost + shippingFee;
     // -------------------------------------------------------------------------
 
     if (!redirectUrl) {
@@ -337,7 +340,6 @@ export async function POST(req: Request) {
       }
     }
 
-    // --- SAFELY EXTRACT IMAGE SOURCE (Only if it's NOT a pure category request) ---
     let finalImageUrl = null;
     if (!isCategoryIntent) {
       if (typeof data?.image_url === "string") {
@@ -351,7 +353,6 @@ export async function POST(req: Request) {
       }
     }
 
-    // --- DIRECT LINK PASS-THROUGH (FIXED) ---
     const extractedCategory =
       typeof data?.category === "string"
         ? data.category.trim()
@@ -364,56 +365,15 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       type: isProductIntent || isCategoryIntent ? "product" : "text",
-
-      reply:
-        isProductIntent || isCategoryIntent
-          ? null
-          : productMessage,
-
+      reply: isProductIntent || isCategoryIntent ? null : productMessage,
       message: productMessage,
-
-      name:
-        isProductIntent || isCategoryIntent
-          ? (
-              typeof data?.name === "string"
-                ? data.name
-                : typeof data?.product_name === "string"
-                ? data.product_name
-                : extractedCategory
-            )
-          : null,
-
-      description:
-        isProductIntent || isCategoryIntent
-          ? (
-              typeof data?.description === "string"
-                ? data.description
-                : null
-            )
-          : null,
-
+      name: isProductIntent || isCategoryIntent ? (typeof data?.name === "string" ? data.name : typeof data?.product_name === "string" ? data.product_name : extractedCategory) : null,
+      description: isProductIntent || isCategoryIntent ? (typeof data?.description === "string" ? data.description : null) : null,
       price: calculatedFinalPrice > 0 ? calculatedFinalPrice : null,
-
-      image_url:
-        isProductIntent || isCategoryIntent
-          ? finalImageUrl
-          : null,
-
-      imageUrl:
-        isProductIntent || isCategoryIntent
-          ? finalImageUrl
-          : null,
-
-      category:
-        isProductIntent || isCategoryIntent
-          ? extractedCategory
-          : null,
-
-      product_url:
-        isProductIntent || isCategoryIntent
-          ? finalProductUrl
-          : "",
-
+      image_url: isProductIntent || isCategoryIntent ? finalImageUrl : null,
+      imageUrl: isProductIntent || isCategoryIntent ? finalImageUrl : null,
+      category: isProductIntent || isCategoryIntent ? extractedCategory : null,
+      product_url: isProductIntent || isCategoryIntent ? finalProductUrl : "",
       payment_link: paymentLink,
       intent,
       redirect_url: redirectUrl,
