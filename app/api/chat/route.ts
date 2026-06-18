@@ -63,7 +63,7 @@ export async function POST(req: Request) {
     const category = body.category || "general";
     const channel = body.channel === "whatsapp" ? "whatsapp" : "website";
 
-    const { user_id, product_name, price, email, order_id } = body;
+    const { user_id, product_name, price: initialPrice, email, order_id } = body;
     const image_name = body.image_name || null;
     const image_type = body.image_type || null;
     const image_data_url = body.image_data_url || null;
@@ -222,12 +222,11 @@ export async function POST(req: Request) {
       typeof data?.redirect_url === "string" ? data.redirect_url : null;
 
     // -------------------------------------------------------------------------
-    // CLEAN STOCK GATEWAY: ONLY intercepts if stock is actually insufficient
+    // STOCK GATEWAY AND QUANTITY DETERMINATION
     // -------------------------------------------------------------------------
     let requestedQty = 1;
     const allNumbers = userMsg.match(/\b\d+\b/g);
     if (allNumbers) {
-      // Find numbers that are 3 digits or less to ignore 10-digit phone numbers safely
       const validQtyString = allNumbers.find((num) => num.length <= 3);
       if (validQtyString) {
         requestedQty = parseInt(validQtyString, 10);
@@ -235,17 +234,23 @@ export async function POST(req: Request) {
     }
 
     const targetProduct = data?.product_name || data?.name || product_name;
-    let availableStock = 15; // Your default t-shirt catalog limit fallback
+    let availableStock = 15; 
+    let baseUnitPrice = 0;
 
     if (targetProduct) {
       const { data: dbProduct } = await supabase
         .from("products")
-        .select("stock")
+        .select("stock, price")
         .ilike("name", `%${targetProduct}%`)
         .single();
 
-      if (dbProduct && dbProduct.stock !== null) {
-        availableStock = Number(dbProduct.stock);
+      if (dbProduct) {
+        if (dbProduct.stock !== null) {
+          availableStock = Number(dbProduct.stock);
+        }
+        if (dbProduct.price !== null) {
+          baseUnitPrice = Number(dbProduct.price);
+        }
       }
     }
 
@@ -257,6 +262,33 @@ export async function POST(req: Request) {
       productMessage = `Sorry, we do not have that many items available. We only have ${availableStock} pieces left in stock for this selection.`;
       stock_ok = false;
     }
+    // -------------------------------------------------------------------------
+
+    // -------------------------------------------------------------------------
+    // MATHEMATICALLY EXACT CALCULATION ENGINE
+    // -------------------------------------------------------------------------
+    // Fallback order parsing chain: n8n parsed data object -> incoming initialization request body -> database single unit price
+    const rawExtractedPrice = data?.price || initialPrice || baseUnitPrice;
+    let fallbackUnitPrice = 0;
+
+    if (rawExtractedPrice) {
+      // Clean non-numeric characters like "Rs.", "₹", or commas out of price strings safely
+      const parsedNum = typeof rawExtractedPrice === "string" 
+        ? parseFloat(rawExtractedPrice.replace(/[^\d.]/g, "")) 
+        : Number(rawExtractedPrice);
+      
+      if (!isNaN(parsedNum) && parsedNum > 0) {
+        fallbackUnitPrice = parsedNum;
+      }
+    }
+
+    // If payload contains an accumulated massive bulk cost from n8n text strings, parse down back to unit value 
+    if (fallbackUnitPrice > baseUnitPrice && baseUnitPrice > 0 && fallbackUnitPrice % baseUnitPrice === 0) {
+      fallbackUnitPrice = baseUnitPrice;
+    }
+
+    // Always calculate totals accurately directly inside Next.js execution thread
+    const calculatedFinalPrice = fallbackUnitPrice > 0 ? fallbackUnitPrice * requestedQty : 0;
     // -------------------------------------------------------------------------
 
     if (!redirectUrl) {
@@ -289,12 +321,12 @@ export async function POST(req: Request) {
       channel,
     });
 
-    if (paymentLink && product_name && price) {
+    if (paymentLink && targetProduct && calculatedFinalPrice > 0) {
       const { error: insertOrderError } = await supabase.from("orders").insert({
         user_id,
         bot_id,
-        product_name,
-        price,
+        product_name: targetProduct,
+        price: calculatedFinalPrice,
         payment_status: "pending",
         customer_email: email,
         channel,
@@ -360,15 +392,7 @@ export async function POST(req: Request) {
             )
           : null,
 
-      price:
-        isProductIntent
-          ? (
-              typeof data?.price === "string" ||
-              typeof data?.price === "number"
-                ? data.price
-                : null
-            )
-          : null,
+      price: calculatedFinalPrice > 0 ? calculatedFinalPrice : null,
 
       image_url:
         isProductIntent || isCategoryIntent
