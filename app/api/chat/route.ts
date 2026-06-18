@@ -12,6 +12,7 @@ const extractUTR = (text: string) => {
   return match ? match[0] : null;
 };
 
+// Fixed error logging pattern for Supabase
 async function saveMessage(data: {
   user_id: string | null;
   bot_id: string | null;
@@ -47,6 +48,7 @@ export async function POST(req: Request) {
       );
     }
 
+    // Safely parse JSON body to prevent crashes if body is missing
     let body;
     try {
       body = await req.json();
@@ -61,7 +63,7 @@ export async function POST(req: Request) {
     const category = body.category || "general";
     const channel = body.channel === "whatsapp" ? "whatsapp" : "website";
 
-    const { user_id, product_name, price: initialPrice, email, order_id } = body;
+    const { user_id, product_name, price, email, order_id } = body;
     const image_name = body.image_name || null;
     const image_type = body.image_type || null;
     const image_data_url = body.image_data_url || null;
@@ -69,6 +71,7 @@ export async function POST(req: Request) {
     const audio_type = body.audio_type || null;
     const audio_data_url = body.audio_data_url || null;
 
+    // Use raw text input if available; prioritize showing attachments if input string is clean text fallback
     const message =
       rawMessage ||
       (audio_data_url
@@ -87,6 +90,7 @@ export async function POST(req: Request) {
     const userMsg = String(message).toLowerCase();
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "https://woodpetra.in";
 
+    // UTR Verification Engine
     const detectedUTR = extractUTR(message);
 
     if (detectedUTR) {
@@ -175,6 +179,7 @@ export async function POST(req: Request) {
       );
     }
 
+    // 1. Safe extraction logic to flatten any nested arrays/objects coming out of n8n
     let data: any = {};
     if (Array.isArray(rawData)) {
       const firstLevel = rawData[0];
@@ -187,6 +192,7 @@ export async function POST(req: Request) {
       data = rawData.json || rawData;
     }
 
+    // 2. Compute intent validations
     const isProductIntent = data?.type === "product" || !!data?.product_name || !!data?.name;
     const isCategoryIntent = data?.type === "category" || /category|show collection|browse/i.test(userMsg);
 
@@ -216,45 +222,30 @@ export async function POST(req: Request) {
       typeof data?.redirect_url === "string" ? data.redirect_url : null;
 
     // -------------------------------------------------------------------------
-    // CRITICAL: DUAL-WAY QUANTITY EXTRACTION ENGINE
+    // CLEAN STOCK GATEWAY: ONLY intercepts if stock is actually insufficient
     // -------------------------------------------------------------------------
     let requestedQty = 1;
-    
-    // Fallback Step A: Look inside the AI Agent text string itself for patterns like "order of 10" or "buy 15"
-    const aiTextContext = String(productMessage).toLowerCase();
-    const aiMatch = aiTextContext.match(/(?:order of|buy|quantity of|qty:?)\s*(\d+)/i);
-    
-    if (aiMatch && aiMatch[1]) {
-      requestedQty = parseInt(aiMatch[1], 10);
-    } else {
-      // Fallback Step B: Pull values out of user message context safely
-      const allNumbers = userMsg.match(/\b\d+\b/g);
-      if (allNumbers) {
-        const validQtyString = allNumbers.find((num) => num.length <= 3);
-        if (validQtyString) {
-          requestedQty = parseInt(validQtyString, 10);
-        }
+    const allNumbers = userMsg.match(/\b\d+\b/g);
+    if (allNumbers) {
+      // Find numbers that are 3 digits or less to ignore 10-digit phone numbers safely
+      const validQtyString = allNumbers.find((num) => num.length <= 3);
+      if (validQtyString) {
+        requestedQty = parseInt(validQtyString, 10);
       }
     }
 
     const targetProduct = data?.product_name || data?.name || product_name;
-    let availableStock = 15; 
-    let baseUnitPrice = 0;
+    let availableStock = 15; // Your default t-shirt catalog limit fallback
 
     if (targetProduct) {
       const { data: dbProduct } = await supabase
         .from("products")
-        .select("stock, price")
+        .select("stock")
         .ilike("name", `%${targetProduct}%`)
         .single();
 
-      if (dbProduct) {
-        if (dbProduct.stock !== null) {
-          availableStock = Number(dbProduct.stock);
-        }
-        if (dbProduct.price !== null) {
-          baseUnitPrice = Number(dbProduct.price);
-        }
+      if (dbProduct && dbProduct.stock !== null) {
+        availableStock = Number(dbProduct.stock);
       }
     }
 
@@ -266,32 +257,6 @@ export async function POST(req: Request) {
       productMessage = `Sorry, we do not have that many items available. We only have ${availableStock} pieces left in stock for this selection.`;
       stock_ok = false;
     }
-    // -------------------------------------------------------------------------
-
-    // -------------------------------------------------------------------------
-    // ACCURATE INLINE INDIAN SHIPPING MATH CALCULATION Engine
-    // -------------------------------------------------------------------------
-    const rawExtractedPrice = data?.price || initialPrice || baseUnitPrice;
-    let fallbackUnitPrice = 0;
-
-    if (rawExtractedPrice) {
-      const parsedNum = typeof rawExtractedPrice === "string" 
-        ? parseFloat(rawExtractedPrice.replace(/[^\d.]/g, "")) 
-        : Number(rawExtractedPrice);
-      
-      if (!isNaN(parsedNum) && parsedNum > 0) {
-        fallbackUnitPrice = parsedNum;
-      }
-    }
-
-    if (fallbackUnitPrice > baseUnitPrice && baseUnitPrice > 0 && fallbackUnitPrice % baseUnitPrice === 0) {
-      fallbackUnitPrice = baseUnitPrice;
-    }
-
-    // Exact Math Calculation Formula: (Unit Price * Quantity) + Shipping Fee (1)
-    const totalProductCost = fallbackUnitPrice > 0 ? fallbackUnitPrice * requestedQty : 0;
-    const shippingFee = totalProductCost > 0 ? 1 : 0; 
-    const calculatedFinalPrice = totalProductCost + shippingFee;
     // -------------------------------------------------------------------------
 
     if (!redirectUrl) {
@@ -324,12 +289,12 @@ export async function POST(req: Request) {
       channel,
     });
 
-    if (paymentLink && targetProduct && calculatedFinalPrice > 0) {
+    if (paymentLink && product_name && price) {
       const { error: insertOrderError } = await supabase.from("orders").insert({
         user_id,
         bot_id,
-        product_name: targetProduct,
-        price: calculatedFinalPrice,
+        product_name,
+        price,
         payment_status: "pending",
         customer_email: email,
         channel,
@@ -340,6 +305,7 @@ export async function POST(req: Request) {
       }
     }
 
+    // --- SAFELY EXTRACT IMAGE SOURCE (Only if it's NOT a pure category request) ---
     let finalImageUrl = null;
     if (!isCategoryIntent) {
       if (typeof data?.image_url === "string") {
@@ -353,6 +319,7 @@ export async function POST(req: Request) {
       }
     }
 
+    // --- DIRECT LINK PASS-THROUGH (FIXED) ---
     const extractedCategory =
       typeof data?.category === "string"
         ? data.category.trim()
@@ -365,15 +332,64 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       type: isProductIntent || isCategoryIntent ? "product" : "text",
-      reply: isProductIntent || isCategoryIntent ? null : productMessage,
+
+      reply:
+        isProductIntent || isCategoryIntent
+          ? null
+          : productMessage,
+
       message: productMessage,
-      name: isProductIntent || isCategoryIntent ? (typeof data?.name === "string" ? data.name : typeof data?.product_name === "string" ? data.product_name : extractedCategory) : null,
-      description: isProductIntent || isCategoryIntent ? (typeof data?.description === "string" ? data.description : null) : null,
-      price: calculatedFinalPrice > 0 ? calculatedFinalPrice : null,
-      image_url: isProductIntent || isCategoryIntent ? finalImageUrl : null,
-      imageUrl: isProductIntent || isCategoryIntent ? finalImageUrl : null,
-      category: isProductIntent || isCategoryIntent ? extractedCategory : null,
-      product_url: isProductIntent || isCategoryIntent ? finalProductUrl : "",
+
+      name:
+        isProductIntent || isCategoryIntent
+          ? (
+              typeof data?.name === "string"
+                ? data.name
+                : typeof data?.product_name === "string"
+                ? data.product_name
+                : extractedCategory
+            )
+          : null,
+
+      description:
+        isProductIntent || isCategoryIntent
+          ? (
+              typeof data?.description === "string"
+                ? data.description
+                : null
+            )
+          : null,
+
+      price:
+        isProductIntent
+          ? (
+              typeof data?.price === "string" ||
+              typeof data?.price === "number"
+                ? data.price
+                : null
+            )
+          : null,
+
+      image_url:
+        isProductIntent || isCategoryIntent
+          ? finalImageUrl
+          : null,
+
+      imageUrl:
+        isProductIntent || isCategoryIntent
+          ? finalImageUrl
+          : null,
+
+      category:
+        isProductIntent || isCategoryIntent
+          ? extractedCategory
+          : null,
+
+      product_url:
+        isProductIntent || isCategoryIntent
+          ? finalProductUrl
+          : "",
+
       payment_link: paymentLink,
       intent,
       redirect_url: redirectUrl,
@@ -396,3 +412,4 @@ export async function OPTIONS() {
     },
   });
 }
+
