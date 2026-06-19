@@ -88,7 +88,7 @@ const total = subtotal + shipping;
       shipping,
       total,
 
-      message: "Stock available. Proceed with order.",
+      message: "Stock available. Kindly share Your Name, Email and Phone Number.",
     });
   } catch (err: any) {
     return NextResponse.json(
