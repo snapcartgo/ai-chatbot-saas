@@ -11,23 +11,23 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
 
     const {
-      product_name,
-      requested_quantity,
-      color,
-      size,
-    } = body;
+  product_name,
+  quantity,
+  color,
+  size,
+} = body;
 
-    const quantity = Number(requested_quantity);
+const requestedQuantity = Number(quantity);
 
-    if (!product_name || !quantity || quantity <= 0) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Invalid product or quantity.",
-        },
-        { status: 400 }
-      );
-    }
+if (!product_name || requestedQuantity <= 0 || Number.isNaN(requestedQuantity)) {
+  return NextResponse.json(
+    {
+      success: false,
+      message: "Invalid product or quantity.",
+    },
+    { status: 400 }
+  );
+}
 
     // Build query
     let query = supabase
@@ -59,21 +59,19 @@ export async function POST(req: NextRequest) {
     const unitPrice = Number(product.price);
 
     // Shipping rule
-    const shipping = unitPrice * quantity >= 999 ? 0 : 1;
+    const shipping = unitPrice * requestedQuantity >= 999 ? 0 : 1;
 
-    // Validate stock
-    if (quantity > stock) {
-      return NextResponse.json({
-        success: false,
-        stock_ok: false,
-        available_stock: stock,
-        message: `Sorry, only ${stock} item(s) are available in stock.`,
-      });
-    }
+if (requestedQuantity > stock) {
+  return NextResponse.json({
+    success: false,
+    stock_ok: false,
+    available_stock: stock,
+    message: `Sorry, only ${stock} item(s) are available in stock.`,
+  });
+}
 
-    // Calculate totals
-    const subtotal = unitPrice * quantity;
-    const total = subtotal + shipping;
+const subtotal = unitPrice * requestedQuantity;
+const total = subtotal + shipping;
 
     return NextResponse.json({
       success: true,
@@ -82,7 +80,7 @@ export async function POST(req: NextRequest) {
       product_id: product.product_id,
       product_name: product.name,
 
-      requested_quantity: quantity,
+      requested_quantity: requestedQuantity,
       available_stock: stock,
 
       unit_price: unitPrice,

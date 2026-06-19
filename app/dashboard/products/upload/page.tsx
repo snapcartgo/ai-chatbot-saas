@@ -1,8 +1,9 @@
 "use client";
-
+import Papa from "papaparse";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+
 
 export default function UploadProductsPage() {
   const router = useRouter();
@@ -32,50 +33,40 @@ export default function UploadProductsPage() {
 
       const text = await file.text();
 
-      const lines = text
-        .split(/\r?\n/)
-        .filter((line) => line.trim() !== "");
+const parsed = Papa.parse(text, {
+  header: true,
+  skipEmptyLines: true,
+  transformHeader: (header) => header.trim(),
+});
 
-      if (lines.length < 2) {
-        setMessage("CSV is empty.");
-        return;
-      }
+const products = (parsed.data as any[]).map((row) => ({
+  name: row.name?.trim() || "",
+  description: row.description?.trim() || "",
+  price: Number(row.price ?? 0),
+  category: row.category?.trim() || "",
+  image_url: row.image_url?.trim() || "",
+  website_url: row.website_url?.trim() || "",
+  product_url: row.product_url?.trim() || "",
+  color: row.color?.trim() || "",
+  size: row.size?.trim() || "",
+  stock: Number(row.stock ?? 0),
+  payment_link: row.payment_link?.trim() || "",
+  currency: row.currency?.trim() || "INR",
+  sku: row.sku?.trim() || "",
+  user_id: user.id,
+}));
 
-      const headers = lines[0]
-        .split(",")
-        .map((h) => h.trim());
+console.log("Products to insert:", products);
 
-      const products: any[] = [];
+const { error } = await supabase
+  .from("products")
+  .insert(products);
 
-      for (let i = 1; i < lines.length; i++) {
-        const values = lines[i].split(",");
-
-        const row: Record<string, string> = {};
-
-        headers.forEach((header, index) => {
-          row[header] = values[index]?.trim() ?? "";
-        });
-
-        products.push({
-          name: row.name || "",
-          description: row.description || "",
-          price: Number(row.price || 0),
-          category: row.category || "",
-          image_url: row.image_url || "",
-          website_url: row.website_url || "",
-          user_id: user.id,
-        });
-      }
-
-      const { error } = await supabase
-        .from("products")
-        .insert(products);
-
-      if (error) {
-        console.error(error);
-        setMessage(error.message);
-        return;
-      }
+if (error) {
+  console.error(error);
+  setMessage(error.message);
+  return;
+}
 
       setMessage(
         `Successfully imported ${products.length} products.`

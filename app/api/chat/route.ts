@@ -63,7 +63,7 @@ export async function POST(req: Request) {
     const category = body.category || "general";
     const channel = body.channel === "whatsapp" ? "whatsapp" : "website";
 
-    const { user_id, product_name, price: initialPrice, email, order_id } = body;
+    const { user_id, product_name, price, email, order_id } = body;
     const image_name = body.image_name || null;
     const image_type = body.image_type || null;
     const image_data_url = body.image_data_url || null;
@@ -162,13 +162,6 @@ export async function POST(req: Request) {
         audio_name,
         audio_type,
         audio_data_url,
-        
-        // Forward details directly to eliminate loops
-        name: body.name || null,
-        email: email || body.email || null,
-        phone: body.phone || null,
-        product_name: product_name || null,
-        price: initialPrice || null
       }),
     });
 
@@ -203,7 +196,7 @@ export async function POST(req: Request) {
     const isProductIntent = data?.type === "product" || !!data?.product_name || !!data?.name;
     const isCategoryIntent = data?.type === "category" || /category|show collection|browse/i.test(userMsg);
 
-    let productMessage =
+    const productMessage =
       typeof data?.message === "string" && data.message.trim()
         ? data.message.trim()
         : typeof data?.reply === "string" && data.reply.trim()
@@ -214,7 +207,7 @@ export async function POST(req: Request) {
         ? "Here is what we found in our collection:"
         : "No response";
 
-    let paymentLink =
+    const paymentLink =
       typeof data?.payment_link === "string" ? data.payment_link : null;
 
     const productUrl =
@@ -224,83 +217,9 @@ export async function POST(req: Request) {
         ? data.productUrl
         : null;
 
-    let intent = data?.intent || null;
+    let intent = null;
     let redirectUrl =
       typeof data?.redirect_url === "string" ? data.redirect_url : null;
-
-    // -------------------------------------------------------------------------
-    // STOCK GATEWAY AND QUANTITY DETERMINATION (LOOP SAFE)
-    // -------------------------------------------------------------------------
-    let requestedQty = 1;
-    
-    // Check if n8n returned a pre-determined quantity safely in its JSON payload
-    const structuredQty = data?.calculated_quantity ?? data?.quantity ?? data?.qty;
-    if (structuredQty !== undefined && structuredQty !== null && !isNaN(Number(structuredQty))) {
-      requestedQty = Number(structuredQty);
-    } else {
-      // Parse the USER'S current message only (ignore assistant context to prevent loops)
-      const allNumbers = userMsg.match(/\b\d+\b/g);
-      if (allNumbers) {
-        const validQtyString = allNumbers.find((num) => num.length <= 3);
-        if (validQtyString) {
-          requestedQty = parseInt(validQtyString, 10);
-        }
-      }
-    }
-
-    const targetProduct = data?.product_name || data?.name || product_name;
-    let availableStock = 15; // fallback default
-    let baseUnitPrice = 0;
-
-    if (targetProduct) {
-      const { data: dbProduct } = await supabase
-        .from("products")
-        .select("stock, price")
-        .ilike("name", `%${targetProduct}%`)
-        .single();
-
-      if (dbProduct) {
-        if (dbProduct.stock !== null) {
-          availableStock = Number(dbProduct.stock);
-        }
-        if (dbProduct.price !== null) {
-          baseUnitPrice = Number(dbProduct.price);
-        }
-      }
-    }
-
-    let stock_ok = true;
-    if (requestedQty > availableStock) {
-      intent = "chat";
-      paymentLink = null;
-      redirectUrl = null;
-      productMessage = `Sorry, we do not have that many items available. We only have ${availableStock} pieces left in stock for this selection.`;
-      stock_ok = false;
-    }
-    // -------------------------------------------------------------------------
-
-    // -------------------------------------------------------------------------
-    // MATHEMATICALLY EXACT CALCULATION ENGINE
-    // -------------------------------------------------------------------------
-    const rawExtractedPrice = data?.price || initialPrice || baseUnitPrice;
-    let fallbackUnitPrice = 0;
-
-    if (rawExtractedPrice) {
-      const parsedNum = typeof rawExtractedPrice === "string" 
-        ? parseFloat(rawExtractedPrice.replace(/[^\d.]/g, "")) 
-        : Number(rawExtractedPrice);
-      
-      if (!isNaN(parsedNum) && parsedNum > 0) {
-        fallbackUnitPrice = parsedNum;
-      }
-    }
-
-    if (fallbackUnitPrice > baseUnitPrice && baseUnitPrice > 0 && fallbackUnitPrice % baseUnitPrice === 0) {
-      fallbackUnitPrice = baseUnitPrice;
-    }
-
-    const calculatedFinalPrice = fallbackUnitPrice > 0 ? fallbackUnitPrice * requestedQty : 0;
-    // -------------------------------------------------------------------------
 
     if (!redirectUrl) {
       if (/plan|billing/.test(userMsg)) {
@@ -332,12 +251,12 @@ export async function POST(req: Request) {
       channel,
     });
 
-    if (paymentLink && targetProduct && calculatedFinalPrice > 0) {
+    if (paymentLink && product_name && price) {
       const { error: insertOrderError } = await supabase.from("orders").insert({
         user_id,
         bot_id,
-        product_name: targetProduct,
-        price: calculatedFinalPrice,
+        product_name,
+        price,
         payment_status: "pending",
         customer_email: email,
         channel,
@@ -362,32 +281,37 @@ export async function POST(req: Request) {
       }
     }
 
-    // --- DIRECT LINK PASS-THROUGH (FIXED) ---
-    const extractedCategory =
-      typeof data?.category === "string"
-        ? data.category.trim()
-        : null;
+    // --- DIRECT LINK PASS-THROUGH (CRITICAL FIX) ---
+    const extractedCategory = typeof data?.category === "string" ? data.category.trim() : null;
+    let finalProductUrl = productUrl;
 
-    let finalProductUrl = "";
-    if (typeof productUrl === "string") {
-      finalProductUrl = productUrl.trim();
+    // Only construct a backup URL if n8n didn't give us a valid url path
+    if (!finalProductUrl && extractedCategory) {
+      const categorySlug = extractedCategory.toLowerCase().replace(/\s+/g, "-");
+      if (isCategoryIntent) {
+        finalProductUrl = `${baseUrl}/product-category/${categorySlug}/`;
+      } else if (data?.slug) {
+        finalProductUrl = `${baseUrl}/product/${data.slug}`;
+      } else {
+        finalProductUrl = `${baseUrl}/product-category/${categorySlug}/`;
+      }
     }
 
+    // --- RENDER STRUCTURAL LAYOUT RULES ---
     return NextResponse.json({
-      type: isProductIntent || isCategoryIntent ? "product" : "text",
-      reply: isProductIntent || isCategoryIntent ? null : productMessage,
+      type: (isProductIntent || isCategoryIntent) ? "product" : "text",
+      reply: (isProductIntent || isCategoryIntent) ? null : productMessage,
       message: productMessage,
-      name: isProductIntent || isCategoryIntent ? (typeof data?.name === "string" ? data.name : typeof data?.product_name === "string" ? data.product_name : extractedCategory) : null,
-      description: isProductIntent || isCategoryIntent ? (typeof data?.description === "string" ? data.description : null) : null,
-      price: calculatedFinalPrice > 0 ? calculatedFinalPrice : null,
-      image_url: isProductIntent || isCategoryIntent ? finalImageUrl : null,
-      imageUrl: isProductIntent || isCategoryIntent ? finalImageUrl : null,
-      category: isProductIntent || isCategoryIntent ? extractedCategory : null,
-      product_url: isProductIntent || isCategoryIntent ? finalProductUrl : "",
+      name: typeof data?.name === "string" ? data.name : typeof data?.product_name === "string" ? data.product_name : (extractedCategory || "Our Collection"),
+      description: typeof data?.description === "string" ? data.description : null,
+      price: isCategoryIntent ? null : (typeof data?.price === "number" || typeof data?.price === "string" ? data.price : null),
+      image_url: finalImageUrl, 
+      imageUrl: finalImageUrl,
+      category: extractedCategory,
+      product_url: finalProductUrl, // Sends the correct, unaltered Lovable App link now!
       payment_link: paymentLink,
       intent,
       redirect_url: redirectUrl,
-      stock_ok
     });
 
   } catch (error) {
