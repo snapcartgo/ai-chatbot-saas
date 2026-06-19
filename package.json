@@ -23,6 +23,7 @@
     "next": "16.1.6",
     "next-auth": "^4.24.14",
     "openai": "^6.25.0",
+    "papaparse": "^5.5.3",
     "pdf-parse-fork": "^1.2.0",
     "pdfjs-dist": "^3.11.174",
     "react": "19.2.3",
@@ -32,6 +33,7 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4.2.1",
     "@types/node": "^20",
+    "@types/papaparse": "^5.5.2",
     "@types/pdf-parse": "^1.1.5",
     "@types/react": "^19",
     "@types/react-dom": "^19",
