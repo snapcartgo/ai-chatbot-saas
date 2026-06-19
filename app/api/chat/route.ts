@@ -282,37 +282,94 @@ export async function POST(req: Request) {
     }
 
     // --- DIRECT LINK PASS-THROUGH (CRITICAL FIX) ---
-    const extractedCategory = typeof data?.category === "string" ? data.category.trim() : null;
-    let finalProductUrl = productUrl;
+    // --- DIRECT LINK PASS-THROUGH (FIXED) ---
+        const extractedCategory =
+          typeof data?.category === "string"
+            ? data.category.trim()
+            : null;
 
-    // Only construct a backup URL if n8n didn't give us a valid url path
-    if (!finalProductUrl && extractedCategory) {
-      const categorySlug = extractedCategory.toLowerCase().replace(/\s+/g, "-");
-      if (isCategoryIntent) {
-        finalProductUrl = `${baseUrl}/product-category/${categorySlug}/`;
-      } else if (data?.slug) {
-        finalProductUrl = `${baseUrl}/product/${data.slug}`;
-      } else {
-        finalProductUrl = `${baseUrl}/product-category/${categorySlug}/`;
-      }
-    }
+        // NEVER generate product URLs.
+        // ONLY use what comes from n8n / AI / Knowledge Base.
+        let finalProductUrl = "";
 
-    // --- RENDER STRUCTURAL LAYOUT RULES ---
+        if (typeof productUrl === "string") {
+          finalProductUrl = productUrl.trim();
+        }
+
+        // If AI did not provide a URL, leave it empty.
+        // Do NOT generate:
+        /*
+          /product-category/...
+          /product/...
+        */
+
     return NextResponse.json({
-      type: (isProductIntent || isCategoryIntent) ? "product" : "text",
-      reply: (isProductIntent || isCategoryIntent) ? null : productMessage,
-      message: productMessage,
-      name: typeof data?.name === "string" ? data.name : typeof data?.product_name === "string" ? data.product_name : (extractedCategory || "Our Collection"),
-      description: typeof data?.description === "string" ? data.description : null,
-      price: isCategoryIntent ? null : (typeof data?.price === "number" || typeof data?.price === "string" ? data.price : null),
-      image_url: finalImageUrl, 
-      imageUrl: finalImageUrl,
-      category: extractedCategory,
-      product_url: finalProductUrl, // Sends the correct, unaltered Lovable App link now!
-      payment_link: paymentLink,
-      intent,
-      redirect_url: redirectUrl,
-    });
+  type: isProductIntent || isCategoryIntent ? "product" : "text",
+
+  reply:
+    isProductIntent || isCategoryIntent
+      ? null
+      : productMessage,
+
+  message: productMessage,
+
+  name:
+    isProductIntent || isCategoryIntent
+      ? (
+          typeof data?.name === "string"
+            ? data.name
+            : typeof data?.product_name === "string"
+            ? data.product_name
+            : extractedCategory
+        )
+      : null,
+
+  description:
+    isProductIntent || isCategoryIntent
+      ? (
+          typeof data?.description === "string"
+            ? data.description
+            : null
+        )
+      : null,
+
+  price:
+    isProductIntent
+      ? (
+          typeof data?.price === "string" ||
+          typeof data?.price === "number"
+            ? data.price
+            : null
+        )
+      : null,
+
+  image_url:
+    isProductIntent || isCategoryIntent
+      ? finalImageUrl
+      : null,
+
+  imageUrl:
+    isProductIntent || isCategoryIntent
+      ? finalImageUrl
+      : null,
+
+  category:
+    isProductIntent || isCategoryIntent
+      ? extractedCategory
+      : null,
+
+  // IMPORTANT:
+  // Return ONLY the URL supplied by the AI/KB.
+  // Never manufacture one.
+  product_url:
+    isProductIntent || isCategoryIntent
+      ? finalProductUrl
+      : "",
+
+  payment_link: paymentLink,
+  intent,
+  redirect_url: redirectUrl,
+});
 
   } catch (error) {
     console.error("Fatal Route Failure:", error);
