@@ -45,9 +45,9 @@ export async function POST(req: NextRequest) {
 
     // Build query
     let query = supabase
-      .from("products")
-      .select("*")
-      .ilike("name", product_name);
+  .from("products")
+  .select("*")
+  .ilike("name", `%${product_name}%`);
 
     if (color) {
       query = query.eq("color", color);
