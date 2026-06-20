@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
+
+
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -16,6 +18,22 @@ export async function POST(req: NextRequest) {
   color,
   size,
 } = body;
+
+const requestId = crypto.randomUUID();
+
+console.log(`[${requestId}] validate-order`, {
+  product_name,
+  color,
+  size,
+  quantity,
+});
+
+console.log("validate-order", {
+  product_name,
+  color,
+  size,
+  quantity,
+});
 
 const requestedQuantity = Number(quantity);
 
@@ -43,17 +61,16 @@ if (!product_name || requestedQuantity <= 0 || Number.isNaN(requestedQuantity)) 
       query = query.eq("size", size);
     }
 
-    const { data: product, error } = await query.single();
+    const { data: products, error } = await query.limit(1);
 
-    if (error || !product) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Product not found.",
-        },
-        { status: 404 }
-      );
-    }
+const product = products?.[0];
+
+if (error || !product) {
+  return NextResponse.json({
+    success: false,
+    message: "Product not found."
+  });
+}
 
     const stock = Number(product.stock);
     const unitPrice = Number(product.price);
