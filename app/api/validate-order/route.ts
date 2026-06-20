@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
     if (error || !product) {
       return NextResponse.json({
         success: false,
-        message: "Product not found.",
+        message: "Sorry, the selected size or color is currently unavailable for this product. Please choose a different size or color, and I'll be happy to help you.",
       });
     }
 
