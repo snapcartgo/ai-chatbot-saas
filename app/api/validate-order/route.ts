@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-
-
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -13,45 +11,43 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
 
     const {
-  product_name,
-  quantity,
-  color,
-  size,
-} = body;
+      product_name,
+      quantity,
+      color,
+      size,
+    } = body;
 
-const requestId = crypto.randomUUID();
+    // Generate unique request ID for debugging
+    const requestId = crypto.randomUUID();
 
-console.log(`[${requestId}] validate-order`, {
-  product_name,
-  color,
-  size,
-  quantity,
-});
+    console.log(`[${requestId}] Incoming validate-order request`, {
+      product_name,
+      color,
+      size,
+      quantity,
+    });
 
-console.log("validate-order", {
-  product_name,
-  color,
-  size,
-  quantity,
-});
+    const requestedQuantity = Number(quantity);
 
-const requestedQuantity = Number(quantity);
-
-if (!product_name || requestedQuantity <= 0 || Number.isNaN(requestedQuantity)) {
-  return NextResponse.json(
-    {
-      success: false,
-      message: "Invalid product or quantity.",
-    },
-    { status: 400 }
-  );
-}
+    if (
+      !product_name ||
+      requestedQuantity <= 0 ||
+      Number.isNaN(requestedQuantity)
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Invalid product or quantity.",
+        },
+        { status: 400 }
+      );
+    }
 
     // Build query
     let query = supabase
       .from("products")
       .select("*")
-      .eq("name", product_name);
+      .ilike("name", product_name);
 
     if (color) {
       query = query.eq("color", color);
@@ -61,34 +57,47 @@ if (!product_name || requestedQuantity <= 0 || Number.isNaN(requestedQuantity)) 
       query = query.eq("size", size);
     }
 
-    const { data: products, error } = await query.limit(1);
+    // Safer than .single()
+    const { data: product, error } = await query.maybeSingle();
 
-const product = products?.[0];
+    console.log(`[${requestId}] Query result`, {
+      found: !!product,
+      error: error?.message || null,
+      matchedProduct: product?.name || null,
+    });
 
-if (error || !product) {
-  return NextResponse.json({
-    success: false,
-    message: "Product not found."
-  });
-}
+    if (error || !product) {
+      return NextResponse.json({
+        success: false,
+        message: "Product not found.",
+      });
+    }
 
     const stock = Number(product.stock);
     const unitPrice = Number(product.price);
 
-    // Shipping rule
-    const shipping = unitPrice * requestedQuantity >= 999 ? 0 : 1;
+    const shipping =
+      unitPrice * requestedQuantity >= 999 ? 0 : 1;
 
-if (requestedQuantity > stock) {
-  return NextResponse.json({
-    success: false,
-    stock_ok: false,
-    available_stock: stock,
-    message: `Sorry, only ${stock} item(s) are available in stock.`,
-  });
-}
+    if (requestedQuantity > stock) {
+      return NextResponse.json({
+        success: false,
+        stock_ok: false,
+        available_stock: stock,
+        message: `Sorry, only ${stock} item(s) are available in stock.`,
+      });
+    }
 
-const subtotal = unitPrice * requestedQuantity;
-const total = subtotal + shipping;
+    const subtotal = unitPrice * requestedQuantity;
+    const total = subtotal + shipping;
+
+    console.log(`[${requestId}] Validation successful`, {
+      product: product.name,
+      stock,
+      subtotal,
+      shipping,
+      total,
+    });
 
     return NextResponse.json({
       success: true,
@@ -105,9 +114,12 @@ const total = subtotal + shipping;
       shipping,
       total,
 
-      message: "Stock available. Kindly share Your Name, Email and Phone Number.",
+      message:
+        "Stock available. Kindly share your Name, Email and Phone Number.",
     });
   } catch (err: any) {
+    console.error("validate-order unexpected error:", err);
+
     return NextResponse.json(
       {
         success: false,
