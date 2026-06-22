@@ -10,116 +10,111 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
 
-    const {
-      product_name,
-      quantity,
-      color,
-      size,
-    } = body;
+    const items = body.items;
 
-    // Generate unique request ID for debugging
-    const requestId = crypto.randomUUID();
-
-    console.log(`[${requestId}] Incoming validate-order request`, {
-      product_name,
-      color,
-      size,
-      quantity,
-    });
-
-    const requestedQuantity = Number(quantity);
-
-    if (
-      !product_name ||
-      requestedQuantity <= 0 ||
-      Number.isNaN(requestedQuantity)
-    ) {
+    if (!Array.isArray(items) || items.length === 0) {
       return NextResponse.json(
         {
           success: false,
-          message: "Invalid product or quantity.",
+          message: "No products provided.",
         },
         { status: 400 }
       );
     }
 
-    // Build query
-    let query = supabase
-  .from("products")
-  .select("*")
-  .ilike("name", `%${product_name}%`);
+    const validatedItems = [];
+    let grandSubtotal = 0;
+    let grandShipping = 0;
+    let grandTotal = 0;
 
-    if (color) {
-      query = query.eq("color", color);
-    }
+    for (const item of items) {
+      const {
+        product_name,
+        color,
+        size,
+        quantity,
+      } = item;
 
-    if (size) {
-      query = query.eq("size", size);
-    }
+      const requestedQuantity = Number(quantity);
 
-    // Safer than .single()
-    const { data: product, error } = await query.maybeSingle();
+      if (
+        !product_name ||
+        Number.isNaN(requestedQuantity) ||
+        requestedQuantity <= 0
+      ) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: `Invalid quantity for ${product_name || "product"}.`,
+          },
+          { status: 400 }
+        );
+      }
 
-    console.log(`[${requestId}] Query result`, {
-      found: !!product,
-      error: error?.message || null,
-      matchedProduct: product?.name || null,
-    });
+      let query = supabase
+        .from("products")
+        .select("*")
+        .ilike("name", `%${product_name}%`);
 
-    if (error || !product) {
-      return NextResponse.json({
-        success: false,
-        message: "Sorry, the selected size or color is currently unavailable for this product. Please choose a different size or color, and I'll be happy to help you.",
+      if (color) {
+        query = query.eq("color", color);
+      }
+
+      if (size) {
+        query = query.eq("size", size);
+      }
+
+      const { data: product, error } = await query.maybeSingle();
+
+      if (error || !product) {
+        return NextResponse.json({
+          success: false,
+          message: `Product not found: ${product_name} (${color || "-"} / ${size || "-"})`,
+        });
+      }
+
+      const stock = Number(product.stock);
+      const unitPrice = Number(product.price);
+
+      if (requestedQuantity > stock) {
+        return NextResponse.json({
+          success: false,
+          message: `Only ${stock} item(s) available for ${product.name}.`,
+        });
+      }
+
+      const subtotal = unitPrice * requestedQuantity;
+      const shipping = subtotal >= 999 ? 0 : 1;
+      const total = subtotal + shipping;
+
+      grandSubtotal += subtotal;
+      grandShipping += shipping;
+      grandTotal += total;
+
+      validatedItems.push({
+        product_id: product.product_id,
+        product_name: product.name,
+        color,
+        size,
+        quantity: requestedQuantity,
+        unit_price: unitPrice,
+        subtotal,
+        shipping,
+        total,
       });
     }
-
-    const stock = Number(product.stock);
-    const unitPrice = Number(product.price);
-
-    const shipping =
-      unitPrice * requestedQuantity >= 999 ? 0 : 1;
-
-    if (requestedQuantity > stock) {
-      return NextResponse.json({
-        success: false,
-        stock_ok: false,
-        available_stock: stock,
-        message: `Sorry, only ${stock} item(s) are available in stock.`,
-      });
-    }
-
-    const subtotal = unitPrice * requestedQuantity;
-    const total = subtotal + shipping;
-
-    console.log(`[${requestId}] Validation successful`, {
-      product: product.name,
-      stock,
-      subtotal,
-      shipping,
-      total,
-    });
 
     return NextResponse.json({
       success: true,
       stock_ok: true,
-
-      product_id: product.product_id,
-      product_name: product.name,
-
-      requested_quantity: requestedQuantity,
-      available_stock: stock,
-
-      unit_price: unitPrice,
-      subtotal,
-      shipping,
-      total,
-
+      items: validatedItems,
+      subtotal: grandSubtotal,
+      shipping: grandShipping,
+      total: grandTotal,
       message:
-        "Stock available. Kindly share your Name, Email and Phone Number.",
+        "All products are available. Kindly share your Name, Email and Phone Number.",
     });
   } catch (err: any) {
-    console.error("validate-order unexpected error:", err);
-
     return NextResponse.json(
       {
         success: false,
