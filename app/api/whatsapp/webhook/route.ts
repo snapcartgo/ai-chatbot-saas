@@ -49,6 +49,8 @@ export async function POST(req: Request) {
 
     const phoneNumberId = value.metadata?.phone_number_id;
 
+    
+
     if (!customerPhone || !userMessage || !phoneNumberId) {
       return new Response("EVENT_RECEIVED", { status: 200 });
     }
@@ -84,24 +86,25 @@ export async function POST(req: Request) {
           (parsedUrl.hostname === allowedHost ||
             parsedUrl.hostname.includes("ngrok"))
         ) {
-          await fetch(N8N_WEBHOOK, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "x-bot-secret": process.env.N8N_BOT_SECRET || "",
-            },
-            body: JSON.stringify({
-              message: userMessage,
-              phone: customerPhone,
-              conversation_id: conversationId,
-              chatbot_id: config.chatbot_id,
-              user_id: config.user_id,
-              profile_name: value.contacts?.[0]?.profile?.name || "Customer",
-              role: "user",
-            }),
-          });
+          const response = await fetch(N8N_WEBHOOK, {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    "x-bot-secret": process.env.N8N_BOT_SECRET || "",
+  },
+  body: JSON.stringify({
+    message: userMessage,
+    phone: customerPhone,
+    conversation_id: conversationId,
+    chatbot_id: config.chatbot_id,
+    user_id: config.user_id,
+    profile_name: value.contacts?.[0]?.profile?.name || "Customer",
+    role: "user",
+  }),
+});
 
-          console.log("Successfully forwarded payload to n8n");
+console.log("n8n status:", response.status);
+console.log("n8n response:", await response.text());
         } else {
           console.warn(
             `Webhook blocked: Domain mismatch. Hostname was: ${parsedUrl.hostname}`
