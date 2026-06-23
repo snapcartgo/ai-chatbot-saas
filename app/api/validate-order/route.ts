@@ -50,18 +50,22 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { data: product, error } = await supabase
-    .from("products")
-    .select("*")
-    .ilike("name", `%${product_name}%`)
-    .maybeSingle();
+  // Replace the .maybeSingle() block with this:
+const { data: products, error } = await supabase
+  .from("products")
+  .select("*")
+  .ilike("name", `%${product_name}%`); // ilike is already case-insensitive
 
-  if (error || !product) {
-    return NextResponse.json({
-      success: false,
-      message: `Product not found: ${product_name}`,
-    });
-  }
+if (error || !products || products.length === 0) {
+  return NextResponse.json({
+    success: false,
+    message: `Product not found: ${product_name}`,
+  });
+}
+
+// If you have multiple matches (like white and black in image_26c6bc.png),
+// you should either pick the first one or prompt the user to be more specific.
+const product = products[0];
 
   const requiredFields = product.required_fields || [];
   const productAttributes = product.attributes || {};
