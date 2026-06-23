@@ -28,81 +28,87 @@ export async function POST(req: NextRequest) {
     let grandTotal = 0;
 
     for (const item of items) {
-      const {
-        product_name,
-        color,
-        size,
-        quantity,
-      } = item;
+  const {
+  product_name,
+  quantity,
+  selected_attributes = {},
+} = item;
 
-      const requestedQuantity = Number(quantity);
+  const requestedQuantity = Number(quantity);
 
-      if (
-        !product_name ||
-        Number.isNaN(requestedQuantity) ||
-        requestedQuantity <= 0
-      ) {
-        return NextResponse.json(
-          {
-            success: false,
-            message: `Invalid quantity for ${product_name || "product"}.`,
-          },
-          { status: 400 }
-        );
-      }
+  if (
+    !product_name ||
+    Number.isNaN(requestedQuantity) ||
+    requestedQuantity <= 0
+  ) {
+    return NextResponse.json(
+      {
+        success: false,
+        message: `Invalid quantity for ${product_name || "product"}.`,
+      },
+      { status: 400 }
+    );
+  }
 
-      let query = supabase
-        .from("products")
-        .select("*")
-        .ilike("name", `%${product_name}%`);
+  const { data: product, error } = await supabase
+    .from("products")
+    .select("*")
+    .ilike("name", `%${product_name}%`)
+    .maybeSingle();
 
-      if (color) {
-        query = query.eq("color", color);
-      }
+  if (error || !product) {
+    return NextResponse.json({
+      success: false,
+      message: `Product not found: ${product_name}`,
+    });
+  }
 
-      if (size) {
-        query = query.eq("size", size);
-      }
+  const requiredFields = product.required_fields || [];
+  const productAttributes = product.attributes || {};
 
-      const { data: product, error } = await query.maybeSingle();
+  const missingFields = requiredFields.filter(
+    (field: string) => !selected_attributes[field]
+  );
 
-      if (error || !product) {
-        return NextResponse.json({
-          success: false,
-          message: `Product not found: ${product_name} (${color || "-"} / ${size || "-"})`,
-        });
-      }
+  if (missingFields.length > 0) {
+    return NextResponse.json({
+      success: false,
+      requires_selection: true,
+      missing_fields: missingFields,
+      available_options: productAttributes,
+      message: `Please select: ${missingFields.join(", ")}`,
+    });
+  }
 
-      const stock = Number(product.stock);
-      const unitPrice = Number(product.price);
+  const stock = Number(product.stock);
+  const unitPrice = Number(product.price);
 
-      if (requestedQuantity > stock) {
-        return NextResponse.json({
-          success: false,
-          message: `Only ${stock} item(s) available for ${product.name}.`,
-        });
-      }
+  if (requestedQuantity > stock) {
+    return NextResponse.json({
+      success: false,
+      message: `Only ${stock} item(s) available for ${product.name}.`,
+    });
+  }
 
-      const subtotal = unitPrice * requestedQuantity;
-      const shipping = subtotal >= 999 ? 0 : 1;
-      const total = subtotal + shipping;
+  const subtotal = unitPrice * requestedQuantity;
+  const shipping = subtotal >= 999 ? 0 : 1;
+  const total = subtotal + shipping;
 
-      grandSubtotal += subtotal;
-      grandShipping += shipping;
-      grandTotal += total;
+  grandSubtotal += subtotal;
+  grandShipping += shipping;
+  grandTotal += total;
 
-      validatedItems.push({
-        product_id: product.product_id,
-        product_name: product.name,
-        color,
-        size,
-        quantity: requestedQuantity,
-        unit_price: unitPrice,
-        subtotal,
-        shipping,
-        total,
-      });
-    }
+  validatedItems.push({
+    product_id: product.product_id,
+    product_name: product.name,
+    quantity: requestedQuantity,
+    selected_attributes,
+    unit_price: unitPrice,
+    subtotal,
+    shipping,
+    total,
+  });
+}
 
     return NextResponse.json({
       success: true,
