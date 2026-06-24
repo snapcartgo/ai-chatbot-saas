@@ -79,13 +79,8 @@ export async function POST(req: Request) {
     if (N8N_WEBHOOK) {
       try {
         const parsedUrl = new URL(N8N_WEBHOOK);
-        const allowedHost = process.env.N8N_ALLOWED_HOST || "n8n.snapcartgo.com";
-
-        if (
-          parsedUrl.protocol === "https:" &&
-          (parsedUrl.hostname === allowedHost ||
-            parsedUrl.hostname.includes("ngrok"))
-        ) {
+        if (parsedUrl.protocol === "https:")
+         {
           const response = await fetch(N8N_WEBHOOK, {
   method: "POST",
   headers: {
