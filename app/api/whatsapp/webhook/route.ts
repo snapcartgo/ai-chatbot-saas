@@ -131,8 +131,7 @@ aiResponse =
       .eq("phone", cleanPhone)
       .single();
 
-    if (aiResponse || n8nData) {
-  const metaAccessToken = String(
+    const metaAccessToken = String(
   config.meta_access_token || ""
 ).trim();
 
@@ -143,7 +142,6 @@ if (metaAccessToken) {
     ? n8nData[0]
     : n8nData;
 
-  // Product image response
   if (product?.image_url) {
     await fetch(metaUrl, {
       method: "POST",
@@ -161,10 +159,7 @@ if (metaAccessToken) {
         },
       }),
     });
-  }
-
-  // Text response
-  else if (aiResponse) {
+  } else if (aiResponse) {
     await fetch(metaUrl, {
       method: "POST",
       headers: {
@@ -184,6 +179,7 @@ if (metaAccessToken) {
 }
 
     return new Response("EVENT_RECEIVED", { status: 200 });
+
   } catch (error) {
     console.error("Webhook Error:", error);
     return new Response("EVENT_RECEIVED", { status: 200 });
