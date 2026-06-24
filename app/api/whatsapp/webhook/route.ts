@@ -76,39 +76,45 @@ export async function POST(req: Request) {
 
     const N8N_WEBHOOK = process.env.N8N_WHATSAPP_WEBHOOK_URL || "";
 
-    if (N8N_WEBHOOK) {
-      try {
-        const parsedUrl = new URL(N8N_WEBHOOK);
-        if (parsedUrl.protocol === "https:")
-         {
-          const response = await fetch(N8N_WEBHOOK, {
-  method: "POST",
-  headers: {
-    "Content-Type": "application/json",
-    "x-bot-secret": process.env.N8N_BOT_SECRET || "",
-  },
-  body: JSON.stringify({
-    message: userMessage,
-    phone: customerPhone,
-    conversation_id: conversationId,
-    chatbot_id: config.chatbot_id,
-    user_id: config.user_id,
-    profile_name: value.contacts?.[0]?.profile?.name || "Customer",
-    role: "user",
-  }),
-});
+    let aiResponse = "";
 
-console.log("n8n status:", response.status);
-console.log("n8n response:", await response.text());
-        } else {
-          console.warn(
-            `Webhook blocked: Domain mismatch. Hostname was: ${parsedUrl.hostname}`
-          );
-        }
-      } catch (urlErr) {
-        console.error("Invalid N8N webhook URL:", urlErr);
-      }
+if (N8N_WEBHOOK) {
+  try {
+    const parsedUrl = new URL(N8N_WEBHOOK);
+
+    if (parsedUrl.protocol === "https:") {
+      const response = await fetch(N8N_WEBHOOK, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-bot-secret": process.env.N8N_BOT_SECRET || "",
+        },
+        body: JSON.stringify({
+          message: userMessage,
+          phone: customerPhone,
+          conversation_id: conversationId,
+          chatbot_id: config.chatbot_id,
+          user_id: config.user_id,
+          profile_name: value.contacts?.[0]?.profile?.name || "Customer",
+          role: "user",
+        }),
+      });
+
+      const n8nData = await response.json();
+
+      console.log("n8nData:", JSON.stringify(n8nData));
+
+      aiResponse =
+        n8nData?.reply ||
+        n8nData?.[0]?.reply ||
+        "Sorry, I could not process your request.";
+
+      console.log("n8n status:", response.status);
     }
+  } catch (err) {
+    console.error("N8N Error:", err);
+  }
+}
 
     const { data: bot } = await supabase
       .from("chatbots")
@@ -122,67 +128,33 @@ console.log("n8n response:", await response.text());
       .eq("phone", cleanPhone)
       .single();
 
-    if (process.env.OPENAI_API_KEY) {
-      const aiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-          "Content-Type": "application/json",
+    if (aiResponse) {
+  const metaAccessToken = String(
+    config.meta_access_token || ""
+  ).trim();
+
+  if (metaAccessToken) {
+    const metaUrl = `https://graph.facebook.com/v20.0/${phoneNumberId}/messages`;
+
+    await fetch(metaUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${metaAccessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to: customerPhone,
+        type: "text",
+        text: {
+          preview_url: false,
+          body: aiResponse,
         },
-        body: JSON.stringify({
-          model: "gpt-4o-mini",
-          messages: [
-            {
-              role: "system",
-              content: bot?.prompt || "You are a helpful assistant.",
-            },
-            {
-              role: "user",
-              content: `Customer Context:\n${JSON.stringify(
-                lead || "New Customer"
-              )}\n\nMessage:\n${userMessage}`,
-            },
-          ],
-        }),
-      })
-        .then(async (res) => {
-          const data = await res.json();
-          return (
-            data?.choices?.[0]?.message?.content ||
-            "Processing your request via automation..."
-          );
-        })
-        .catch((err) => {
-          console.error("OpenAI Error:", err);
-          return "";
-        });
-
-      if (aiResponse) {
-        const metaAccessToken = String(config.meta_access_token || "").trim();
-
-        if (metaAccessToken) {
-          const metaUrl = `https://graph.facebook.com/v20.0/${phoneNumberId}/messages`;
-
-          await fetch(metaUrl, {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${metaAccessToken}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              messaging_product: "whatsapp",
-              recipient_type: "individual",
-              to: customerPhone,
-              type: "text",
-              text: {
-                preview_url: false,
-                body: aiResponse,
-              },
-            }),
-          }).catch((err) => console.error("Meta direct reply error:", err));
-        }
-      }
-    }
+      }),
+    });
+  }
+}
 
     return new Response("EVENT_RECEIVED", { status: 200 });
   } catch (error) {
