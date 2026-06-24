@@ -77,6 +77,7 @@ export async function POST(req: Request) {
     const N8N_WEBHOOK = process.env.N8N_WHATSAPP_WEBHOOK_URL || "";
 
     let aiResponse = "";
+let n8nData: any = null;
 
 if (N8N_WEBHOOK) {
   try {
@@ -100,14 +101,16 @@ if (N8N_WEBHOOK) {
         }),
       });
 
-      const n8nData = await response.json();
+      n8nData = await response.json();
 
       console.log("n8nData:", JSON.stringify(n8nData));
 
-      aiResponse =
-        n8nData?.reply ||
-        n8nData?.[0]?.reply ||
-        "Sorry, I could not process your request.";
+      
+
+aiResponse =
+  n8nData?.reply ||
+  n8nData?.[0]?.reply ||
+  "";
 
       console.log("n8n status:", response.status);
     }
@@ -128,14 +131,18 @@ if (N8N_WEBHOOK) {
       .eq("phone", cleanPhone)
       .single();
 
-    if (aiResponse) {
-  const metaAccessToken = String(
-    config.meta_access_token || ""
-  ).trim();
+    const metaAccessToken = String(
+  config.meta_access_token || ""
+).trim();
 
-  if (metaAccessToken) {
-    const metaUrl = `https://graph.facebook.com/v20.0/${phoneNumberId}/messages`;
+if (metaAccessToken) {
+  const metaUrl = `https://graph.facebook.com/v20.0/${phoneNumberId}/messages`;
 
+  const product = Array.isArray(n8nData)
+    ? n8nData[0]
+    : n8nData;
+
+  if (product?.image_url) {
     await fetch(metaUrl, {
       method: "POST",
       headers: {
@@ -144,11 +151,26 @@ if (N8N_WEBHOOK) {
       },
       body: JSON.stringify({
         messaging_product: "whatsapp",
-        recipient_type: "individual",
+        to: customerPhone,
+        type: "image",
+        image: {
+          link: product.image_url,
+          caption: `${product.name}\nPrice: ${product.price}`,
+        },
+      }),
+    });
+  } else if (aiResponse) {
+    await fetch(metaUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${metaAccessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
         to: customerPhone,
         type: "text",
         text: {
-          preview_url: false,
           body: aiResponse,
         },
       }),
@@ -157,6 +179,7 @@ if (N8N_WEBHOOK) {
 }
 
     return new Response("EVENT_RECEIVED", { status: 200 });
+
   } catch (error) {
     console.error("Webhook Error:", error);
     return new Response("EVENT_RECEIVED", { status: 200 });
