@@ -168,7 +168,10 @@ export const WhatsAppSetupButton: React.FC<WhatsAppSetupButtonProps> = ({ client
 
     window.FB.login(
   (response: any) => {
-    console.log("FB login response:", response);
+    console.log(
+  "FB login response:",
+  JSON.stringify(response, null, 2)
+);
 
     if (!response?.authResponse) {
       console.warn("User cancelled or Meta authorization failed.");
