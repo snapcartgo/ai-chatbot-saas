@@ -167,27 +167,31 @@ export const WhatsAppSetupButton: React.FC<WhatsAppSetupButtonProps> = ({ client
     setIsInitializing(true);
 
     window.FB.login(
-      (response: any) => {
-        console.log("FB login response:", response);
+  (response: any) => {
+    console.log("FB login response:", response);
 
-        if (!response?.authResponse) {
-          console.warn("User cancelled or Meta authorization failed.");
-          setIsInitializing(false);
-          return;
-        }
+    if (!response?.authResponse) {
+      console.warn("User cancelled or Meta authorization failed.");
+      setIsInitializing(false);
+      return;
+    }
 
-        console.log("Meta auth success");
-      },
-      {
-        config_id: WHATSAPP_CONFIG_ID,
-        response_type: "code",
-        override_default_response_type: true,
-        extras: JSON.stringify({
-          feature: "whatsapp_embedded_signup",
-          sessionInfoVersion: "3", 
-        }),
-      }
-    );
+    const accessToken = response.authResponse.accessToken;
+
+    console.log("Access Token:", accessToken);
+
+    console.log("Meta auth success");
+  },
+  {
+    config_id: WHATSAPP_CONFIG_ID,
+    response_type: "code",
+    override_default_response_type: true,
+    extras: JSON.stringify({
+      feature: "whatsapp_embedded_signup",
+      sessionInfoVersion: "3",
+    }),
+  }
+);
   };
 
   return (
