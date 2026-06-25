@@ -50,6 +50,8 @@ export async function POST(req: Request) {
           waba_id: waba_id,
           business_id: business_id || waba_id,
           wa_phone_number_id: phone_number_id,
+          phone_number: body.phone_number,
+          whatsapp_access_token: whatsappToken,
           status: "linking", 
           automation_enabled: true,
           workflow_type: "whatsapp_only",
