@@ -9,6 +9,13 @@ const supabase = createClient(
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
+    const sessionId = body.session_id;
+
+const { data: cart } = await supabase
+  .from("cart_sessions")
+  .select("*")
+  .eq("session_id", sessionId)
+  .maybeSingle();
     const items = body.items;
 
     if (!Array.isArray(items) || items.length === 0) {
@@ -21,7 +28,18 @@ export async function POST(req: NextRequest) {
     let grandTotal = 0;
 
     for (const item of items) {
-      const { product_name, quantity, selected_attributes = {} } = item;
+     const {
+  product_name,
+  quantity,
+  selected_attributes = {}
+} = item;
+
+const mergedAttributes = {
+  ...(cart?.selected_attributes || {}),
+  ...selected_attributes
+};
+
+
       const requestedQuantity = Number(quantity);
 
       if (!product_name || Number.isNaN(requestedQuantity) || requestedQuantity <= 0) {
@@ -48,9 +66,9 @@ export async function POST(req: NextRequest) {
 
       for (const key in productAttributes) {
         // If product has this key, it is considered "required"
-        if (!selected_attributes[key]) {
+        if (!mergedAttributes[key]) {
           missingFields.push(key);
-        } else if (!productAttributes[key].includes(selected_attributes[key])) {
+        } else if (!productAttributes[key].includes(mergedAttributes[key])) {
           // If the user picked a value (like "Pink") that isn't in the list ["Red", "Blue"]
           invalidFields.push(key);
         }
@@ -86,14 +104,25 @@ export async function POST(req: NextRequest) {
       grandShipping += shipping;
       grandTotal += subtotal + shipping;
 
+      await supabase
+  .from("cart_sessions")
+  .upsert({
+    session_id: sessionId,
+    product_id: product.id,
+    product_name: product.name,
+    quantity: requestedQuantity,
+    selected_attributes: mergedAttributes,
+    updated_at: new Date().toISOString(),
+  });
+  
       validatedItems.push({
-        product_id: product.id,
-        product_name: product.name,
-        quantity: requestedQuantity,
-        selected_attributes,
-        unit_price: unitPrice,
-        subtotal,
-      });
+  product_id: product.id,
+  product_name: product.name,
+  quantity: requestedQuantity,
+  selected_attributes: mergedAttributes,
+  unit_price: unitPrice,
+  subtotal,
+});
     }
 
     return NextResponse.json({
