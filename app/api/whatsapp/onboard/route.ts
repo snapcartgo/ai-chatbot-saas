@@ -106,22 +106,22 @@ if (!finalChatbotId) {
 
     // 3. Update Database Configurations
     const { error: dbError } = await supabase
-  .from("whatsapp_configs")
-  .upsert(
-    {
-      user_id: client_id,
-      chatbot_id: finalChatbotId,
-      waba_id: waba_id,
-      business_id: business_id || waba_id,
-      wa_phone_number_id: phone_number_id,
-      status: "linking",
-      automation_enabled: true,
-      workflow_type: "whatsapp_only",
-    },
-    {
-      onConflict: "user_id",
-    }
-  );
+      .from("whatsapp_configs")
+      .upsert(
+        {
+          user_id: client_id,
+          chatbot_id: finalChatbotId, 
+          waba_id: waba_id,
+          business_id: business_id || waba_id,
+          wa_phone_number_id: phone_number_id,
+          status: "linking", 
+          automation_enabled: true,
+          workflow_type: "whatsapp_only",
+        } as any,
+        {
+          onConflict: "user_id",
+        }
+      );
 
     if (dbError) {
       return NextResponse.json({ error: dbError.message }, { status: 400 });
@@ -161,9 +161,8 @@ if (!finalChatbotId) {
       .eq("user_id", client_id);
 
     return NextResponse.json({
-  success: true,
-  chatbot_id: finalChatbotId,
-});
+      success: true,
+    });
   } catch (err: any) {
     console.error("ONBOARD ERROR:", err);
 
