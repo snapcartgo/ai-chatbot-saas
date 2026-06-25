@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 
+
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -102,6 +103,9 @@ if (N8N_WEBHOOK) {
       });
 
       n8nData = await response.json();
+      console.log("N8N DATA:", JSON.stringify(n8nData, null, 2));
+console.log("AI RESPONSE:", n8nData.reply);
+      
 
       console.log("n8nData:", JSON.stringify(n8nData));
 
@@ -132,7 +136,7 @@ aiResponse =
       .single();
 
     const metaAccessToken = String(
-  config.meta_access_token || ""
+  config.whatsapp_access_token || config.whatsapp_access_token || config.meta_access_token || ""
 ).trim();
 
 if (metaAccessToken) {
@@ -142,41 +146,44 @@ if (metaAccessToken) {
     ? n8nData[0]
     : n8nData;
 
+  let payload: any;
+
   if (product?.image_url) {
-    await fetch(metaUrl, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${metaAccessToken}`,
-        "Content-Type": "application/json",
+    payload = {
+      messaging_product: "whatsapp",
+      to: customerPhone,
+      type: "image",
+      image: {
+        link: product.image_url,
+        caption: `${product.name}\nPrice: ${product.price}`,
       },
-      body: JSON.stringify({
-        messaging_product: "whatsapp",
-        to: customerPhone,
-        type: "image",
-        image: {
-          link: product.image_url,
-          caption: `${product.name}\nPrice: ${product.price}`,
-        },
-      }),
-    });
+    };
   } else if (aiResponse) {
-    await fetch(metaUrl, {
+    payload = {
+      messaging_product: "whatsapp",
+      to: customerPhone,
+      type: "text",
+      text: {
+        body: aiResponse,
+      },
+    };
+  }
+
+  if (payload) {
+    const metaRes = await fetch(metaUrl, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${metaAccessToken}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        messaging_product: "whatsapp",
-        to: customerPhone,
-        type: "text",
-        text: {
-          body: aiResponse,
-        },
-      }),
+      body: JSON.stringify(payload),
     });
+
+    console.log("META STATUS:", metaRes.status);
+    console.log("META BODY:", await metaRes.text());
   }
 }
+  
 
     return new Response("EVENT_RECEIVED", { status: 200 });
 
