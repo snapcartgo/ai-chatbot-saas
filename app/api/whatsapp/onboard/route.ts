@@ -40,24 +40,88 @@ export async function POST(req: Request) {
         { status: 500 }
       );
     }
+    let finalChatbotId = null;
+
+// Check existing config
+const { data: existingConfig } = await supabase
+  .from("whatsapp_configs")
+  .select("chatbot_id")
+  .eq("user_id", client_id)
+  .maybeSingle();
+
+if (existingConfig?.chatbot_id) {
+  const { data: existingBot } = await supabase
+    .from("chatbots")
+    .select("id,user_id")
+    .eq("id", existingConfig.chatbot_id)
+    .maybeSingle();
+
+  if (existingBot?.user_id === client_id) {
+    finalChatbotId = existingBot.id;
+  }
+}
+
+// Find WhatsApp bot
+if (!finalChatbotId) {
+  const { data: workflowBot } = await supabase
+    .from("chatbots")
+    .select("id")
+    .eq("user_id", client_id)
+    .eq("workflow_type", "whatsapp_only")
+    .maybeSingle();
+
+  if (workflowBot?.id) {
+    finalChatbotId = workflowBot.id;
+  }
+}
+
+// Create bot if none exists
+if (!finalChatbotId) {
+  const { data: newBot, error: botError } = await supabase
+    .from("chatbots")
+    .insert({
+      user_id: client_id,
+      name: "WhatsApp AI Bot",
+      welcome_message: "Hello! How can I help you today?",
+      model: "gpt-4o-mini",
+      temperature: 0.7,
+      active: true,
+      category: "booking",
+      source: "whatsapp",
+      is_system: true,
+      workflow_type: "whatsapp_only",
+    })
+    .select("id")
+    .single();
+
+  if (botError || !newBot) {
+    return NextResponse.json(
+      { error: botError?.message || "Failed to create chatbot" },
+      { status: 500 }
+    );
+  }
+
+  finalChatbotId = newBot.id;
+}
 
     // 3. Update Database Configurations
     const { error: dbError } = await supabase
-      .from("whatsapp_configs")
-      .upsert(
-        {
-          user_id: client_id,
-          waba_id: waba_id,
-          business_id: business_id || waba_id,
-          wa_phone_number_id: phone_number_id,
-          status: "linking", 
-          automation_enabled: true,
-          workflow_type: "whatsapp_only",
-        } as any,
-        {
-          onConflict: "user_id",
-        }
-      );
+  .from("whatsapp_configs")
+  .upsert(
+    {
+      user_id: client_id,
+      chatbot_id: finalChatbotId,
+      waba_id: waba_id,
+      business_id: business_id || waba_id,
+      wa_phone_number_id: phone_number_id,
+      status: "linking",
+      automation_enabled: true,
+      workflow_type: "whatsapp_only",
+    },
+    {
+      onConflict: "user_id",
+    }
+  );
 
     if (dbError) {
       return NextResponse.json({ error: dbError.message }, { status: 400 });
@@ -97,8 +161,9 @@ export async function POST(req: Request) {
       .eq("user_id", client_id);
 
     return NextResponse.json({
-      success: true,
-    });
+  success: true,
+  chatbot_id: finalChatbotId,
+});
   } catch (err: any) {
     console.error("ONBOARD ERROR:", err);
 
