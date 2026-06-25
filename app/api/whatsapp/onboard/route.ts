@@ -15,6 +15,9 @@ export async function POST(req: Request) {
     const waba_id = String(body.waba_id || "").trim();
     const phone_number_id = String(body.phone_number_id || "").trim();
     const business_id = String(body.business_id || "").trim();
+    
+    // 💡 Extracted exactly from the client request payload
+    const userMetaToken = String(body.access_token || "").trim();
 
     // 1. Structural Validation Checks
     if (!client_id) {
@@ -32,11 +35,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid ID format" }, { status: 400 });
     }
 
-    const whatsappToken = process.env.WHATSAPP_ACCESS_TOKEN;
-    console.log("WHATSAPP_ACCESS_TOKEN =", process.env.WHATSAPP_ACCESS_TOKEN);
-console.log("N8N_ALLOWED_HOST =", process.env.N8N_ALLOWED_HOST);
-console.log("N8N_WHATSAPP_WEBHOOK_URL =", process.env.N8N_WHATSAPP_WEBHOOK_URL);
+    // 💡 Trace precisely which token value is picked up
+    if (!userMetaToken) {
+      console.warn("⚠️ WARNING: Frontend didn't send 'access_token' in the request body!");
+    }
 
+    const whatsappToken = userMetaToken || process.env.WHATSAPP_ACCESS_TOKEN;
+
+    console.log("FINAL SELECTED WHATSAPP_ACCESS_TOKEN =", whatsappToken);
 
     if (!whatsappToken) {
       return NextResponse.json(
@@ -47,63 +53,63 @@ console.log("N8N_WHATSAPP_WEBHOOK_URL =", process.env.N8N_WHATSAPP_WEBHOOK_URL);
 
     let finalChatbotId: string | null = null;
 
-// Check existing config
-const { data: existingConfig } = await supabase
-  .from("whatsapp_configs")
-  .select("chatbot_id")
-  .eq("user_id", client_id)
-  .maybeSingle();
+    // Check existing config
+    const { data: existingConfig } = await supabase
+      .from("whatsapp_configs")
+      .select("chatbot_id")
+      .eq("user_id", client_id)
+      .maybeSingle();
 
-if (existingConfig?.chatbot_id) {
-  finalChatbotId = existingConfig.chatbot_id;
-}
+    if (existingConfig?.chatbot_id) {
+      finalChatbotId = existingConfig.chatbot_id;
+    }
 
-// Find existing WhatsApp chatbot
-if (!finalChatbotId) {
-  const { data: bot } = await supabase
-    .from("chatbots")
-    .select("id")
-    .eq("user_id", client_id)
-    .eq("workflow_type", "whatsapp_only")
-    .maybeSingle();
+    // Find existing WhatsApp chatbot
+    if (!finalChatbotId) {
+      const { data: bot } = await supabase
+        .from("chatbots")
+        .select("id")
+        .eq("user_id", client_id)
+        .eq("workflow_type", "whatsapp_only")
+        .maybeSingle();
 
-  if (bot?.id) {
-    finalChatbotId = bot.id;
-  }
-}
+      if (bot?.id) {
+        finalChatbotId = bot.id;
+      }
+    }
 
-// Create chatbot if none exists
-if (!finalChatbotId) {
-  const { data: newBot, error } = await supabase
-    .from("chatbots")
-    .insert({
-      user_id: client_id,
-      name: "WhatsApp AI Bot",
-      welcome_message: "Hello! How can I help you today?",
-      model: "gpt-4o-mini",
-      temperature: 0.7,
-      active: true,
-      category: "booking",
-      source: "whatsapp",
-      workflow_type: "whatsapp_only",
-      is_system: true,
-    })
-    .select("id")
-    .single();
+    // Create chatbot if none exists
+    if (!finalChatbotId) {
+      const { data: newBot, error } = await supabase
+        .from("chatbots")
+        .insert({
+          user_id: client_id,
+          name: "WhatsApp AI Bot",
+          welcome_message: "Hello! How can I help you today?",
+          model: "gpt-4o-mini",
+          temperature: 0.7,
+          active: true,
+          category: "booking",
+          source: "whatsapp",
+          workflow_type: "whatsapp_only",
+          is_system: true,
+        })
+        .select("id")
+        .single();
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
+      if (error) {
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      }
 
-  finalChatbotId = newBot.id;
-}
+      finalChatbotId = newBot.id;
+    }
 
     // 3. Update Database Configurations
-    console.log("DEBUG: Saving payload:", { 
-  client_id, 
-  phone_number: body.phone_number, 
-  token_exists: !!whatsappToken 
-});
+    console.log("DEBUG: Saving payload to Supabase:", { 
+      client_id, 
+      phone_number: body.phone_number, 
+      token_value: whatsappToken 
+    });
 
     const { error: dbError } = await supabase
       .from("whatsapp_configs")
@@ -114,8 +120,8 @@ if (!finalChatbotId) {
           waba_id: waba_id,
           business_id: business_id || waba_id,
           wa_phone_number_id: phone_number_id,
-          phone_number: body.phone_number,         // Ensure frontend sends this!
-          whatsapp_access_token: whatsappToken,
+          phone_number: body.phone_number,         
+          whatsapp_access_token: whatsappToken, // 💡 Real token now persists safely
           status: "linking", 
           automation_enabled: true,
           workflow_type: "whatsapp_only",
@@ -126,10 +132,11 @@ if (!finalChatbotId) {
       );
 
     if (dbError) {
+      console.error("❌ SUPABASE WRITE ERROR:", dbError.message);
       return NextResponse.json({ error: dbError.message }, { status: 400 });
     }
 
-    // 4. STEP 2: Secure Phone Number Registration with Meta (Bypassed if test number)
+    // 4. STEP 2: Secure Phone Number Registration with Meta
     try {
       const sanitizedPhoneId = encodeURIComponent(phone_number_id);
       const targetUrl = `https://graph.facebook.com/v23.0/${sanitizedPhoneId}/register`;
@@ -149,7 +156,6 @@ if (!finalChatbotId) {
       );
       console.log("Successfully registered phone number with Meta gateway.");
     } catch (registerError: any) {
-      // Safe Log: If it's a Meta test number, we catch the error and continue onboarding anyway
       console.warn(
         "Registration endpoint skipped or not supported for this specific ID. Proceeding to activate setup.",
         registerError?.response?.data || registerError.message
@@ -178,4 +184,3 @@ if (!finalChatbotId) {
     );
   }
 }
-
