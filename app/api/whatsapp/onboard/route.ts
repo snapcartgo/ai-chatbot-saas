@@ -34,13 +34,69 @@ export async function POST(req: Request) {
 
     const whatsappToken = process.env.WHATSAPP_ACCESS_TOKEN;
     console.log("WHATSAPP_ACCESS_TOKEN =", process.env.WHATSAPP_ACCESS_TOKEN);
-    
+console.log("N8N_ALLOWED_HOST =", process.env.N8N_ALLOWED_HOST);
+console.log("N8N_WHATSAPP_WEBHOOK_URL =", process.env.N8N_WHATSAPP_WEBHOOK_URL);
+
+
     if (!whatsappToken) {
       return NextResponse.json(
         { error: "Server configuration error: Missing WhatsApp Access Token" }, 
         { status: 500 }
       );
     }
+
+    let finalChatbotId: string | null = null;
+
+// Check existing config
+const { data: existingConfig } = await supabase
+  .from("whatsapp_configs")
+  .select("chatbot_id")
+  .eq("user_id", client_id)
+  .maybeSingle();
+
+if (existingConfig?.chatbot_id) {
+  finalChatbotId = existingConfig.chatbot_id;
+}
+
+// Find existing WhatsApp chatbot
+if (!finalChatbotId) {
+  const { data: bot } = await supabase
+    .from("chatbots")
+    .select("id")
+    .eq("user_id", client_id)
+    .eq("workflow_type", "whatsapp_only")
+    .maybeSingle();
+
+  if (bot?.id) {
+    finalChatbotId = bot.id;
+  }
+}
+
+// Create chatbot if none exists
+if (!finalChatbotId) {
+  const { data: newBot, error } = await supabase
+    .from("chatbots")
+    .insert({
+      user_id: client_id,
+      name: "WhatsApp AI Bot",
+      welcome_message: "Hello! How can I help you today?",
+      model: "gpt-4o-mini",
+      temperature: 0.7,
+      active: true,
+      category: "booking",
+      source: "whatsapp",
+      workflow_type: "whatsapp_only",
+      is_system: true,
+    })
+    .select("id")
+    .single();
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  finalChatbotId = newBot.id;
+}
 
     // 3. Update Database Configurations
     console.log("DEBUG: Saving payload:", { 
@@ -54,6 +110,7 @@ export async function POST(req: Request) {
       .upsert(
         {
           user_id: client_id,
+          chatbot_id: finalChatbotId, 
           waba_id: waba_id,
           business_id: business_id || waba_id,
           wa_phone_number_id: phone_number_id,
