@@ -16,44 +16,53 @@ export async function POST(req: Request) {
     const phone_number_id = String(body.phone_number_id || "").trim();
     const business_id = String(body.business_id || "").trim();
     
-    // 💡 Extracted exactly from the client request payload
-    const userMetaToken = String(body.access_token || "").trim();
+    // This is the "AQK..." authorization code from the frontend
+    const oauthCode = String(body.access_token || "").trim();
 
-    // 1. Structural Validation Checks
-    if (!client_id) {
-      return NextResponse.json({ error: "Missing client_id" }, { status: 400 });
+    if (!client_id || !waba_id || !phone_number_id) {
+      return NextResponse.json({ error: "Missing required onboarding fields" }, { status: 400 });
     }
 
-    if (!waba_id || !phone_number_id) {
-      return NextResponse.json({ error: "Missing waba_id or phone_number_id" }, { status: 400 });
-    }
-
-    // 2. CodeQL SSRF Security Fix: Enforce strictly numeric IDs before injection
-    const isPureNumeric = /^\d+$/.test(phone_number_id);
-    const isPureNumericWaba = /^\d+$/.test(waba_id);
-    if (!isPureNumeric || !isPureNumericWaba) {
+    // Enforce strictly numeric IDs for security
+    if (!/^\d+$/.test(phone_number_id) || !/^\d+$/.test(waba_id)) {
       return NextResponse.json({ error: "Invalid ID format" }, { status: 400 });
     }
 
-    // 💡 Trace precisely which token value is picked up
-    if (!userMetaToken) {
-      console.warn("⚠️ WARNING: Frontend didn't send 'access_token' in the request body!");
+    let whatsappToken = "";
+
+    // 💡 STEP 1: Exchange the temporary "AQK..." code for a real Access Token
+    if (oauthCode && oauthCode.startsWith("AQ")) {
+      console.log("Exchanging Meta Auth Code for a real Access Token...");
+      try {
+        const tokenExchangeResponse = await axios.get(`https://graph.facebook.com/v23.0/oauth/access_token`, {
+          params: {
+            client_id: process.env.NEXT_PUBLIC_FACEBOOK_APP_ID, 
+            client_secret: process.env.META_APP_SECRET, // ⚠️ Make sure this is in your env!
+            code: oauthCode
+          }
+        });
+
+        // This is the actual permanent token (will start with EAAB...)
+        whatsappToken = tokenExchangeResponse.data.access_token;
+        console.log("✅ Successfully exchanged code for real Meta Access Token.");
+      } catch (exchangeError: any) {
+        console.error("❌ Meta Token Exchange Failed:", exchangeError?.response?.data || exchangeError.message);
+        return NextResponse.json({ 
+          error: "Failed to exchange Meta authentication code", 
+          details: exchangeError?.response?.data || exchangeError.message 
+        }, { status: 400 });
+      }
+    } else {
+      // Fallback to env token if no client code was passed
+      whatsappToken = process.env.WHATSAPP_ACCESS_TOKEN || "";
     }
 
-    const whatsappToken = userMetaToken || process.env.WHATSAPP_ACCESS_TOKEN;
-
-    console.log("FINAL SELECTED WHATSAPP_ACCESS_TOKEN =", whatsappToken);
-
-    if (!whatsappToken) {
-      return NextResponse.json(
-        { error: "Server configuration error: Missing WhatsApp Access Token" }, 
-        { status: 500 }
-      );
+    if (!whatsappToken || whatsappToken.startsWith("n8n")) {
+      return NextResponse.json({ error: "Invalid or missing final WhatsApp Access Token" }, { status: 500 });
     }
 
+    // STEP 2: Find or create Chatbot ID logic
     let finalChatbotId: string | null = null;
-
-    // Check existing config
     const { data: existingConfig } = await supabase
       .from("whatsapp_configs")
       .select("chatbot_id")
@@ -64,7 +73,6 @@ export async function POST(req: Request) {
       finalChatbotId = existingConfig.chatbot_id;
     }
 
-    // Find existing WhatsApp chatbot
     if (!finalChatbotId) {
       const { data: bot } = await supabase
         .from("chatbots")
@@ -78,9 +86,8 @@ export async function POST(req: Request) {
       }
     }
 
-    // Create chatbot if none exists
     if (!finalChatbotId) {
-      const { data: newBot, error } = await supabase
+      const { data: newBot, error: botErr } = await supabase
         .from("chatbots")
         .insert({
           user_id: client_id,
@@ -97,20 +104,11 @@ export async function POST(req: Request) {
         .select("id")
         .single();
 
-      if (error) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
-      }
-
+      if (botErr) return NextResponse.json({ error: botErr.message }, { status: 500 });
       finalChatbotId = newBot.id;
     }
 
-    // 3. Update Database Configurations
-    console.log("DEBUG: Saving payload to Supabase:", { 
-      client_id, 
-      phone_number: body.phone_number, 
-      token_value: whatsappToken 
-    });
-
+    // STEP 3: Upsert into Supabase with the REAL exchanged token
     const { error: dbError } = await supabase
       .from("whatsapp_configs")
       .upsert(
@@ -121,32 +119,22 @@ export async function POST(req: Request) {
           business_id: business_id || waba_id,
           wa_phone_number_id: phone_number_id,
           phone_number: body.phone_number,         
-          whatsapp_access_token: whatsappToken, // 💡 Real token now persists safely
+          whatsapp_access_token: whatsappToken, // 💡 Saves the real long token (EAAB...)
           status: "linking", 
           automation_enabled: true,
           workflow_type: "whatsapp_only",
         } as any,
-        {
-          onConflict: "user_id",
-        }
+        { onConflict: "user_id" }
       );
 
-    if (dbError) {
-      console.error("❌ SUPABASE WRITE ERROR:", dbError.message);
-      return NextResponse.json({ error: dbError.message }, { status: 400 });
-    }
+    if (dbError) return NextResponse.json({ error: dbError.message }, { status: 400 });
 
-    // 4. STEP 2: Secure Phone Number Registration with Meta
+    // STEP 4: Secure Phone Number Registration with Meta
     try {
       const sanitizedPhoneId = encodeURIComponent(phone_number_id);
-      const targetUrl = `https://graph.facebook.com/v23.0/${sanitizedPhoneId}/register`;
-      
       await axios.post(
-        targetUrl,
-        {
-          messaging_product: "whatsapp",
-          pin: "123456", 
-        },
+        `https://graph.facebook.com/v23.0/${sanitizedPhoneId}/register`,
+        { messaging_product: "whatsapp", pin: "123456" },
         {
           headers: {
             Authorization: `Bearer ${whatsappToken}`,
@@ -154,33 +142,19 @@ export async function POST(req: Request) {
           },
         }
       );
-      console.log("Successfully registered phone number with Meta gateway.");
     } catch (registerError: any) {
-      console.warn(
-        "Registration endpoint skipped or not supported for this specific ID. Proceeding to activate setup.",
-        registerError?.response?.data || registerError.message
-      );
+      console.warn("Registration endpoint skipped or test number warning:", registerError?.response?.data || registerError.message);
     }
 
-    // 5. Onboarding operations complete. Set status to active
+    // STEP 5: Set status to active
     await supabase
       .from("whatsapp_configs")
       .update({ status: "active" } as any)
       .eq("user_id", client_id);
 
-    return NextResponse.json({
-      success: true,
-    });
+    return NextResponse.json({ success: true });
   } catch (err: any) {
     console.error("ONBOARD ERROR:", err);
-
-    return NextResponse.json(
-      {
-        error: err.message || "Invalid request body",
-      },
-      {
-        status: 400,
-      }
-    );
+    return NextResponse.json({ error: err.message || "Invalid request" }, { status: 400 });
   }
 }
