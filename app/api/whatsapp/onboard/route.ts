@@ -42,6 +42,12 @@ export async function POST(req: Request) {
     }
 
     // 3. Update Database Configurations
+    console.log("DEBUG: Saving payload:", { 
+  client_id, 
+  phone_number: body.phone_number, 
+  token_exists: !!whatsappToken 
+});
+
     const { error: dbError } = await supabase
       .from("whatsapp_configs")
       .upsert(
@@ -50,7 +56,7 @@ export async function POST(req: Request) {
           waba_id: waba_id,
           business_id: business_id || waba_id,
           wa_phone_number_id: phone_number_id,
-          phone_number: body.phone_number,
+          phone_number: body.phone_number,         // Ensure frontend sends this!
           whatsapp_access_token: whatsappToken,
           status: "linking", 
           automation_enabled: true,
