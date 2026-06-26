@@ -53,7 +53,18 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ success: false, message: `Product not found: ${product_name}` });
       }
 
-      const product = products[0];
+      // Find the correct variant based on selected attributes
+const product =
+  products.find((p: any) => {
+    const attrs = p.attributes || {};
+
+    return Object.entries(selected_attributes).every(([key, value]) => {
+      return (
+        String(attrs[key] ?? "").toLowerCase() ===
+        String(value).toLowerCase()
+      );
+    });
+  }) || products[0];
 
 console.log("PRODUCT:", product);
 console.log("TYPE OF ATTRIBUTES:", typeof product.attributes);
