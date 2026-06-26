@@ -62,8 +62,18 @@ const invalidFields = [];
 for (const key in productAttributes) {
   if (!mergedAttributes[key]) {
     missingFields.push(key);
-  } else if (!productAttributes[key].includes(mergedAttributes[key])) {
-    invalidFields.push(key);
+  } else {
+    const expected = String(productAttributes[key] ?? "")
+      .toLowerCase()
+      .trim();
+
+    const received = String(mergedAttributes[key] ?? "")
+      .toLowerCase()
+      .trim();
+
+    if (expected !== received) {
+      invalidFields.push(key);
+    }
   }
 }
 
