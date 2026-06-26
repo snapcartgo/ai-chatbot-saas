@@ -54,28 +54,45 @@ export async function POST(req: NextRequest) {
       }
 
       const product = products[0];
-      const productAttributes = product.attributes || {};
+
+console.log("PRODUCT:", product);
+console.log("TYPE OF ATTRIBUTES:", typeof product.attributes);
+console.log("ATTRIBUTES:", product.attributes);
+
+const productAttributes = product.attributes || {};
+
+      console.log("PRODUCT ATTRIBUTES:", productAttributes);
+console.log("MERGED ATTRIBUTES:", mergedAttributes);
 
       const missingFields = [];
 const invalidFields = [];
 
 for (const key in productAttributes) {
-  if (!mergedAttributes[key]) {
+
+  const expected = String(productAttributes[key] ?? "")
+    .trim()
+    .toLowerCase();
+
+  const received = String(mergedAttributes[key] ?? "")
+    .trim()
+    .toLowerCase();
+
+  console.log({
+    key,
+    expected,
+    received
+  });
+
+  if (!received) {
     missingFields.push(key);
-  } else {
-    const expected = String(productAttributes[key] ?? "")
-      .toLowerCase()
-      .trim();
+    continue;
+  }
 
-    const received = String(mergedAttributes[key] ?? "")
-      .toLowerCase()
-      .trim();
-
-    if (expected !== received) {
-      invalidFields.push(key);
-    }
+  if (expected !== received) {
+    invalidFields.push(key);
   }
 }
+
 
 if (missingFields.length > 0) {
   return NextResponse.json({
