@@ -103,6 +103,9 @@ if (N8N_WEBHOOK) {
       });
 
       n8nData = await response.json();
+      console.log("Is Array:", Array.isArray(n8nData));
+      console.log("Length:", n8nData?.length);
+      console.log("N8N DATA:", JSON.stringify(n8nData, null, 2));
       console.log("N8N DATA:", JSON.stringify(n8nData, null, 2));
 console.log("AI RESPONSE:", n8nData.reply);
       
@@ -171,7 +174,37 @@ if (metaAccessToken) {
       body: JSON.stringify(payload),
     });
 
-    console.log(product.name, metaRes.status);
+    for (const product of n8nData) {
+
+  if (!product.image_url) continue;
+
+  console.log("Sending:", product.name);
+  console.log("Retailer:", product.retailer_id);
+
+  const payload = {
+    messaging_product: "whatsapp",
+    to: customerPhone,
+    type: "image",
+    image: {
+      link: product.image_url,
+      caption: `${product.name}
+SKU: ${product.retailer_id}
+Price: ${product.price}`,
+    },
+  };
+
+  const metaRes = await fetch(metaUrl, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${metaAccessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  console.log("Status:", metaRes.status);
+  console.log("Response:", await metaRes.text());
+}
     console.log(await metaRes.text());
   }
 
