@@ -146,14 +146,13 @@ console.log("Chatbot ID:", config.chatbot_id);
 if (metaAccessToken) {
   const metaUrl = `https://graph.facebook.com/v20.0/${phoneNumberId}/messages`;
 
-  const product = Array.isArray(n8nData)
-    ? n8nData[0]
-    : n8nData;
+  if (Array.isArray(n8nData) && n8nData.length > 0) {
 
-  let payload: any;
+  for (const product of n8nData) {
 
-  if (product?.image_url) {
-    payload = {
+    if (!product.image_url) continue;
+
+    const payload = {
       messaging_product: "whatsapp",
       to: customerPhone,
       type: "image",
@@ -162,18 +161,7 @@ if (metaAccessToken) {
         caption: `${product.name}\nPrice: ${product.price}`,
       },
     };
-  } else if (aiResponse) {
-    payload = {
-      messaging_product: "whatsapp",
-      to: customerPhone,
-      type: "text",
-      text: {
-        body: aiResponse,
-      },
-    };
-  }
 
-  if (payload) {
     const metaRes = await fetch(metaUrl, {
       method: "POST",
       headers: {
@@ -183,9 +171,55 @@ if (metaAccessToken) {
       body: JSON.stringify(payload),
     });
 
-    console.log("META STATUS:", metaRes.status);
-    console.log("META BODY:", await metaRes.text());
+    console.log(product.name, metaRes.status);
+    console.log(await metaRes.text());
   }
+
+} else if (n8nData?.image_url) {
+
+  const payload = {
+    messaging_product: "whatsapp",
+    to: customerPhone,
+    type: "image",
+    image: {
+      link: n8nData.image_url,
+      caption: `${n8nData.name}\nPrice: ${n8nData.price}`,
+    },
+  };
+
+  const metaRes = await fetch(metaUrl, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${metaAccessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  console.log(await metaRes.text());
+
+} else if (aiResponse) {
+
+  const payload = {
+    messaging_product: "whatsapp",
+    to: customerPhone,
+    type: "text",
+    text: {
+      body: aiResponse,
+    },
+  };
+
+  const metaRes = await fetch(metaUrl, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${metaAccessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  console.log(await metaRes.text());
+}
 }
   
 
