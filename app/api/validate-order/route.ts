@@ -56,8 +56,33 @@ export async function POST(req: NextRequest) {
       const product = products[0];
       const productAttributes = product.attributes || {};
 
-      // 2. Validation Logic (Simplified for brevity)
-      // ... [Keep your existing validation logic here] ...
+      const missingFields = [];
+const invalidFields = [];
+
+for (const key in productAttributes) {
+  if (!mergedAttributes[key]) {
+    missingFields.push(key);
+  } else if (!productAttributes[key].includes(mergedAttributes[key])) {
+    invalidFields.push(key);
+  }
+}
+
+if (missingFields.length > 0) {
+  return NextResponse.json({
+    success: false,
+    requires_selection: true,
+    missing_fields: missingFields,
+    available_options: productAttributes,
+    message: `Please select: ${missingFields.join(", ")}`,
+  });
+}
+
+if (invalidFields.length > 0) {
+  return NextResponse.json({
+    success: false,
+    message: `Invalid selection for: ${invalidFields.join(", ")}`,
+  });
+}
 
       // 3. Stock & Price Calculation
       const unitPrice = Number(product.price);
