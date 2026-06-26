@@ -104,9 +104,19 @@ if (!finalChatbotId) {
   finalChatbotId = newBot.id;
 }
 
+   console.log("=== BEFORE UPSERT ===");
+console.log({
+  whatsappToken,
+  phone_number: body.phone_number,
+  waba_id,
+  phone_number_id,
+  client_id,
+});
+
     // 3. Update Database Configurations
     const { error: dbError } = await supabase
       .from("whatsapp_configs")
+    
       
   .upsert(
     {
@@ -156,7 +166,8 @@ if (!finalChatbotId) {
         registerError?.response?.data || registerError.message
       );
     }
-
+    
+    
     // 5. Onboarding operations complete. Set status to active
     await supabase
       .from("whatsapp_configs")
