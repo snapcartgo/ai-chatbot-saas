@@ -8,6 +8,7 @@ const supabase = createClient(
 );
 
 export async function POST(req: Request) {
+  console.log("===== NEW ONBOARD ROUTE V5 =====");
   try {
     const body = await req.json();
 
