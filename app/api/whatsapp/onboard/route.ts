@@ -33,6 +33,7 @@ export async function POST(req: Request) {
     }
 
     const whatsappToken = process.env.WHATSAPP_ACCESS_TOKEN;
+    console.log("WHATSAPP_ACCESS_TOKEN =", whatsappToken);
     
     if (!whatsappToken) {
       return NextResponse.json(
