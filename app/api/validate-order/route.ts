@@ -9,15 +9,17 @@ const supabase = createClient(
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { session_id, items } = body;
+    const { session_id, items, confirmed } = body;
 
     if (!Array.isArray(items) || items.length === 0) {
       return NextResponse.json({ success: false, message: "No products provided." }, { status: 400 });
     }
 
-    // 1. Fetch Product and Check Attributes
+    const validatedItems = [];
+    let grandTotal = 0;
+
     for (const item of items) {
-      const { product_name, selected_attributes = {} } = item;
+      const { product_name, quantity, selected_attributes = {} } = item;
       
       const { data: products } = await supabase
         .from("products")
@@ -29,34 +31,53 @@ export async function POST(req: NextRequest) {
       }
 
       const product = products[0];
-      const requiredAttributes = Object.keys(product.attributes || {}); 
-      
-      // Check for missing attributes (e.g., color, size)
-      for (const attr of requiredAttributes) {
-        if (!selected_attributes[attr]) {
-          return NextResponse.json({
-            success: false,
-            message: `Please specify the ${attr} for ${product.name}. Available options: ${product.attributes[attr].join(", ")}`
-          });
+      const productAttributes = product.attributes || {};
+
+      // 1. Strict Attribute Validation
+      for (const key in productAttributes) {
+        const allowed = Array.isArray(productAttributes[key]) ? productAttributes[key] : [];
+        if (!selected_attributes[key]) {
+          return NextResponse.json({ success: false, message: `Please specify ${key} for ${product_name}. Available: ${allowed.join(", ")}` });
         }
       }
+
+      const subtotal = Number(product.price) * Number(quantity);
+      grandTotal += subtotal;
+
+      validatedItems.push({
+        product_id: product.id,
+        product_name: product.name,
+        quantity,
+        selected_attributes,
+        subtotal
+      });
     }
 
-    // 2. If we reach here, all attributes are present. Save directly.
-    const { error: upsertError } = await supabase
+    // 2. INTEGRATED CONFIRMATION GATE
+    if (!confirmed) {
+      return NextResponse.json({
+        success: true,
+        requires_confirmation: true,
+        summary: { items: validatedItems, total: grandTotal },
+        message: `You selected ${items.length} item(s). Total: $${grandTotal}. Please type 'confirm' to proceed.`,
+      });
+    }
+
+    // 3. FINAL SAVE
+    const { error } = await supabase
       .from("cart_sessions")
       .upsert({
         session_id: session_id,
-        selected_attributes: items[0].selected_attributes,
+        selected_attributes: validatedItems[0].selected_attributes,
         current_step: "collecting_user_details",
         updated_at: new Date().toISOString(),
       }, { onConflict: 'session_id' });
 
-    if (upsertError) throw upsertError;
+    if (error) throw error;
 
     return NextResponse.json({
       success: true,
-      message: "Order details confirmed. Kindly share your Name, Email, and Phone Number."
+      message: "Order confirmed. Please share your Name, Email, and Phone Number."
     });
 
   } catch (err: any) {
