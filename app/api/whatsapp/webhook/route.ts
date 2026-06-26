@@ -139,6 +139,10 @@ aiResponse =
   config.whatsapp_access_token || config.whatsapp_access_token || config.meta_access_token || ""
 ).trim();
 
+console.log("Saved WhatsApp Token:", config.whatsapp_access_token);
+console.log("Phone Number ID:", config.wa_phone_number_id);
+console.log("Chatbot ID:", config.chatbot_id);
+
 if (metaAccessToken) {
   const metaUrl = `https://graph.facebook.com/v20.0/${phoneNumberId}/messages`;
 
