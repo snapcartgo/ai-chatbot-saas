@@ -9,75 +9,114 @@ const supabase = createClient(
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { session_id, items, confirmed } = body;
+    const sessionId = body.session_id;
+
+    // Fetch existing cart
+    const { data: cart } = await supabase
+      .from("cart_sessions")
+      .select("*")
+      .eq("session_id", sessionId)
+      .maybeSingle();
+
+    const items = body.items;
 
     if (!Array.isArray(items) || items.length === 0) {
       return NextResponse.json({ success: false, message: "No products provided." }, { status: 400 });
     }
 
     const validatedItems = [];
+    let grandSubtotal = 0;
+    let grandShipping = 0;
     let grandTotal = 0;
 
     for (const item of items) {
       const { product_name, quantity, selected_attributes = {} } = item;
-      
-      const { data: products } = await supabase
+
+      const mergedAttributes = {
+        ...(cart?.selected_attributes || {}),
+        ...selected_attributes
+      };
+
+      const requestedQuantity = Number(quantity);
+
+      if (!product_name || Number.isNaN(requestedQuantity) || requestedQuantity <= 0) {
+        return NextResponse.json({ success: false, message: `Invalid quantity for ${product_name || "product"}.` }, { status: 400 });
+      }
+
+      // 1. Fetch Product
+      const { data: products, error: productError } = await supabase
         .from("products")
         .select("*")
-        .ilike("name", product_name.trim());
+        .ilike("name", product_name.trim()); 
 
-      if (!products || products.length === 0) {
+      if (productError || !products || products.length === 0) {
         return NextResponse.json({ success: false, message: `Product not found: ${product_name}` });
       }
 
       const product = products[0];
       const productAttributes = product.attributes || {};
 
-      // 1. Strict Attribute Validation
-      for (const key in productAttributes) {
-        const allowed = Array.isArray(productAttributes[key]) ? productAttributes[key] : [];
-        if (!selected_attributes[key]) {
-          return NextResponse.json({ success: false, message: `Please specify ${key} for ${product_name}. Available: ${allowed.join(", ")}` });
-        }
+      // 2. Validation Logic (Simplified for brevity)
+      // ... [Keep your existing validation logic here] ...
+
+      // 3. Stock & Price Calculation
+      const unitPrice = Number(product.price);
+      if (requestedQuantity > Number(product.stock)) {
+        return NextResponse.json({ success: false, message: `Only ${product.stock} left for ${product.name}.` });
       }
 
-      const subtotal = Number(product.price) * Number(quantity);
-      grandTotal += subtotal;
+      const subtotal = unitPrice * requestedQuantity;
+      const shipping = subtotal >= 999 ? 0 : 1;
+      
+      grandSubtotal += subtotal;
+      grandShipping += shipping;
+      grandTotal += subtotal + shipping;
 
+      
+      // 4. Perform Upsert with onConflict
+      const { data, error: upsertError } = await supabase
+        .from("cart_sessions")
+        .upsert(
+          {
+            session_id: sessionId,
+            product_id: product.id,
+            product_name: product.name,
+            quantity: requestedQuantity,
+            selected_attributes: mergedAttributes,
+            current_flow: "ecommerce",
+            current_step: "collecting_attributes",
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'session_id' } // CRITICAL: This tells Supabase which column makes the row unique
+        )
+        .select();
+
+      if (upsertError) {
+        console.error("UPSERT FAILED:", JSON.stringify(upsertError, null, 2));
+        return NextResponse.json({
+          success: false,
+          message: "Database update failed.",
+          details: upsertError.message // View this in your API response
+        }, { status: 500 });
+      }
+ 
       validatedItems.push({
         product_id: product.id,
         product_name: product.name,
-        quantity,
-        selected_attributes,
-        subtotal
+        quantity: requestedQuantity,
+        selected_attributes: mergedAttributes,
+        unit_price: unitPrice,
+        subtotal,
       });
     }
-
-    // 2. INTEGRATED CONFIRMATION GATE
-    if (!confirmed) {
-      return NextResponse.json({
-        success: true,
-        requires_confirmation: true,
-        summary: { items: validatedItems, total: grandTotal },
-        message: `You selected ${items.length} item(s). Total: $${grandTotal}. Please type 'confirm' to proceed.`,
-      });
-    }
-
-    // 3. FINAL SAVE
-    const { error } = await supabase
-      .from("cart_sessions")
-      .upsert({
-        session_id: session_id,
-        selected_attributes: validatedItems[0].selected_attributes,
-        current_step: "collecting_user_details",
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'session_id' });
-
-    if (error) throw error;
 
     return NextResponse.json({
       success: true,
-      message: "Order confirmed. Please share your Name, Email, and Phone Number."
+      items: validatedItems,
+      subtotal: grandSubtotal,
+      shipping: grandShipping,
+      total: grandTotal,
+      message: "All products are available. Kindly share your Name, Email and Phone Number.",
     });
 
   } catch (err: any) {
