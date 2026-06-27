@@ -53,23 +53,16 @@ const { data: products, error: productError } = await supabase
     `name.ilike.%${search}%,category.ilike.%${search}%,description.ilike.%${search}%`
   );
 
-      if (productError || !products || products.length === 0) {
-        return NextResponse.json({ success: false, message: `Product not found: ${product_name}` });
-      }
+if (productError || !products || products.length === 0) {
+  return NextResponse.json({
+    success: false,
+    message: `Product not found: ${product_name}`,
+  });
+}
 
-      // Find the correct variant based on selected attributes
-const product =
-  products.find((p: any) => {
-    const attrs = p.attributes || {};
+const product = products[0];
 
-    return Object.entries(selected_attributes).every(([key, value]) => {
-      return (
-        String(attrs[key] ?? "").toLowerCase() ===
-        String(value).toLowerCase()
-      );
-    });
-  }) || products[0];
-
+// Continue here...
 console.log("PRODUCT:", product);
 console.log("TYPE OF ATTRIBUTES:", typeof product.attributes);
 console.log("ATTRIBUTES:", product.attributes);
