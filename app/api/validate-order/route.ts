@@ -44,10 +44,14 @@ export async function POST(req: NextRequest) {
       }
 
       // 1. Fetch Product
-      const { data: products, error: productError } = await supabase
-        .from("products")
-        .select("*")
-        .ilike("name", product_name.trim()); 
+      const search = product_name.trim();
+
+const { data: products, error: productError } = await supabase
+  .from("products")
+  .select("*")
+  .or(
+    `name.ilike.%${search}%,category.ilike.%${search}%,description.ilike.%${search}%`
+  );
 
       if (productError || !products || products.length === 0) {
         return NextResponse.json({ success: false, message: `Product not found: ${product_name}` });
