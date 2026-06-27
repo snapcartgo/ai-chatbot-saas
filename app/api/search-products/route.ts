@@ -6,19 +6,51 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-export async function POST(req: NextRequest) {
+// Browser testing
+export async function GET() {
   try {
-    const body = await req.json();
-
-    const query = (body.query || "").trim();
-
-    const { data: products, error } = await supabase
+    const { data, error } = await supabase
       .from("products")
       .select("*");
 
     if (error) {
-      console.error(error);
+      return NextResponse.json(
+        {
+          success: false,
+          message: error.message,
+        },
+        { status: 500 }
+      );
+    }
 
+    return NextResponse.json({
+      success: true,
+      total_products: data?.length || 0,
+      products: data,
+    });
+  } catch (err: any) {
+    return NextResponse.json(
+      {
+        success: false,
+        message: err.message,
+      },
+      { status: 500 }
+    );
+  }
+}
+
+// AI / n8n will use this later
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json();
+
+    const query = body.query || "";
+
+    const { data, error } = await supabase
+      .from("products")
+      .select("*");
+
+    if (error) {
       return NextResponse.json(
         {
           success: false,
@@ -31,16 +63,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       query,
-      total_products: products.length,
-      products,
+      total_products: data?.length || 0,
+      products: data,
     });
   } catch (err: any) {
-    console.error(err);
-
     return NextResponse.json(
       {
         success: false,
-        message: err.message || "Internal Server Error",
+        message: err.message,
       },
       { status: 500 }
     );
