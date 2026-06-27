@@ -1,78 +1,44 @@
-import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { NextResponse } from 'next/server';
+// Use the relative path to avoid tsconfig alias issues
+import { createSupabaseServerClient } from '../../../lib/supabaseServer';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
 
-// Browser testing
-export async function GET() {
-  try {
-    const { data, error } = await supabase
-      .from("products")
-      .select("*");
+  // 1. Extract query parameters
+  const product_type = searchParams.get('product_type');
+  const color = searchParams.get('color');
+  const size = searchParams.get('size');
+  const price = searchParams.get('price');
+  const sku = searchParams.get('sku');
+  const category = searchParams.get('category');
 
-    if (error) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: error.message,
-        },
-        { status: 500 }
-      );
+  // 2. Initialize Supabase using your server client
+  const supabase = await createSupabaseServerClient();
+
+  // 3. Build the query
+  let query = supabase.from('products').select('*');
+
+  // 4. Apply conditional filters
+  if (product_type) query = query.eq('product_type', product_type);
+  if (color) query = query.eq('color', color);
+  if (size) query = query.eq('size', size);
+  if (sku) query = query.eq('sku', sku);
+  if (category) query = query.eq('category', category);
+  
+  if (price) {
+    const numericPrice = parseFloat(price);
+    if (!isNaN(numericPrice)) {
+      query = query.lte('price', numericPrice);
     }
-
-    return NextResponse.json({
-      success: true,
-      total_products: data?.length || 0,
-      products: data,
-    });
-  } catch (err: any) {
-    return NextResponse.json(
-      {
-        success: false,
-        message: err.message,
-      },
-      { status: 500 }
-    );
   }
-}
 
-// AI / n8n will use this later
-export async function POST(req: NextRequest) {
-  try {
-    const body = await req.json();
+  // 5. Execution and Response
+  const { data, error } = await query;
 
-    const query = body.query || "";
-
-    const { data, error } = await supabase
-      .from("products")
-      .select("*");
-
-    if (error) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: error.message,
-        },
-        { status: 500 }
-      );
-    }
-
-    return NextResponse.json({
-      success: true,
-      query,
-      total_products: data?.length || 0,
-      products: data,
-    });
-  } catch (err: any) {
-    return NextResponse.json(
-      {
-        success: false,
-        message: err.message,
-      },
-      { status: 500 }
-    );
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
+
+  return NextResponse.json({ data });
 }
