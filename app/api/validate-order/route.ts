@@ -7,6 +7,7 @@ const supabase = createClient(
 );
 
 export async function POST(req: NextRequest) {
+  console.log("===== NEW VALIDATE ORDER API V5 =====");
   try {
     const body = await req.json();
     const sessionId = body.session_id;
@@ -67,57 +68,32 @@ console.log("PRODUCT:", product);
 console.log("TYPE OF ATTRIBUTES:", typeof product.attributes);
 console.log("ATTRIBUTES:", product.attributes);
 
-const productAttributes = product.attributes || {};
+const requiredFields = product.required_fields || [];
+const availableOptions = product.allowed_options || {};
 
-      console.log("PRODUCT ATTRIBUTES:", productAttributes);
+  
 console.log("MERGED ATTRIBUTES:", mergedAttributes);
 
-      const missingFields = [];
-const invalidFields = [];
+      const missingFields: string[] = [];
 
-for (const key in productAttributes) {
-
-  const expected = String(productAttributes[key] ?? "")
-    .trim()
-    .toLowerCase();
-
-  const received = String(mergedAttributes[key] ?? "")
-    .trim()
-    .toLowerCase();
-
-  console.log({
-    key,
-    expected,
-    received
-  });
-
-  if (!received) {
-    missingFields.push(key);
-    continue;
-  }
-
-  if (expected !== received) {
-    invalidFields.push(key);
+for (const field of requiredFields) {
+  if (!mergedAttributes[field]) {
+    missingFields.push(field);
   }
 }
-
 
 if (missingFields.length > 0) {
   return NextResponse.json({
     success: false,
     requires_selection: true,
     missing_fields: missingFields,
-    available_options: productAttributes,
-    message: `Please select: ${missingFields.join(", ")}`,
+    available_options: availableOptions,
+    message: `WOODPETRA TEST V5: Please select ${missingFields.join(", ")}`
   });
 }
 
-if (invalidFields.length > 0) {
-  return NextResponse.json({
-    success: false,
-    message: `Invalid selection for: ${invalidFields.join(", ")}`,
-  });
-}
+
+
 
       // 3. Stock & Price Calculation
       const unitPrice = Number(product.price);
