@@ -33,10 +33,7 @@ export async function POST(req: NextRequest) {
     for (const item of items) {
       const { product_name, quantity, selected_attributes = {} } = item;
 
-      const mergedAttributes = {
-        ...(cart?.selected_attributes || {}),
-        ...selected_attributes
-      };
+      const mergedAttributes = selected_attributes || {};
 
       const requestedQuantity = Number(quantity);
 
@@ -61,7 +58,24 @@ if (productError || !products || products.length === 0) {
   });
 }
 
-const product = products[0];
+let product = products[0];
+
+// If the user has already selected attributes,
+// try to find the exact matching variant.
+if (Object.keys(selected_attributes).length > 0) {
+  const matchedProduct = products.find((p: any) => {
+    return Object.entries(selected_attributes).every(([key, value]) => {
+      return (
+        String(p.attributes?.[key] || "").toLowerCase() ===
+        String(value).toLowerCase()
+      );
+    });
+  });
+
+  if (matchedProduct) {
+    product = matchedProduct;
+  }
+}
 
 // Continue here...
 console.log("PRODUCT:", product);
@@ -88,7 +102,7 @@ if (missingFields.length > 0) {
     requires_selection: true,
     missing_fields: missingFields,
     available_options: availableOptions,
-    message: `WOODPETRA TEST V5: Please select ${missingFields.join(", ")}`
+    message: `Please select ${missingFields.join(", ")}`
   });
 }
 
