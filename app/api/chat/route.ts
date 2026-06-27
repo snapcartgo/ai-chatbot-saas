@@ -12,7 +12,6 @@ const extractUTR = (text: string) => {
   return match ? match[0] : null;
 };
 
-// Fixed error logging pattern for Supabase
 async function saveMessage(data: {
   user_id: string | null;
   bot_id: string | null;
@@ -48,7 +47,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // Safely parse JSON body to prevent crashes if body is missing
     let body;
     try {
       body = await req.json();
@@ -71,7 +69,6 @@ export async function POST(req: Request) {
     const audio_type = body.audio_type || null;
     const audio_data_url = body.audio_data_url || null;
 
-    // Use raw text input if available; prioritize showing attachments if input string is clean text fallback
     const message =
       rawMessage ||
       (audio_data_url
@@ -90,7 +87,6 @@ export async function POST(req: Request) {
     const userMsg = String(message).toLowerCase();
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "https://woodpetra.in";
 
-    // UTR Verification Engine
     const detectedUTR = extractUTR(message);
 
     if (detectedUTR) {
@@ -179,20 +175,47 @@ export async function POST(req: Request) {
       );
     }
 
-    // 1. Safe extraction logic to flatten any nested arrays/objects coming out of n8n
+    // --- CLEANED EXTRACTION LOGIC ---
+    // --- CLEANED EXTRACTION LOGIC ---
     let data: any = {};
+    let fallbackProductsArray: any[] = [];
+
     if (Array.isArray(rawData)) {
+      // If n8n returns a list of separate execution items, save the list directly for a carousel
+      fallbackProductsArray = rawData.map(item => item.json || item);
+      
       const firstLevel = rawData[0];
       if (Array.isArray(firstLevel)) {
         data = firstLevel[0]?.json || firstLevel[0] || {};
       } else if (firstLevel && typeof firstLevel === "object") {
         data = firstLevel.json || firstLevel || {};
+      } else {
+        data = rawData;
       }
     } else if (rawData && typeof rawData === "object") {
       data = rawData.json || rawData;
     }
 
-    // 2. Compute intent validations
+    // 1. Check standard keys, or fall back to the execution items array we mapped above
+    const products = Array.isArray(data) 
+      ? data 
+      : (data?.data || data?.products || fallbackProductsArray);
+
+    // 2. If multiple items are present (items > 1), strictly render the carousel layout
+    if (products.length > 1) {
+      return NextResponse.json({
+        type: "carousel",
+        items: products.map((p: any) => ({
+          name: p.name || p.product_name || "Product",
+          price: p.price || null,
+          image_url: p.image_url || p.imageUrl || null,
+          product_url: p.product_url || p.productUrl || p.website_url || "",
+          description: p.description || null
+        })),
+        message: "Here are the products we found:"
+      });
+    }
+    // 3. Fallback logic if it's a single item object or string response
     const isProductIntent = data?.type === "product" || !!data?.product_name || !!data?.name;
     const isCategoryIntent = data?.type === "category" || /category|show collection|browse/i.test(userMsg);
 
@@ -207,9 +230,7 @@ export async function POST(req: Request) {
         ? "Here is what we found in our collection:"
         : "No response";
 
-    const paymentLink =
-      typeof data?.payment_link === "string" ? data.payment_link : null;
-
+    const paymentLink = typeof data?.payment_link === "string" ? data.payment_link : null;
     const productUrl =
       typeof data?.product_url === "string" 
         ? data.product_url 
@@ -218,8 +239,7 @@ export async function POST(req: Request) {
         : null;
 
     let intent = null;
-    let redirectUrl =
-      typeof data?.redirect_url === "string" ? data.redirect_url : null;
+    let redirectUrl = typeof data?.redirect_url === "string" ? data.redirect_url : null;
 
     if (!redirectUrl) {
       if (/plan|billing/.test(userMsg)) {
@@ -267,7 +287,6 @@ export async function POST(req: Request) {
       }
     }
 
-    // --- SAFELY EXTRACT IMAGE SOURCE (Only if it's NOT a pure category request) ---
     let finalImageUrl = null;
     if (!isCategoryIntent) {
       if (typeof data?.image_url === "string") {
@@ -281,95 +300,28 @@ export async function POST(req: Request) {
       }
     }
 
-    // --- DIRECT LINK PASS-THROUGH (CRITICAL FIX) ---
-    // --- DIRECT LINK PASS-THROUGH (FIXED) ---
-        const extractedCategory =
-          typeof data?.category === "string"
-            ? data.category.trim()
-            : null;
+    const extractedCategory =
+      typeof data?.category === "string" ? data.category.trim() : null;
 
-        // NEVER generate product URLs.
-        // ONLY use what comes from n8n / AI / Knowledge Base.
-        let finalProductUrl = "";
-
-        if (typeof productUrl === "string") {
-          finalProductUrl = productUrl.trim();
-        }
-
-        // If AI did not provide a URL, leave it empty.
-        // Do NOT generate:
-        /*
-          /product-category/...
-          /product/...
-        */
+    let finalProductUrl = "";
+    if (typeof productUrl === "string") {
+      finalProductUrl = productUrl.trim();
+    }
 
     return NextResponse.json({
-  type: isProductIntent || isCategoryIntent ? "product" : "text",
-
-  reply:
-    isProductIntent || isCategoryIntent
-      ? null
-      : productMessage,
-
-  message: productMessage,
-
-  name:
-    isProductIntent || isCategoryIntent
-      ? (
-          typeof data?.name === "string"
-            ? data.name
-            : typeof data?.product_name === "string"
-            ? data.product_name
-            : extractedCategory
-        )
-      : null,
-
-  description:
-    isProductIntent || isCategoryIntent
-      ? (
-          typeof data?.description === "string"
-            ? data.description
-            : null
-        )
-      : null,
-
-  price:
-    isProductIntent
-      ? (
-          typeof data?.price === "string" ||
-          typeof data?.price === "number"
-            ? data.price
-            : null
-        )
-      : null,
-
-  image_url:
-    isProductIntent || isCategoryIntent
-      ? finalImageUrl
-      : null,
-
-  imageUrl:
-    isProductIntent || isCategoryIntent
-      ? finalImageUrl
-      : null,
-
-  category:
-    isProductIntent || isCategoryIntent
-      ? extractedCategory
-      : null,
-
-  // IMPORTANT:
-  // Return ONLY the URL supplied by the AI/KB.
-  // Never manufacture one.
-  product_url:
-    isProductIntent || isCategoryIntent
-      ? finalProductUrl
-      : "",
-
-  payment_link: paymentLink,
-  intent,
-  redirect_url: redirectUrl,
-});
+      type: isProductIntent || isCategoryIntent ? "product" : "text",
+      reply: isProductIntent || isCategoryIntent ? null : productMessage,
+      message: productMessage,
+      name: isProductIntent || isCategoryIntent ? (data?.name || data?.product_name || extractedCategory) : null,
+      description: isProductIntent || isCategoryIntent ? (data?.description || null) : null,
+      price: isProductIntent ? (data?.price || null) : null,
+      image_url: isProductIntent || isCategoryIntent ? finalImageUrl : null,
+      imageUrl: isProductIntent || isCategoryIntent ? finalImageUrl : null,
+      product_url: isProductIntent || isCategoryIntent ? finalProductUrl : "",
+      payment_link: paymentLink,
+      intent,
+      redirect_url: redirectUrl,
+    });
 
   } catch (error) {
     console.error("Fatal Route Failure:", error);
