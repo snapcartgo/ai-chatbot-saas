@@ -8,29 +8,34 @@ export async function GET(request: Request) {
   const category = searchParams.get('category');
   const product_type = searchParams.get('product_type');
   const q = searchParams.get('q'); 
-  const color = searchParams.get('color'); // <--- ADD THIS
+  const color = searchParams.get('color');
+  const user_id = searchParams.get('user_id'); // <--- CRITICAL: Get user_id from query string
 
-  // 2. Initialize Supabase
+  // 2. Enforce tenancy boundaries immediately
+  if (!user_id) {
+    return NextResponse.json({ error: "Missing tenant user_id authorization context." }, { status: 400 });
+  }
+
+  // 3. Initialize Supabase
   const supabase = await createSupabaseServerClient();
 
-  // 3. Build the query
-  let query = supabase.from('products').select('*');
+  // 4. Build the query and mandate user_id ownership immediately
+  let query = supabase.from('products').select('*').eq('user_id', user_id); // <--- CRITICAL FIX
 
-  // 4. Apply conditional filters
+  // 5. Apply conditional filters
   if (category) query = query.ilike('category', `%${category}%`);
   if (product_type) query = query.ilike('product_type', `%${product_type}%`);
   
-  // <--- ADD THIS FILTER HERE
   if (color && color !== "") {
     query = query.ilike('color', `%${color}%`);
   }
 
-  // 5. Corrected General Search using .or()
+  // 6. General Search using grouped .or() validation
   if (q) {
     query = query.or(`name.ilike.%${q}%,description.ilike.%${q}%`);
   }
 
-  // 6. Execution and Response
+  // 7. Execution and Response
   const { data, error } = await query;
 
   if (error) {
