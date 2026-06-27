@@ -7,7 +7,8 @@ export async function GET(request: Request) {
   // 1. Extract query parameters
   const category = searchParams.get('category');
   const product_type = searchParams.get('product_type');
-  const q = searchParams.get('q'); // Combined search parameter
+  const q = searchParams.get('q'); 
+  const color = searchParams.get('color'); // <--- ADD THIS
 
   // 2. Initialize Supabase
   const supabase = await createSupabaseServerClient();
@@ -18,9 +19,13 @@ export async function GET(request: Request) {
   // 4. Apply conditional filters
   if (category) query = query.ilike('category', `%${category}%`);
   if (product_type) query = query.ilike('product_type', `%${product_type}%`);
+  
+  // <--- ADD THIS FILTER HERE
+  if (color && color !== "") {
+    query = query.ilike('color', `%${color}%`);
+  }
 
   // 5. Corrected General Search using .or()
-  // Syntax: 'column.ilike.%value%,column.ilike.%value%'
   if (q) {
     query = query.or(`name.ilike.%${q}%,description.ilike.%${q}%`);
   }
