@@ -24,13 +24,19 @@ type Message = {
   actionLabel?: string;
   imagePreviewUrl?: string;
   imageName?: string;
-  messageType?: "text" | "product";
+  messageType?: "text" | "product" | "carousel";
   productName?: string;
   productDescription?: string;
   productPrice?: number | string;
   productImageUrl?: string;
   productCategory?: string;
   productUrl?: string;
+  items?: Array<{
+    name: string;
+    image_url?: string;
+    price?: number | string;
+    product_url?: string;
+  }>;
 };
 
 type EnterpriseImageAttachment = {
@@ -319,7 +325,7 @@ export default function ChatWidget({
 
     try {
       if (recognitionRef.current) {
-        recognitionRef.current.abort(); // Clears hardware locks immediately
+        recognitionRef.current.abort();
       }
     } catch {}
 
@@ -338,7 +344,6 @@ export default function ChatWidget({
       return;
     }
 
-    // Protect against stacking duplicate engine creations
     try {
       if (recognitionRef.current) {
         recognitionRef.current.abort();
@@ -348,7 +353,6 @@ export default function ChatWidget({
     const recognition = new RecognitionCtor();
     recognition.lang = niche === "ecommerce" ? "en-US" : "en-IN";
     
-    // Changing this to false strictly solves mobile duplication bugs
     recognition.interimResults = false; 
     recognition.continuous = false;
     recognition.maxAlternatives = 1;
@@ -366,7 +370,6 @@ export default function ChatWidget({
       const speechToText = event.results[0]?.[0]?.transcript || "";
       if (!speechToText) return;
 
-      // Clean text sequence normalization
       const cleanSentence = normalizeTranscript(speechToText);
 
       setUserInput((prev) => {
@@ -470,7 +473,7 @@ export default function ChatWidget({
       return;
     }
 
-    stopRecognition(); // Stop execution before running API routes
+    stopRecognition();
 
     let uniqueSessionId = localStorage.getItem(`chat_session_${activeBotId}`);
     if (!uniqueSessionId) {
@@ -564,24 +567,39 @@ export default function ChatWidget({
       let actionLabel: string | undefined;
 
       if (safeActionUrl) {
-  const lowerUrl = safeActionUrl.toLowerCase();
+        const lowerUrl = safeActionUrl.toLowerCase();
 
-  if (
-    lowerUrl.includes("/pay") ||
-    lowerUrl.includes("payu") ||
-    lowerUrl.includes("paypal") ||
-    lowerUrl.includes("payment")
-  ) {
-    actionLabel = "Pay Now";
-  } else if (data.type === "product" || data.name) {
-    actionLabel = "View Product";
-  } else if (lowerUrl.includes("/contact")) {
-    actionLabel = "Contact Us";
-  } else {
-    actionLabel = "Open Page";
-  }
-}
+        if (
+          lowerUrl.includes("/pay") ||
+          lowerUrl.includes("payu") ||
+          lowerUrl.includes("paypal") ||
+          lowerUrl.includes("payment")
+        ) {
+          actionLabel = "Pay Now";
+        } else if (data.type === "product" || data.name) {
+          actionLabel = "View Product";
+        } else if (lowerUrl.includes("/contact")) {
+          actionLabel = "Contact Us";
+        } else {
+          actionLabel = "Open Page";
+        }
+      }
 
+      // 1. Carousel Payload State Interceptor
+      if (data.type === "carousel" || data.messageType === "carousel" || Array.isArray(data.items)) {
+        setMessages([
+          ...newMessages,
+          {
+            role: "assistant",
+            messageType: "carousel",
+            content: data.message || "Here are the products we found:",
+            items: data.items || [],
+          },
+        ]);
+        return;
+      }
+
+      // 2. Single Product Layout State Handler
       if (data.type === "product" || data.name || data.product_name || data.price || data.product_url || data.productUrl) {
         const finalActionLabel = actionLabel || "View Product";
         const absoluteProductUrl = safeActionUrl || redirectCandidate;
@@ -623,6 +641,7 @@ export default function ChatWidget({
         return;
       }
 
+      // 3. Fallback Regular Text Message Handler
       setMessages([
         ...newMessages,
         {
@@ -685,295 +704,103 @@ export default function ChatWidget({
   const chatPanel = (
     <div
       className={`flex flex-col overflow-hidden border bg-white shadow-2xl transition-all duration-300 ${
-        isEmbed
-          ? "h-full w-full rounded-2xl"
-          : "h-[450px] w-[92vw] rounded-2xl sm:w-[350px]"
+        isEmbed ? "h-full w-full rounded-2xl" : "h-[450px] w-[92vw] rounded-2xl sm:w-[350px]"
       }`}
       style={isEmbed ? { height: "100%" } : {}}
     >
+      {/* Header */}
       <div className="flex shrink-0 items-center justify-between bg-blue-600 px-4 py-3 text-white">
         <span className="text-sm font-semibold md:text-base">AI Assistant</span>
         {!isEmbed && (
-          <button
-            onClick={() => setOpen(false)}
-            className="text-lg leading-none hover:opacity-80"
-            aria-label="Close chat"
-          >
+          <button onClick={() => setOpen(false)} className="text-lg leading-none hover:opacity-80" aria-label="Close chat">
             x
           </button>
         )}
       </div>
 
-      <div
-        ref={scrollRef}
-        className="flex-1 space-y-3 overflow-y-auto bg-gray-50 p-3 overscroll-contain"
-      >
-        {messages.map((m, i) => {
-          const { safeUrl, cleanText } = processMessageContent(m.content);
-          
-          const actionUrl = m.actionUrl || safeUrl;
-          const productActionUrl = m.productUrl || m.actionUrl || actionUrl;
-          
-          const isPaymentButton =
-  actionUrl &&
-  (
-    actionUrl.toLowerCase().includes("pay") ||
-    actionUrl.toLowerCase().includes("payu") ||
-    actionUrl.toLowerCase().includes("paypal") ||
-    actionUrl.toLowerCase().includes("checkout") ||
-    actionUrl.toLowerCase().includes("payment")
-  );
-
-const actionLabel =
-  m.actionLabel ||
-  (isPaymentButton
-    ? "Pay Now"
-    : m.messageType === "product"
-    ? "View Product"
-    : "Open Page");
-          const formattedPrice = formatPrice(m.productPrice);
-
-          return (
-            <div
-              key={i}
-              className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}
-            >
-              <div
-                className={`max-w-[85%] whitespace-pre-wrap break-words rounded-xl p-2 text-xs shadow-sm md:text-sm ${
-                  m.role === "user"
-                    ? "bg-blue-600 text-white"
-                    : "border bg-white text-gray-800"
-                }`}
-              >
-                {m.messageType === "product" ? (
-                  <div className="w-full min-w-[220px] overflow-hidden rounded-xl border border-gray-200 bg-white text-left">
-                    {m.productImageUrl && (
-                      <img
-                        src={m.productImageUrl}
-                        alt={m.productName || "Product"}
-                        className="h-40 w-full object-cover"
-                      />
-                    )}
-
-                    <div className="space-y-2 p-3">
-                      {m.productName && (
-                        <div className="text-base font-bold text-gray-900">
-                          {m.productName}
-                        </div>
+      {/* Messages Area */}
+      <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto bg-gray-50 p-3 overscroll-contain">
+        {messages.map((m, i) => (
+          <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+            {/* Message Bubble Container */}
+            <div className={`max-w-[85%] whitespace-pre-wrap break-words rounded-xl p-2 text-xs shadow-sm ${
+              m.role === "user" ? "bg-blue-600 text-white" : "border bg-white text-gray-800"
+            }`}>
+              
+              {/* Conditional Message Rendering */}
+              {(m.messageType === "carousel" || (m as any).type === "carousel") && m.items ? (
+                /* 1. Carousel Layout */
+                <div className="flex gap-4 overflow-x-auto pb-2">
+                  {m.items.map((product, idx) => (
+                    <div key={idx} className="w-[180px] min-w-[180px] rounded-lg border bg-white p-2 text-gray-800">
+                      {product.image_url && (
+                        <img src={product.image_url} className="h-24 w-full object-cover rounded" alt={product.name} />
                       )}
-
-                      {formattedPrice && (
-                        <div className="text-sm font-semibold text-blue-700">
-                          {formattedPrice}
-                        </div>
-                      )}
-
-                      {m.productDescription && (
-                        <div className="text-sm leading-relaxed text-gray-600">
-                          {m.productDescription}
-                        </div>
-                      )}
-
-                      {m.productCategory && (
-                        <div className="text-xs text-gray-400">
-                          {m.productCategory}
-                        </div>
-                      )}
-
-                      {m.content && (
-                        <div className="border-t border-gray-100 pt-2 text-sm text-gray-700">
-                          {renderTextWithLinks(m.content)}
-                        </div>
-                      )}
-
-                      {productActionUrl ? (
-                        <a
-                          href={productActionUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-blue-600 underline break-all block"
-                        >
-                          {productActionUrl}
+                      <div className="font-bold mt-1 truncate">{product.name}</div>
+                      {product.price && <div className="text-blue-600 font-semibold">Rs.{product.price}</div>}
+                      {product.product_url && (
+                        <a href={product.product_url} target="_blank" rel="noopener noreferrer" className="mt-1 block text-center rounded bg-blue-50 py-1 text-[11px] font-medium text-blue-600 hover:bg-blue-100">
+                          View Product
                         </a>
-                      ) : (
-                        <div className="text-red-500">
-                          URL NOT FOUND
-                        </div>
                       )}
                     </div>
-                  </div>
-                ) : (
-                  <>
-                    <div>
-                      {safeUrl
-                        ? "Click below to complete your order:"
-                        : renderTextWithLinks(cleanText)}
-                    </div>
+                  ))}
+                </div>
+              ) : m.messageType === "product" || (m as any).type === "product" ? (
+                /* 2. Single Product Layout */
+                <div className="w-full min-w-[220px]">
+                  <div className="font-bold text-sm">{m.productName}</div>
+                  {m.productDescription && <p className="text-gray-500 my-1">{m.productDescription}</p>}
+                  {m.productPrice && <div className="font-semibold text-blue-600">Rs.{m.productPrice}</div>}
+                </div>
+              ) : (
+                /* 3. Fallback/Text Layout */
+                <div>{m.content}</div>
+              )}
 
-                    {m.imagePreviewUrl && (
-                      <div className="mt-2 overflow-hidden rounded-lg border border-gray-200 bg-white">
-                        <img
-                          src={m.imagePreviewUrl}
-                          alt={m.imageName || "Uploaded image"}
-                          className="max-h-40 w-full object-cover"
-                        />
-                        {m.imageName && (
-                          <div className="border-t border-gray-200 px-2 py-1 text-[10px] text-gray-500">
-                            {m.imageName}
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {actionUrl && (
-                      <div className="mt-2">
-                        <button
-                          type="button"
-                          onClick={() => handleOpen(actionUrl)}
-                          className="w-full rounded-lg bg-blue-600 px-4 py-2 text-center font-bold text-white transition hover:bg-blue-700"
-                        >
-                          {actionLabel}
-                        </button>
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
             </div>
-          );
-        })}
-
-        {isLoading && (
-          <div className="animate-pulse text-xs text-gray-400">
-            Assistant is typing...
           </div>
-        )}
+        ))}
+        {isLoading && <div className="animate-pulse text-xs text-gray-400">Assistant is typing...</div>}
       </div>
 
+      {/* Footer Area */}
       <div className="shrink-0 border-t bg-white p-2">
         {isEnterprisePlan && (
-          <div className="mb-2 flex items-center gap-2">
-            <IconButton
-              onClick={() => fileInputRef.current?.click()}
-              title="Upload image"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                className="h-5 w-5"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-              >
-                <rect x="3" y="5" width="18" height="14" rx="2" />
-                <circle cx="8.5" cy="10.5" r="1.5" />
-                <path d="M21 15l-5-5L5 21" />
-              </svg>
-            </IconButton>
-
-            <IconButton
-              onClick={toggleVoiceRecognition}
-              title={isRecording ? "Stop voice input" : "Voice to text"}
-              active={isRecording}
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                className="h-5 w-5"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-              >
-                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-                <path d="M19 10a7 7 0 0 1-14 0" />
-                <path d="M12 19v4" />
-                <path d="M8 23h8" />
-              </svg>
-            </IconButton>
-
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={handleImageSelection}
-            />
-
-            <div className="text-[11px] text-blue-700">
-              {isRecording ? "Listening..." : "Enterprise tools"}
+          <>
+            <div className="mb-2 flex items-center gap-2">
+              <IconButton onClick={() => fileInputRef.current?.click()} title="Upload image">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="5" width="18" height="14" rx="2" /><circle cx="8.5" cy="10.5" r="1.5" /><path d="M21 15l-5-5L5 21" /></svg>
+              </IconButton>
+              <IconButton onClick={toggleVoiceRecognition} title={isRecording ? "Stop voice" : "Voice"} active={isRecording}>
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" /><path d="M19 10a7 7 0 0 1-14 0" /><path d="M12 19v4" /><path d="M8 23h8" /></svg>
+              </IconButton>
+              <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageSelection} />
+              <div className="text-[11px] text-blue-700">{isRecording ? "Listening..." : "Enterprise tools"}</div>
             </div>
-          </div>
-        )}
-
-        {isEnterprisePlan && enterpriseImage && (
-          <div className="mb-2 flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-2 py-2 text-[11px] text-gray-600">
-            <span className="truncate pr-2">
-              Attached image: {enterpriseImage.name}
-            </span>
-            <button
-              type="button"
-              onClick={clearImageAttachment}
-              className="rounded bg-white px-2 py-1 text-gray-500 hover:text-red-600"
-            >
-              Remove
-            </button>
-          </div>
+            {enterpriseImage && (
+              <div className="mb-2 flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-2 py-2 text-[11px] text-gray-600">
+                <span className="truncate pr-2">Attached: {enterpriseImage.name}</span>
+                <button type="button" onClick={clearImageAttachment} className="rounded bg-white px-2 py-1 text-gray-500 hover:text-red-600">Remove</button>
+              </div>
+            )}
+          </>
         )}
 
         <div className="flex gap-2">
-          <input
-            type="text"
-            value={userInput}
-            onChange={(e) => {
-              setUserInput(e.target.value);
-              finalTranscriptRef.current = e.target.value;
-            }}
-            onPaste={handlePaste}
-            onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
-            placeholder={
-              isEnterprisePlan
-                ? "Type, paste image, speak, or upload image..."
-                : "Type your message..."
-            }
-            className="flex-1 rounded-md border px-3 py-2 text-xs text-black focus:outline-none focus:ring-2 focus:ring-blue-500 md:text-sm"
-          />
-          <button
-            onClick={handleSendMessage}
-            className="rounded-md bg-blue-600 px-3 py-2 text-xs text-white transition hover:bg-blue-700 md:text-sm"
-          >
-            Send
-          </button>
+          <input type="text" value={userInput} onChange={(e) => setUserInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleSendMessage()} placeholder="Type your message..." className="flex-1 rounded-md border px-3 py-2 text-xs text-black focus:outline-none focus:ring-2 focus:ring-blue-500 md:text-sm" />
+          <button onClick={handleSendMessage} className="rounded-md bg-blue-600 px-3 py-2 text-xs text-white transition hover:bg-blue-700 md:text-sm">Send</button>
         </div>
-
-        {plan === "free" && (
-          <div className="mt-1 text-center text-[10px] text-gray-400">
-            Powered by{" "}
-            <a
-              href="https://woodpetra.in"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="font-medium hover:text-blue-600"
-            >
-              aiautomation
-            </a>
-          </div>
-        )}
       </div>
     </div>
   );
 
-  if (isEmbed) {
-    return <div className="h-full w-full">{chatPanel}</div>;
-  }
+  if (isEmbed) return <div className="h-full w-full">{chatPanel}</div>;
 
   return (
     <div className="fixed bottom-4 right-4 z-[9999] font-sans">
       {open && chatPanel}
-      <button
-        onClick={() => setOpen((prev) => !prev)}
-        className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-600 text-xl text-white shadow-lg transition hover:scale-105"
-        aria-label="Toggle chat"
-      >
+      <button onClick={() => setOpen((prev) => !prev)} className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-600 text-xl text-white shadow-lg transition hover:scale-105">
         💬
       </button>
     </div>
