@@ -13,11 +13,7 @@ export async function POST(req: NextRequest) {
     const sessionId = body.session_id;
 
     // Fetch existing cart
-    const { data: cart } = await supabase
-      .from("cart_sessions")
-      .select("*")
-      .eq("session_id", sessionId)
-      .maybeSingle();
+    
 
     const items = body.items;
 
@@ -29,6 +25,8 @@ export async function POST(req: NextRequest) {
     let grandSubtotal = 0;
     let grandShipping = 0;
     let grandTotal = 0;
+
+    const missingProducts: any[] = [];
 
     for (const item of items) {
       const { product_name, quantity, selected_attributes = {} } = item;
@@ -85,10 +83,9 @@ console.log("ATTRIBUTES:", product.attributes);
 const requiredFields = product.required_fields || [];
 const availableOptions = product.allowed_options || {};
 
-  
 console.log("MERGED ATTRIBUTES:", mergedAttributes);
 
-      const missingFields: string[] = [];
+const missingFields: string[] = [];
 
 for (const field of requiredFields) {
   if (!mergedAttributes[field]) {
@@ -97,13 +94,14 @@ for (const field of requiredFields) {
 }
 
 if (missingFields.length > 0) {
-  return NextResponse.json({
-    success: false,
-    requires_selection: true,
+  missingProducts.push({
+    product_name: product.name,
     missing_fields: missingFields,
     available_options: availableOptions,
-    message: `Please select ${missingFields.join(", ")}`
   });
+
+  // Skip this product and continue checking the next one
+  continue;
 }
 
 
@@ -159,6 +157,18 @@ if (missingFields.length > 0) {
         subtotal,
       });
     }
+
+   if (missingProducts.length > 0) {
+  return NextResponse.json({
+    success: false,
+    requires_selection: true,
+    missing_products: missingProducts,
+    message:
+      missingProducts.length === 1
+        ? `Please select ${missingProducts[0].missing_fields.join(", ")} for ${missingProducts[0].product_name}.`
+        : "Please provide the required attributes for each product."
+  });
+}
 
     return NextResponse.json({
       success: true,
