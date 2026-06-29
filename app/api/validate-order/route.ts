@@ -11,10 +11,6 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const sessionId = body.session_id;
-
-    // Fetch existing cart
-    
-
     const items = body.items;
 
     if (!Array.isArray(items) || items.length === 0) {
@@ -30,82 +26,88 @@ export async function POST(req: NextRequest) {
 
     for (const item of items) {
       const { product_name, quantity, selected_attributes = {} } = item;
-
       const mergedAttributes = selected_attributes || {};
-
       const requestedQuantity = Number(quantity);
 
       if (!product_name || Number.isNaN(requestedQuantity) || requestedQuantity <= 0) {
         return NextResponse.json({ success: false, message: `Invalid quantity for ${product_name || "product"}.` }, { status: 400 });
       }
 
-      // 1. Fetch Product
       const search = product_name.trim();
 
-const { data: products, error: productError } = await supabase
-  .from("products")
-  .select("*")
-  .or(
-    `name.ilike.%${search}%,category.ilike.%${search}%,description.ilike.%${search}%`
-  );
+      // 1. Fetch Product with Adaptive Fuzzy Text Matching
+      let { data: products, error: productError } = await supabase
+        .from("products")
+        .select("*")
+        .or(`name.ilike.%${search}%,category.ilike.%${search}%,description.ilike.%${search}%`);
 
-if (productError || !products || products.length === 0) {
-  return NextResponse.json({
-    success: false,
-    message: `Product not found: ${product_name}`,
-  });
-}
+      // FALLBACK LOOKUP: If "White T-Shirt" yields no results, split the phrase
+      if ((!products || products.length === 0) && search.toLowerCase().includes(" ")) {
+        const words = search.split(" ").filter(Boolean);
+        // Look for the generic noun keyword (e.g., "T-Shirt") anywhere in name or category
+        const genericTerm = words[words.length - 1]; 
+        
+        const { data: fallbackProducts } = await supabase
+          .from("products")
+          .select("*")
+          .or(`name.ilike.%${genericTerm}%,category.ilike.%${genericTerm}%`);
+          
+        if (fallbackProducts && fallbackProducts.length > 0) {
+          products = fallbackProducts;
+          // Automatically backfill the implied color if it isn't set yet
+          if (search.toLowerCase().includes("white") && !mergedAttributes.color) {
+            mergedAttributes.color = "White";
+          }
+        }
+      }
 
-let product = products[0];
+      if (productError || !products || products.length === 0) {
+        return NextResponse.json({
+          success: false,
+          message: `Product not found: ${product_name}`,
+        });
+      }
 
-// If the user has already selected attributes,
-// try to find the exact matching variant.
-if (Object.keys(selected_attributes).length > 0) {
-  const matchedProduct = products.find((p: any) => {
-    return Object.entries(selected_attributes).every(([key, value]) => {
-      return (
-        String(p.attributes?.[key] || "").toLowerCase() ===
-        String(value).toLowerCase()
-      );
-    });
-  });
+      let product = products[0];
 
-  if (matchedProduct) {
-    product = matchedProduct;
-  }
-}
+      // 2. Exact Variant Matching Logic against JSONB variants array
+      if (Object.keys(mergedAttributes).length > 0) {
+        const matchedProduct = products.find((p: any) => {
+          return Object.entries(mergedAttributes).every(([key, value]) => {
+            return (
+              String(p.attributes?.[key] || "").toLowerCase() ===
+              String(value).toLowerCase()
+            );
+          });
+        });
 
-// Continue here...
-console.log("PRODUCT:", product);
-console.log("TYPE OF ATTRIBUTES:", typeof product.attributes);
-console.log("ATTRIBUTES:", product.attributes);
+        if (matchedProduct) {
+          product = matchedProduct;
+        }
+      }
 
-const requiredFields = product.required_fields || [];
-const availableOptions = product.allowed_options || {};
+      console.log("MATCHED PRODUCT RECORD:", product);
 
-console.log("MERGED ATTRIBUTES:", mergedAttributes);
+      const requiredFields = product.required_fields || [];
+      const availableOptions = product.allowed_options || {};
+      const missingFields: string[] = [];
 
-const missingFields: string[] = [];
+      // Evaluate missing required attributes
+      for (const field of requiredFields) {
+        if (!mergedAttributes[field]) {
+          missingFields.push(field);
+        }
+      }
 
-for (const field of requiredFields) {
-  if (!mergedAttributes[field]) {
-    missingFields.push(field);
-  }
-}
-
-if (missingFields.length > 0) {
-  missingProducts.push({
-    product_name: product.name,
-    missing_fields: missingFields,
-    available_options: availableOptions,
-  });
-
-  // Skip this product and continue checking the next one
-  continue;
-}
-
-
-
+      if (missingFields.length > 0) {
+        missingProducts.push({
+          product_name: product.name,
+          missing_fields: missingFields,
+          available_options: availableOptions,
+        });
+        // Continue tracking other items in payload loops safely
+        continue;
+      }
 
       // 3. Stock & Price Calculation
       const unitPrice = Number(product.price);
@@ -120,9 +122,8 @@ if (missingFields.length > 0) {
       grandShipping += shipping;
       grandTotal += subtotal + shipping;
 
-      
-      // 4. Perform Upsert with onConflict
-      const { data, error: upsertError } = await supabase
+      // 4. Perform Upsert with Session State Sync
+      const { error: upsertError } = await supabase
         .from("cart_sessions")
         .upsert(
           {
@@ -135,16 +136,15 @@ if (missingFields.length > 0) {
             current_step: "collecting_attributes",
             updated_at: new Date().toISOString(),
           },
-          { onConflict: 'session_id' } // CRITICAL: This tells Supabase which column makes the row unique
-        )
-        .select();
+          { onConflict: 'session_id' }
+        );
 
       if (upsertError) {
         console.error("UPSERT FAILED:", JSON.stringify(upsertError, null, 2));
         return NextResponse.json({
           success: false,
           message: "Database update failed.",
-          details: upsertError.message // View this in your API response
+          details: upsertError.message
         }, { status: 500 });
       }
  
@@ -158,17 +158,18 @@ if (missingFields.length > 0) {
       });
     }
 
-   if (missingProducts.length > 0) {
-  return NextResponse.json({
-    success: false,
-    requires_selection: true,
-    missing_products: missingProducts,
-    message:
-      missingProducts.length === 1
-        ? `Please select ${missingProducts[0].missing_fields.join(", ")} for ${missingProducts[0].product_name}.`
-        : "Please provide the required attributes for each product."
-  });
-}
+    // 5. Trigger Missing Selection Payloads
+    if (missingProducts.length > 0) {
+      return NextResponse.json({
+        success: false,
+        requires_selection: true,
+        missing_products: missingProducts,
+        message:
+          missingProducts.length === 1
+            ? `Please select ${missingProducts[0].missing_fields.join(", ")} for ${missingProducts[0].product_name}.`
+            : "Please provide the required attributes for each product."
+      });
+    }
 
     return NextResponse.json({
       success: true,
