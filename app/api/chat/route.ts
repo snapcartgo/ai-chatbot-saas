@@ -315,13 +315,15 @@ export async function POST(req: Request) {
       name: isProductIntent || isCategoryIntent ? (data?.name || data?.product_name || extractedCategory) : null,
       description: isProductIntent || isCategoryIntent ? (data?.description || null) : null,
       price: isProductIntent ? (data?.price || null) : null,
+      
+      // Add productImageUrl here so the single layout captures it natively
       image_url: isProductIntent || isCategoryIntent ? finalImageUrl : null,
       imageUrl: isProductIntent || isCategoryIntent ? finalImageUrl : null,
+      productImageUrl: isProductIntent || isCategoryIntent ? finalImageUrl : null, // ✨ ADD THIS
+      
       product_url: isProductIntent || isCategoryIntent ? finalProductUrl : "",
       payment_link: paymentLink,
       intent,
-      
-      // CRITICAL FIXES: Pass values explicitly using the keys the frontend expects
       actionUrl: redirectUrl || paymentLink || finalProductUrl || undefined,
       actionLabel: data?.actionLabel || (paymentLink ? "Pay Now" : "Open Page"),
       redirect_url: redirectUrl,
