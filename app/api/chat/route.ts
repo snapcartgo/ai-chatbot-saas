@@ -177,11 +177,33 @@ export async function POST(req: Request) {
 
     // --- CLEANED EXTRACTION LOGIC ---
     // --- CLEANED EXTRACTION LOGIC ---
+    // --- CLEANED & RESILIENT EXTRACTION LOGIC ---
     let data: any = {};
     let fallbackProductsArray: any[] = [];
 
+    if (rawData) {
+      // 1. Convert to string safely if it arrived as a nested block or text stream object
+      let rawString = typeof rawData === "string" ? rawData : JSON.stringify(rawData);
+      
+      // 2. Clear out backticks, markdown markers, and hidden carriage returns if the AI sent them
+      if (rawString.includes("```")) {
+        rawString = rawString.replace(/```json/gi, "")
+                             .replace(/```/g, "")
+                             .trim();
+      }
+
+      // 3. Attempt to safely unpack the cleaned JSON payload
+      try {
+        const parsedJson = JSON.parse(rawString);
+        data = parsedJson.json || parsedJson || {};
+      } catch {
+        // Fall back to raw object mapping if JSON.parse fails
+        data = rawData.json || rawData || {};
+      }
+    }
+
+    // 4. Handle n8n item list arrays for carousel rendering
     if (Array.isArray(rawData)) {
-      // If n8n returns a list of separate execution items, save the list directly for a carousel
       fallbackProductsArray = rawData.map(item => item.json || item);
       
       const firstLevel = rawData[0];
@@ -189,11 +211,7 @@ export async function POST(req: Request) {
         data = firstLevel[0]?.json || firstLevel[0] || {};
       } else if (firstLevel && typeof firstLevel === "object") {
         data = firstLevel.json || firstLevel || {};
-      } else {
-        data = rawData;
       }
-    } else if (rawData && typeof rawData === "object") {
-      data = rawData.json || rawData;
     }
 
     // 1. Check standard keys, or fall back to the execution items array we mapped above
