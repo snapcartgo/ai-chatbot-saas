@@ -22,24 +22,31 @@ export async function GET(request: Request) {
   // 4. Build the query and mandate user_id ownership immediately
   let query = supabase.from('products').select('*').eq('user_id', user_id); // <--- CRITICAL FIX
 
-  // 5. Apply conditional filters
-  if (category) query = query.ilike('category', `%${category}%`);
-  if (product_type) query = query.ilike('product_type', `%${product_type}%`);
+ // 5. Apply conditional filters (with trim and lowercase sanitation)
+  if (category) query = query.ilike('category', `%${category.trim()}%`);
+  if (product_type) query = query.ilike('product_type', `%${product_type.trim()}%`);
   
   if (color && color !== "") {
-    query = query.ilike('color', `%${color}%`);
+    query = query.ilike('color', `%${color.trim()}%`);
   }
 
-  // 6. General Search using grouped .or() validation (Plural-Resilient Fix)
+  // 6. Intelligent General Search (Plural-Resilient & Multi-Column Fallback)
   if (q) {
-    let cleanQuery = q.trim();
-    
-    // If the query ends with "shirts" or "jeans" variations, make it a singular wildcard check
-    if (cleanQuery.toLowerCase().endsWith("shirts")) {
-      cleanQuery = cleanQuery.slice(0, -1); // Converts "T-Shirts" -> "T-Shirt"
-    }
-    
-    query = query.or(`name.ilike.%${cleanQuery}%,description.ilike.%${cleanQuery}%`);
+    const originalQuery = q.trim();
+    // Create a singular fallback version (e.g., "chairs" -> "chair", "tshirts" -> "t-shirt")
+    let singularQuery = originalQuery.toLowerCase();
+    if (singularQuery.endsWith("shirts")) singularQuery = "t-shirt";
+    else if (singularQuery.endsWith("s")) singularQuery = singularQuery.slice(0, -1);
+
+    // Expand the OR query to check names, descriptions, and the category column using wildcards
+    query = query.or(
+      `name.ilike.%${originalQuery}%,` +
+      `description.ilike.%${originalQuery}%,` +
+      `category.ilike.%${originalQuery}%,` +
+      `name.ilike.%${singularQuery}%,` +
+      `description.ilike.%${singularQuery}%,` +
+      `category.ilike.%${singularQuery}%`
+    );
   }
 
   // 7. Execution and Response
