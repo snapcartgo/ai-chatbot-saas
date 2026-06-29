@@ -177,35 +177,34 @@ export async function POST(req: Request) {
 
     // --- CLEANED EXTRACTION LOGIC ---
     // --- CLEANED EXTRACTION LOGIC ---
-    // --- CLEANED & RESILIENT EXTRACTION LOGIC ---
+    // --- PERMANENT RESILIENT EXTRACTION LOGIC ---
     let data: any = {};
     let fallbackProductsArray: any[] = [];
 
     if (rawData) {
-      // 1. Convert to string safely if it arrived as a nested block or text stream object
+      // 1. Convert to string safely if it arrived as an unparsed text stream object
       let rawString = typeof rawData === "string" ? rawData : JSON.stringify(rawData);
       
-      // 2. Clear out backticks, markdown markers, and hidden carriage returns if the AI sent them
+      // 2. Strip explicit code fences cleanly before JSON evaluation
       if (rawString.includes("```")) {
         rawString = rawString.replace(/```json/gi, "")
                              .replace(/```/g, "")
                              .trim();
       }
 
-      // 3. Attempt to safely unpack the cleaned JSON payload
+      // 3. Unpack cleaned JSON string
       try {
         const parsedJson = JSON.parse(rawString);
         data = parsedJson.json || parsedJson || {};
-      } catch {
-        // Fall back to raw object mapping if JSON.parse fails
+      } catch (e) {
+        console.error("Fuzzy JSON parse failed, falling back to raw mapping:", e);
         data = rawData.json || rawData || {};
       }
     }
 
-    // 4. Handle n8n item list arrays for carousel rendering
+    // 4. Fallback extraction parsing for carousel array streams
     if (Array.isArray(rawData)) {
       fallbackProductsArray = rawData.map(item => item.json || item);
-      
       const firstLevel = rawData[0];
       if (Array.isArray(firstLevel)) {
         data = firstLevel[0]?.json || firstLevel[0] || {};
