@@ -42,10 +42,15 @@ export async function POST(req: NextRequest) {
         .or(`name.ilike.%${search}%,category.ilike.%${search}%,description.ilike.%${search}%`);
 
       // FALLBACK LOOKUP: If "White T-Shirt" yields no results, split the phrase
+      // FALLBACK LOOKUP: If "white tshirt" yields no results, split the phrase and normalize
       if ((!products || products.length === 0) && search.toLowerCase().includes(" ")) {
         const words = search.split(" ").filter(Boolean);
-        // Look for the generic noun keyword (e.g., "T-Shirt") anywhere in name or category
-        const genericTerm = words[words.length - 1]; 
+        let genericTerm = words[words.length - 1].toLowerCase(); 
+        
+        // 💡 CRITICAL FIX: Convert variations of "tshirt" or "t shirt" to match "T-Shirt"
+        if (genericTerm === "tshirt" || genericTerm === "shirt") {
+          genericTerm = "t-shirt";
+        }
         
         const { data: fallbackProducts } = await supabase
           .from("products")
