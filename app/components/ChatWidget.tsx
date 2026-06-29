@@ -754,9 +754,22 @@ export default function ChatWidget({
                   {m.productPrice && <div className="font-semibold text-blue-600">Rs.{m.productPrice}</div>}
                 </div>
               ) : (
-                /* 3. Fallback/Text Layout */
+              /* 3. Fallback/Text Layout */
+              <div className="flex flex-col gap-2">
                 <div>{m.content}</div>
-              )}
+                
+                {/* CRITICAL FIX: Render action button if a payment link or redirection URL exists */}
+                {(m.actionUrl || (m as any).payment_link || (m as any).paymentUrl) && (
+                  <button
+                    type="button"
+                    onClick={() => handleOpen(m.actionUrl || (m as any).payment_link || (m as any).paymentUrl)}
+                    className="mt-1.5 w-full rounded-md bg-blue-600 py-1.5 text-center font-semibold text-white shadow-sm transition hover:bg-blue-700"
+                  >
+                    {m.actionLabel || "Pay Now"}
+                  </button>
+                )}
+              </div>
+            )}
 
             </div>
           </div>
