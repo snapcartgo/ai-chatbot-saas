@@ -30,9 +30,16 @@ export async function GET(request: Request) {
     query = query.ilike('color', `%${color}%`);
   }
 
-  // 6. General Search using grouped .or() validation
+  // 6. General Search using grouped .or() validation (Plural-Resilient Fix)
   if (q) {
-    query = query.or(`name.ilike.%${q}%,description.ilike.%${q}%`);
+    let cleanQuery = q.trim();
+    
+    // If the query ends with "shirts" or "jeans" variations, make it a singular wildcard check
+    if (cleanQuery.toLowerCase().endsWith("shirts")) {
+      cleanQuery = cleanQuery.slice(0, -1); // Converts "T-Shirts" -> "T-Shirt"
+    }
+    
+    query = query.or(`name.ilike.%${cleanQuery}%,description.ilike.%${cleanQuery}%`);
   }
 
   // 7. Execution and Response
