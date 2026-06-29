@@ -748,9 +748,17 @@ export default function ChatWidget({
                 </div>
               ) : m.messageType === "product" || (m as any).type === "product" ? (
                 /* 2. Single Product Layout */
-                <div className="w-full min-w-[220px]">
+                <div className="w-full min-w-[220px] text-gray-800">
+                  {/* 👑 FIX: Added image tag for single item layout */}
+                  {(m.productImageUrl || (m as any).image_url || (m as any).imageUrl) && (
+                    <img 
+                      src={m.productImageUrl || (m as any).image_url || (m as any).imageUrl} 
+                      className="h-32 w-full object-cover rounded-md mb-2 shadow-sm" 
+                      alt={m.productName || "Product image"} 
+                    />
+                  )}
                   <div className="font-bold text-sm">{m.productName}</div>
-                  {m.productDescription && <p className="text-gray-500 my-1">{m.productDescription}</p>}
+                  {m.productDescription && <p className="text-gray-500 my-1 text-[11px]">{m.productDescription}</p>}
                   {m.productPrice && <div className="font-semibold text-blue-600">Rs.{m.productPrice}</div>}
                 </div>
               ) : (
