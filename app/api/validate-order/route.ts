@@ -75,21 +75,30 @@ export async function POST(req: NextRequest) {
 
       let product = products[0];
 
-      // 2. Exact Variant Matching Logic against JSONB variants array
-      if (Object.keys(mergedAttributes).length > 0) {
-        const matchedProduct = products.find((p: any) => {
-          return Object.entries(mergedAttributes).every(([key, value]) => {
-            return (
-              String(p.attributes?.[key] || "").toLowerCase() ===
-              String(value).toLowerCase()
-            );
-          });
-        });
-
-        if (matchedProduct) {
-          product = matchedProduct;
-        }
+      // 2. Exact Variant Matching Logic against JSONB variants array (Case-Insensitive Fix)
+if (Object.keys(mergedAttributes).length > 0) {
+  const matchedProduct = products.find((p: any) => {
+    return Object.entries(mergedAttributes).every(([key, value]) => {
+      // Get the value from the database row attribute structure
+      const dbValue = p.attributes?.[key];
+      
+      // If the database has an array of options or a single string, handle it cleanly
+      if (Array.isArray(dbValue)) {
+        return dbValue.map(v => String(v).toLowerCase().trim())
+                      .includes(String(value).toLowerCase().trim());
       }
+      
+      return (
+        String(dbValue || "").toLowerCase().trim() ===
+        String(value).toLowerCase().trim()
+      );
+    });
+  });
+
+  if (matchedProduct) {
+    product = matchedProduct;
+  }
+}
 
       console.log("MATCHED PRODUCT RECORD:", product);
 
