@@ -623,16 +623,10 @@ export default function ChatWidget({
               typeof data.price === "number" || typeof data.price === "string"
                 ? data.price
                 : undefined,
-            productImageUrl:
-              typeof data.image_url === "string"
-                ? data.image_url.trim()
-                : typeof data.productImageUrl === "string"
-                ? data.productImageUrl.trim()
-                : undefined,
-            productCategory:
-              typeof data.category === "string"
-                ? data.category.trim()
-                : undefined,
+                
+            // Use the image value returning dynamically from the API response payload
+            productImageUrl: data.productImageUrl || data.image_url || data.imageUrl || undefined, 
+            
             productUrl: absoluteProductUrl || undefined,
             actionUrl: absoluteProductUrl || undefined,
             actionLabel: finalActionLabel,
@@ -640,7 +634,6 @@ export default function ChatWidget({
         ]);
         return;
       }
-
       // 3. Fallback Regular Text Message Handler
       setMessages([
         ...newMessages,
@@ -747,21 +740,21 @@ export default function ChatWidget({
                   ))}
                 </div>
               ) : m.messageType === "product" || (m as any).type === "product" ? (
-                /* 2. Single Product Layout */
-                <div className="w-full min-w-[220px] text-gray-800">
-                  {/* 👑 FIX: Added image tag for single item layout */}
-                  {(m.productImageUrl || (m as any).image_url || (m as any).imageUrl) && (
-                    <img 
-                      src={m.productImageUrl || (m as any).image_url || (m as any).imageUrl} 
-                      className="h-32 w-full object-cover rounded-md mb-2 shadow-sm" 
-                      alt={m.productName || "Product image"} 
-                    />
-                  )}
-                  <div className="font-bold text-sm">{m.productName}</div>
-                  {m.productDescription && <p className="text-gray-500 my-1 text-[11px]">{m.productDescription}</p>}
-                  {m.productPrice && <div className="font-semibold text-blue-600">Rs.{m.productPrice}</div>}
-                </div>
-              ) : (
+  /* 2. Single Product Layout */
+  <div className="w-full min-w-[220px] text-gray-800">
+    {/* Clean fallback tracking across all common image naming variations */}
+    {(m.productImageUrl || (m as any).image_url || (m as any).imageUrl) && (
+      <img 
+        src={m.productImageUrl || (m as any).image_url || (m as any).imageUrl} 
+        className="h-32 w-full object-cover rounded-md mb-2 shadow-sm" 
+        alt={m.productName || "Product image"} 
+      />
+    )}
+    <div className="font-bold text-sm">{m.productName}</div>
+    {m.productDescription && <p className="text-gray-500 my-1 text-[11px]">{m.productDescription}</p>}
+    {m.productPrice && <div className="font-semibold text-blue-600">Rs.{m.productPrice}</div>}
+  </div>
+) : (
               /* 3. Fallback/Text Layout */
               <div className="flex flex-col gap-2">
                 <div>{m.content}</div>
