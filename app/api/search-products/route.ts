@@ -66,5 +66,15 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
+  // ✨ FIX: If the database lookup returns no items, return a friendly message instead of a crash
+  if (!data || data.length === 0) {
+    return NextResponse.json({ 
+      data: [],
+      message: `The product you searched for is currently not available in our catalog. Let me know if you would like to see our premium clothing or furniture options instead!` 
+    });
+  }
+
   return NextResponse.json({ data });
 }
+
+ 
