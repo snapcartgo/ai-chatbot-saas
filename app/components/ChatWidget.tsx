@@ -742,7 +742,7 @@ export default function ChatWidget({
               ) : m.messageType === "product" || (m as any).type === "product" ? (
   /* 2. Single Product Layout */
   <div className="w-full min-w-[220px] text-gray-800">
-    {/* Clean fallback tracking across all common image naming variations */}
+    {/* Product Image */}
     {(m.productImageUrl || (m as any).image_url || (m as any).imageUrl) && (
       <img 
         src={m.productImageUrl || (m as any).image_url || (m as any).imageUrl} 
@@ -750,9 +750,23 @@ export default function ChatWidget({
         alt={m.productName || "Product image"} 
       />
     )}
+    
+    {/* Details */}
     <div className="font-bold text-sm">{m.productName}</div>
-    {m.productDescription && <p className="text-gray-500 my-1 text-[11px]">{m.productDescription}</p>}
-    {m.productPrice && <div className="font-semibold text-blue-600">Rs.{m.productPrice}</div>}
+    {m.productDescription && <p className="text-gray-500 my-1 text-[11px] leading-relaxed">{m.productDescription}</p>}
+    {m.productPrice && <div className="font-semibold text-blue-600 mb-2">Rs.{m.productPrice}</div>}
+    
+    {/* ✨ CRITICAL FIX: Render the missing View Product Action Link Button */}
+    {(m.productUrl || m.actionUrl) && (
+      <a 
+        href={m.productUrl || m.actionUrl} 
+        target="_blank" 
+        rel="noopener noreferrer" 
+        className="block w-full text-center rounded-md bg-blue-50 py-1.5 text-xs font-semibold text-blue-600 transition hover:bg-blue-100 shadow-sm"
+      >
+        {m.actionLabel || "View Product"}
+      </a>
+    )}
   </div>
 ) : (
               /* 3. Fallback/Text Layout */
