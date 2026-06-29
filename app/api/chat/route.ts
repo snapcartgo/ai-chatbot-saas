@@ -320,6 +320,10 @@ export async function POST(req: Request) {
       product_url: isProductIntent || isCategoryIntent ? finalProductUrl : "",
       payment_link: paymentLink,
       intent,
+      
+      // CRITICAL FIXES: Pass values explicitly using the keys the frontend expects
+      actionUrl: redirectUrl || paymentLink || finalProductUrl || undefined,
+      actionLabel: data?.actionLabel || (paymentLink ? "Pay Now" : "Open Page"),
       redirect_url: redirectUrl,
     });
 
