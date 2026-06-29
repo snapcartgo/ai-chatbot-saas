@@ -30,23 +30,32 @@ export async function GET(request: Request) {
     query = query.ilike('color', `%${color.trim()}%`);
   }
 
-  // 6. Intelligent General Search (Plural-Resilient & Multi-Column Fallback)
+  // 6. Intelligent General Search (Color-Resilient Wildcard Fix)
   if (q) {
-    const originalQuery = q.trim();
-    // Create a singular fallback version (e.g., "chairs" -> "chair", "tshirts" -> "t-shirt")
-    let singularQuery = originalQuery.toLowerCase();
-    if (singularQuery.endsWith("shirts")) singularQuery = "t-shirt";
-    else if (singularQuery.endsWith("s")) singularQuery = singularQuery.slice(0, -1);
+    let cleanQuery = q.trim().toLowerCase();
+    
+    // List of common color adjectives to filter out if they bypass text bounds
+    const colorAdjectives = ["white", "black", "blue", "red", "green", "grey", "gray", "yellow"];
+    
+    // Split the query into words, strip out explicit colors, and rebuild the text term
+    let queryWords = cleanQuery.split(/\s+/).filter(word => !colorAdjectives.includes(word));
+    
+    // Handle plural normalization variations (e.g., "shirts" -> "t-shirt")
+    queryWords = queryWords.map(word => {
+      if (word === "shirts" || word === "tshirt" || word === "tshirts") return "t-shirt";
+      if (word === "chairs") return "chair";
+      if (word === "tables") return "table";
+      return word;
+    });
 
-    // Expand the OR query to check names, descriptions, and the category column using wildcards
-    query = query.or(
-      `name.ilike.%${originalQuery}%,` +
-      `description.ilike.%${originalQuery}%,` +
-      `category.ilike.%${originalQuery}%,` +
-      `name.ilike.%${singularQuery}%,` +
-      `description.ilike.%${singularQuery}%,` +
-      `category.ilike.%${singularQuery}%`
-    );
+    const finalSearchTerm = queryWords.join(" ");
+
+    // Fall back safely if the search word array is completely empty
+    if (finalSearchTerm.length > 0) {
+      query = query.or(`name.ilike.%${finalSearchTerm}%,description.ilike.%${finalSearchTerm}%,category.ilike.%${finalSearchTerm}%`);
+    } else {
+      query = query.or(`name.ilike.%${q.trim()}%,description.ilike.%${q.trim()}%`);
+    }
   }
 
   // 7. Execution and Response
