@@ -212,15 +212,21 @@ export async function POST(req: Request) {
       : (data?.data || data?.products || fallbackProductsArray);
 
     // =========================================================================
-    // 1. CAROUSEL RENDERING PATH (Dual-Response System Fix)
+    // 1. CAROUSEL RENDERING PATH (Resilient Dual-Response Message Mapping Fix)
     // =========================================================================
     if (products && Array.isArray(products) && products.length > 0) {
-      const fallbackText = data?.message || data?.custom_text || "Here are some alternative items from our collection:";
+      
+      // 💡 THE FIX: Check every single possible location where the message text could be hiding
+      const fallbackText = 
+        data?.message || 
+        data?.custom_text || 
+        rawData?.message || 
+        rawData?.json?.message || 
+        rawData?.custom_text ||
+        "Here are some alternative items from our collection you might love:";
 
-      // 💡 THE TRICK: Return an array of two sequential UI structures back to the widget
       return NextResponse.json({
         type: "carousel", 
-        // Send the message text as a dedicated property string
         reply: fallbackText, 
         message: fallbackText,
         items: products.map((p: any) => ({
