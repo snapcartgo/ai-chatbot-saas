@@ -176,23 +176,18 @@ export async function POST(req: Request) {
     }
 
     // --- CLEANED EXTRACTION LOGIC ---
-    // --- CLEANED EXTRACTION LOGIC ---
-    // --- PERMANENT RESILIENT EXTRACTION LOGIC ---
     let data: any = {};
     let fallbackProductsArray: any[] = [];
 
     if (rawData) {
-      // 1. Convert to string safely if it arrived as an unparsed text stream object
       let rawString = typeof rawData === "string" ? rawData : JSON.stringify(rawData);
       
-      // 2. Strip explicit code fences cleanly before JSON evaluation
       if (rawString.includes("```")) {
         rawString = rawString.replace(/```json/gi, "")
                              .replace(/```/g, "")
                              .trim();
       }
 
-      // 3. Unpack cleaned JSON string
       try {
         const parsedJson = JSON.parse(rawString);
         data = parsedJson.json || parsedJson || {};
@@ -202,7 +197,6 @@ export async function POST(req: Request) {
       }
     }
 
-    // 4. Fallback extraction parsing for carousel array streams
     if (Array.isArray(rawData)) {
       fallbackProductsArray = rawData.map(item => item.json || item);
       const firstLevel = rawData[0];
@@ -213,13 +207,14 @@ export async function POST(req: Request) {
       }
     }
 
-    // 1. Check standard keys, or fall back to the execution items array we mapped above
     const products = Array.isArray(data) 
       ? data 
       : (data?.data || data?.products || fallbackProductsArray);
 
-    // 2. If products are present, render the carousel layout with the dynamic notification message
-    if (products.length > 0) {
+    // =========================================================================
+    // 1. CAROUSEL RENDERING PATH (With Safe Custom Fallback Message Injection)
+    // =========================================================================
+    if (products && Array.isArray(products) && products.length > 0) {
       return NextResponse.json({
         type: "carousel",
         items: products.map((p: any) => ({
@@ -229,24 +224,30 @@ export async function POST(req: Request) {
           product_url: p.product_url || p.productUrl || p.website_url || "",
           description: p.description || null
         })),
-        // Use the custom message from the search API (e.g., "We couldn't find bottle. Here are some other...")
-        message: data?.message || "Here are the products we found:" 
+        // Checks custom keys before defaulting to standard string notifications
+        message: data?.message || data?.custom_text || "Here are some items from our collection you might love:" 
       });
     }
-    // 3. Fallback logic if it's a single item object or string response
+
+    // =========================================================================
+    // 2. TEXT/SINGLE CORRECTION PATH (Ensures custom messages show dynamically)
+    // =========================================================================
     const isProductIntent = data?.type === "product" || !!data?.product_name || !!data?.name;
     const isCategoryIntent = data?.type === "category" || /category|show collection|browse/i.test(userMsg);
 
+    // Dynamic prioritization selector ensuring clean alternative suggestion alerts render perfectly
     const productMessage =
       typeof data?.message === "string" && data.message.trim()
         ? data.message.trim()
+        : typeof data?.custom_text === "string" && data.custom_text.trim() // <-- SAFELY SECURES THE EXTRA PROPERTY KEY
+        ? data.custom_text.trim()
         : typeof data?.reply === "string" && data.reply.trim()
         ? data.reply.trim()
         : typeof data?.output === "string" && data.output.trim()
         ? data.output.trim()
         : isProductIntent || isCategoryIntent
         ? "Here is what we found in our collection:"
-        : "No response";
+        : "No items available matching that description right now.";
 
     const paymentLink = typeof data?.payment_link === "string" ? data.payment_link : null;
     const productUrl =
@@ -328,16 +329,16 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       type: isProductIntent || isCategoryIntent ? "product" : "text",
-      reply: isProductIntent || isCategoryIntent ? null : productMessage,
+      // ✨ CRITICAL REPAIR SUMMARY: Ensures the chat widget component captures the text string natively for non-product layouts
+      reply: productMessage, 
       message: productMessage,
       name: isProductIntent || isCategoryIntent ? (data?.name || data?.product_name || extractedCategory) : null,
       description: isProductIntent || isCategoryIntent ? (data?.description || null) : null,
       price: isProductIntent ? (data?.price || null) : null,
       
-      // Add productImageUrl here so the single layout captures it natively
       image_url: isProductIntent || isCategoryIntent ? finalImageUrl : null,
       imageUrl: isProductIntent || isCategoryIntent ? finalImageUrl : null,
-      productImageUrl: isProductIntent || isCategoryIntent ? finalImageUrl : null, // ✨ ADD THIS
+      productImageUrl: isProductIntent || isCategoryIntent ? finalImageUrl : null,
       
       product_url: isProductIntent || isCategoryIntent ? finalProductUrl : "",
       payment_link: paymentLink,
