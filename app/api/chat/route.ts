@@ -207,11 +207,15 @@ export async function POST(req: Request) {
       }
     }
 
+    // Extract products list if available
     const products = Array.isArray(data) 
       ? data 
-      : (data?.data || data?.products || fallbackProductsArray);
+      : (data?.data || data?.products || fallbackProductsArray || []);
 
+    // Check fallback text properties safely
     const fallbackText = 
+      data?.reply ||
+      rawData?.reply ||
       data?.message || 
       data?.custom_text || 
       rawData?.message || 
@@ -219,21 +223,34 @@ export async function POST(req: Request) {
       rawData?.custom_text ||
       "Here are some alternative items from our collection you might love:";
 
+    const isProductIntent = data?.type === "product" || !!data?.product_name || !!data?.name;
+    const isCategoryIntent = data?.type === "category" || /category|show collection|browse/i.test(userMsg);
+    
+    // ✨ FIX CRITERIA: A genuine product response needs a non-empty products array AND a product matching intent context
+    const hasValidProducts = Array.isArray(products) && products.length > 0;
+    const shouldRenderCarousel = hasValidProducts && (isProductIntent || isCategoryIntent || data?.success === true || rawData?.success === true);
+
     // =========================================================================
-    // 1. CAROUSEL RENDERING PATH (Dynamic Dynamic Reply Extraction Fix)
+    // 1. CAROUSEL RENDERING PATH
     // =========================================================================
-    if (products && Array.isArray(products) && products.length > 0) {
-      
-      // 💡 THE FIX: Make sure the parser scans the 'reply' key from n8n immediately!
-      const fallbackText = 
-        data?.reply ||
-        rawData?.reply ||
-        data?.message || 
-        data?.custom_text || 
-        rawData?.message || 
-        rawData?.json?.message || 
-        rawData?.custom_text ||
-        "Here are some alternative items from our collection you might love:";
+    if (shouldRenderCarousel) {
+      await saveMessage({
+        user_id: user_id || null,
+        bot_id,
+        conversation_id,
+        role: "user",
+        content: message,
+        channel,
+      });
+
+      await saveMessage({
+        user_id: user_id || null,
+        bot_id,
+        conversation_id,
+        role: "assistant",
+        content: fallbackText,
+        channel,
+      });
 
       return NextResponse.json({
         type: "carousel", 
@@ -250,11 +267,8 @@ export async function POST(req: Request) {
     }
 
     // =========================================================================
-    // 2. TEXT/SINGLE CORRECTION PATH
+    // 2. TEXT/GENERAL CHAT CONVERSATION PATH (Fixed Fallback)
     // =========================================================================
-    const isProductIntent = data?.type === "product" || !!data?.product_name || !!data?.name;
-    const isCategoryIntent = data?.type === "category" || /category|show collection|browse/i.test(userMsg);
-
     const productMessage = fallbackText;
 
     const paymentLink = typeof data?.payment_link === "string" ? data.payment_link : null;
