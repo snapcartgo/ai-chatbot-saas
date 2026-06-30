@@ -212,7 +212,7 @@ export async function POST(req: Request) {
       : (data?.data || data?.products || fallbackProductsArray);
 
     // =========================================================================
-    // 1. CAROUSEL RENDERING PATH (Unified Multi-Component Fixed Payload)
+    // 1. CAROUSEL RENDERING PATH (Dual-Bubble Sequencer Array Fix)
     // =========================================================================
     if (products && Array.isArray(products) && products.length > 0) {
       
@@ -224,22 +224,27 @@ export async function POST(req: Request) {
         rawData?.custom_text ||
         "Here are some alternative items from our collection you might love:";
 
-      return NextResponse.json({
-        // 🏁 This configuration combination forces Lovable widgets to parse text 1st & attach cards 2nd
-        type: "carousel", 
-        reply: fallbackText, 
-        message: fallbackText,
-        text: fallbackText,
-        content: fallbackText,
-        
-        items: products.map((p: any) => ({
-          name: p.name || p.product_name || "Product",
-          price: p.price || null,
-          image_url: p.image_url || p.imageUrl || null,
-          product_url: p.product_url || p.productUrl || p.website_url || "",
-          description: p.description || null
-        }))
-      });
+      // 💡 THE ULTIMATE TRICK: Return an array of two distinct objects.
+      // This forces the widget component to print the message bubble FIRST,
+      // and immediately load the product cards right below it!
+      return NextResponse.json([
+        {
+          type: "text",
+          reply: fallbackText,
+          message: fallbackText,
+          text: fallbackText
+        },
+        {
+          type: "carousel",
+          items: products.map((p: any) => ({
+            name: p.name || p.product_name || "Product",
+            price: p.price || null,
+            image_url: p.image_url || p.imageUrl || null,
+            product_url: p.product_url || p.productUrl || p.website_url || "",
+            description: p.description || null
+          }))
+        }
+      ]);
     }
 
     // =========================================================================
