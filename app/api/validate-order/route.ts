@@ -105,12 +105,34 @@ export async function POST(req: NextRequest) {
       }
 
       // If absolutely no matches are found after name, category, and phrase splitting
+      // Absolute fallback if product search yields 0 items across names and category pools
       if (productError || !products || products.length === 0) {
+        
+        // ✨ NEW DYNAMIC RECOMMENDATION ENGINE FOR VALIDATE_ORDER
+        // Fetch up to 3 real items that THIS specific tenant store owner actually sells
+        const { data: storeAlternatives } = await supabase
+          .from('products')
+          .select('name')
+          .eq('user_id', user_id)
+          .limit(3);
+
+        if (storeAlternatives && storeAlternatives.length > 0) {
+          const suggestionsList = storeAlternatives.map(p => p.name).join(", ");
+          
+          return NextResponse.json({
+            success: false,
+            requires_selection: true, // Forces the chatbot flow to wait for a correct item choice
+            intent: "validate_order",
+            message: `The item "${product_name}" is currently not available in our store catalog. However, you can buy these amazing products from our collection instead: ${suggestionsList}! Which one would you like to order?`
+          });
+        }
+
+        // Complete emergency fallback if the merchant hasn't uploaded any products at all
         return NextResponse.json({
           success: false,
           requires_selection: false,
           intent: "chat",
-          message: `The item "${product_name}" is currently not available in our store catalog. Please let me know if you would like to browse other collections!`
+          message: `The item "${product_name}" is currently not available in our store catalog. Please let me know if you would like to explore our other collections!`
         });
       }
 
