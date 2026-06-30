@@ -163,32 +163,26 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Evaluate any missing items gathered after loop processing complete
+    // 5. Trigger Missing Selection Payloads (PERMANENT MULTI-ITEM FIX)
     if (missingProducts.length > 0) {
-      const completelyNotFound = missingProducts.filter(p => p.error_type === "not_found");
+      // Dynamically list the names of all items that are missing fields
+      const itemsNeedingOptions = missingProducts.map(p => p.product_name);
       
-      if (completelyNotFound.length > 0) {
-        const { data: storeAlternatives } = await supabase
-          .from('products')
-          .select('name')
-          .eq('user_id', user_id)
-          .limit(3);
-
-        const suggestionsList = storeAlternatives ? storeAlternatives.map(p => p.name).join(", ") : "";
-        const failedNames = completelyNotFound.map(p => `"${p.product_name}"`).join(" and ");
-
-        return NextResponse.json({
-          success: false,
-          requires_selection: true,
-          message: `The item ${failedNames} is currently not matching our store catalog format. However, you can check out these options from our collection: ${suggestionsList}! What would you like to choose?`
-        });
+      // Construct a clean, unified message listing all items
+      let userFriendlyMessage = "";
+      if (itemsNeedingOptions.length === 1) {
+        userFriendlyMessage = `Please select options (size/color) for ${itemsNeedingOptions[0]}.`;
+      } else {
+        // Creates a clean list: "Premium Cotton T-Shirt and Slim Fit Jeans"
+        const lastItem = itemsNeedingOptions.pop();
+        userFriendlyMessage = `Please select options (size/color) for both ${itemsNeedingOptions.join(", ")} and ${lastItem}.`;
       }
 
       return NextResponse.json({
         success: false,
         requires_selection: true,
         missing_products: missingProducts,
-        message: `Please select options for ${missingProducts[0].product_name}.`
+        message: userFriendlyMessage // ⚡ Sends the complete list to the chatbot window!
       });
     }
 
