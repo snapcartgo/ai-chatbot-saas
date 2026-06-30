@@ -212,11 +212,11 @@ export async function POST(req: Request) {
       : (data?.data || data?.products || fallbackProductsArray);
 
     // =========================================================================
-    // 1. CAROUSEL RENDERING PATH (Resilient Dual-Response Message Mapping Fix)
+    // 1. CAROUSEL RENDERING PATH (Dual-Response System Array Fix)
     // =========================================================================
     if (products && Array.isArray(products) && products.length > 0) {
       
-      // 💡 THE FIX: Check every single possible location where the message text could be hiding
+      // Extract the fallback notification message securely from all possible layers
       const fallbackText = 
         data?.message || 
         data?.custom_text || 
@@ -225,18 +225,24 @@ export async function POST(req: Request) {
         rawData?.custom_text ||
         "Here are some alternative items from our collection you might love:";
 
-      return NextResponse.json({
-        type: "carousel", 
-        reply: fallbackText, 
-        message: fallbackText,
-        items: products.map((p: any) => ({
-          name: p.name || p.product_name || "Product",
-          price: p.price || null,
-          image_url: p.image_url || p.imageUrl || null,
-          product_url: p.product_url || p.productUrl || p.website_url || "",
-          description: p.description || null
-        }))
-      });
+      // 💡 THE ULTIMATE FIX: Return an array of sequential items to force both components to render!
+      return NextResponse.json([
+        {
+          type: "text",
+          reply: fallbackText,
+          message: fallbackText
+        },
+        {
+          type: "carousel",
+          items: products.map((p: any) => ({
+            name: p.name || p.product_name || "Product",
+            price: p.price || null,
+            image_url: p.image_url || p.imageUrl || null,
+            product_url: p.product_url || p.productUrl || p.website_url || "",
+            description: p.description || null
+          }))
+        }
+      ]);
     }
 
     // =========================================================================
