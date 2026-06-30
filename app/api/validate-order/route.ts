@@ -7,11 +7,16 @@ const supabase = createClient(
 );
 
 export async function POST(req: NextRequest) {
-  console.log("===== NEW VALIDATE ORDER API V5 =====");
+  console.log("===== NEW VALIDATE ORDER API V6 =====");
   try {
     const body = await req.json();
     const sessionId = body.session_id;
     const items = body.items;
+    const user_id = body.user_id; 
+
+    if (!user_id) {
+      return NextResponse.json({ success: false, message: "Missing user_id context." }, { status: 400 });
+    }
 
     if (!Array.isArray(items) || items.length === 0) {
       return NextResponse.json({ success: false, message: "No products provided." }, { status: 400 });
@@ -35,19 +40,18 @@ export async function POST(req: NextRequest) {
 
       const search = product_name.trim();
 
-      // 1. Fetch Product with Adaptive Fuzzy Text Matching
+      // 1. Fetch Product Scoped STRICTLY to the merchant user_id using build-safe Supabase chaining
       let { data: products, error: productError } = await supabase
         .from("products")
         .select("*")
+        .eq("user_id", user_id) 
         .or(`name.ilike.%${search}%,category.ilike.%${search}%,description.ilike.%${search}%`);
 
-      // FALLBACK LOOKUP: If "White T-Shirt" yields no results, split the phrase
-      // FALLBACK LOOKUP: If "white tshirt" yields no results, split the phrase and normalize
+      // FALLBACK LOOKUP: If phrase search fails, isolate generic terms specifically for this merchant
       if ((!products || products.length === 0) && search.toLowerCase().includes(" ")) {
         const words = search.split(" ").filter(Boolean);
         let genericTerm = words[words.length - 1].toLowerCase(); 
         
-        // 💡 CRITICAL FIX: Convert variations of "tshirt" or "t shirt" to match "T-Shirt"
         if (genericTerm === "tshirt" || genericTerm === "shirt") {
           genericTerm = "t-shirt";
         }
@@ -55,18 +59,33 @@ export async function POST(req: NextRequest) {
         const { data: fallbackProducts } = await supabase
           .from("products")
           .select("*")
+          .eq("user_id", user_id) 
           .or(`name.ilike.%${genericTerm}%,category.ilike.%${genericTerm}%`);
           
         if (fallbackProducts && fallbackProducts.length > 0) {
           products = fallbackProducts;
-          // Automatically backfill the implied color if it isn't set yet
           if (search.toLowerCase().includes("white") && !mergedAttributes.color) {
             mergedAttributes.color = "White";
           }
         }
       }
 
+      // Catalog Recommendation Engine Fallback if item is completely missing
       if (productError || !products || products.length === 0) {
+        const { data: storeAlternatives } = await supabase
+          .from('products')
+          .select('name')
+          .eq('user_id', user_id)
+          .limit(3);
+
+        if (storeAlternatives && storeAlternatives.length > 0) {
+          const suggestionsList = storeAlternatives.map(p => p.name).join(", ");
+          return NextResponse.json({
+            success: false,
+            message: `The item "${product_name}" is currently not available in our store catalog. However, you can check out these amazing options from our collection instead: ${suggestionsList}! Which one would you prefer?`
+          });
+        }
+
         return NextResponse.json({
           success: false,
           message: `Product not found: ${product_name}`,
@@ -75,38 +94,33 @@ export async function POST(req: NextRequest) {
 
       let product = products[0];
 
-      // 2. Exact Variant Matching Logic against JSONB variants array (Case-Insensitive Fix)
-if (Object.keys(mergedAttributes).length > 0) {
-  const matchedProduct = products.find((p: any) => {
-    return Object.entries(mergedAttributes).every(([key, value]) => {
-      // Get the value from the database row attribute structure
-      const dbValue = p.attributes?.[key];
-      
-      // If the database has an array of options or a single string, handle it cleanly
-      if (Array.isArray(dbValue)) {
-        return dbValue.map(v => String(v).toLowerCase().trim())
-                      .includes(String(value).toLowerCase().trim());
+      // 2. Exact Variant Matching Logic against JSONB variants array
+      if (Object.keys(mergedAttributes).length > 0) {
+        const matchedProduct = products.find((p: any) => {
+          return Object.entries(mergedAttributes).every(([key, value]) => {
+            const dbValue = p.attributes?.[key];
+            
+            if (Array.isArray(dbValue)) {
+              return dbValue.map(v => String(v).toLowerCase().trim())
+                            .includes(String(value).toLowerCase().trim());
+            }
+            
+            return (
+              String(dbValue || "").toLowerCase().trim() ===
+              String(value).toLowerCase().trim()
+            );
+          });
+        });
+
+        if (matchedProduct) {
+          product = matchedProduct;
+        }
       }
-      
-      return (
-        String(dbValue || "").toLowerCase().trim() ===
-        String(value).toLowerCase().trim()
-      );
-    });
-  });
-
-  if (matchedProduct) {
-    product = matchedProduct;
-  }
-}
-
-      console.log("MATCHED PRODUCT RECORD:", product);
 
       const requiredFields = product.required_fields || [];
       const availableOptions = product.allowed_options || {};
       const missingFields: string[] = [];
 
-      // Evaluate missing required attributes
       for (const field of requiredFields) {
         if (!mergedAttributes[field]) {
           missingFields.push(field);
@@ -119,7 +133,6 @@ if (Object.keys(mergedAttributes).length > 0) {
           missing_fields: missingFields,
           available_options: availableOptions,
         });
-        // Continue tracking other items in payload loops safely
         continue;
       }
 
@@ -154,11 +167,9 @@ if (Object.keys(mergedAttributes).length > 0) {
         );
 
       if (upsertError) {
-        console.error("UPSERT FAILED:", JSON.stringify(upsertError, null, 2));
         return NextResponse.json({
           success: false,
           message: "Database update failed.",
-          details: upsertError.message
         }, { status: 500 });
       }
  
@@ -172,7 +183,6 @@ if (Object.keys(mergedAttributes).length > 0) {
       });
     }
 
-    // 5. Trigger Missing Selection Payloads
     if (missingProducts.length > 0) {
       return NextResponse.json({
         success: false,
