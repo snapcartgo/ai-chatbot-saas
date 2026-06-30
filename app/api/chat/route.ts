@@ -211,61 +211,58 @@ export async function POST(req: Request) {
       ? data 
       : (data?.data || data?.products || fallbackProductsArray);
 
+    const fallbackText = 
+      data?.message || 
+      data?.custom_text || 
+      rawData?.message || 
+      rawData?.json?.message || 
+      rawData?.custom_text ||
+      "Here are some alternative items from our collection you might love:";
+
     // =========================================================================
-    // 1. CAROUSEL RENDERING PATH (Dual-Bubble Sequencer Array Fix)
+    // 1. CAROUSEL RENDERING PATH (NATIVE WIDGET COMPATIBLE LAYOUT)
     // =========================================================================
     if (products && Array.isArray(products) && products.length > 0) {
       
-      const fallbackText = 
-        data?.message || 
-        data?.custom_text || 
-        rawData?.message || 
-        rawData?.json?.message || 
-        rawData?.custom_text ||
-        "Here are some alternative items from our collection you might love:";
+      await saveMessage({
+        user_id: user_id || null,
+        bot_id,
+        conversation_id,
+        role: "user",
+        content: message,
+        channel,
+      });
 
-      // 💡 THE ULTIMATE TRICK: Return an array of two distinct objects.
-      // This forces the widget component to print the message bubble FIRST,
-      // and immediately load the product cards right below it!
-      return NextResponse.json([
-        {
-          type: "text",
-          reply: fallbackText,
-          message: fallbackText,
-          text: fallbackText
-        },
-        {
-          type: "carousel",
-          items: products.map((p: any) => ({
-            name: p.name || p.product_name || "Product",
-            price: p.price || null,
-            image_url: p.image_url || p.imageUrl || null,
-            product_url: p.product_url || p.productUrl || p.website_url || "",
-            description: p.description || null
-          }))
-        }
-      ]);
+      await saveMessage({
+        user_id: user_id || null,
+        bot_id,
+        conversation_id,
+        role: "assistant",
+        content: fallbackText,
+        channel,
+      });
+
+      return NextResponse.json({
+        type: "carousel", 
+        reply: fallbackText, 
+        message: fallbackText,
+        items: products.map((p: any) => ({
+          name: p.name || p.product_name || "Product",
+          price: p.price || null,
+          image_url: p.image_url || p.imageUrl || null,
+          product_url: p.product_url || p.productUrl || p.website_url || "",
+          description: p.description || null
+        }))
+      });
     }
 
     // =========================================================================
-    // 2. TEXT/SINGLE CORRECTION PATH (Ensures custom messages show dynamically)
+    // 2. TEXT/SINGLE CORRECTION PATH
     // =========================================================================
     const isProductIntent = data?.type === "product" || !!data?.product_name || !!data?.name;
     const isCategoryIntent = data?.type === "category" || /category|show collection|browse/i.test(userMsg);
 
-    // Dynamic prioritization selector ensuring clean alternative suggestion alerts render perfectly
-    const productMessage =
-      typeof data?.message === "string" && data.message.trim()
-        ? data.message.trim()
-        : typeof data?.custom_text === "string" && data.custom_text.trim() // <-- SAFELY SECURES THE EXTRA PROPERTY KEY
-        ? data.custom_text.trim()
-        : typeof data?.reply === "string" && data.reply.trim()
-        ? data.reply.trim()
-        : typeof data?.output === "string" && data.output.trim()
-        ? data.output.trim()
-        : isProductIntent || isCategoryIntent
-        ? "Here is what we found in our collection:"
-        : "No items available matching that description right now.";
+    const productMessage = fallbackText;
 
     const paymentLink = typeof data?.payment_link === "string" ? data.payment_link : null;
     const productUrl =
@@ -347,7 +344,6 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       type: isProductIntent || isCategoryIntent ? "product" : "text",
-      // ✨ CRITICAL REPAIR SUMMARY: Ensures the chat widget component captures the text string natively for non-product layouts
       reply: productMessage, 
       message: productMessage,
       name: isProductIntent || isCategoryIntent ? (data?.name || data?.product_name || extractedCategory) : null,
