@@ -7,7 +7,7 @@ const supabase = createClient(
 );
 
 export async function POST(req: NextRequest) {
-  console.log("===== NEW VALIDATE ORDER API V7 =====");
+  console.log("===== VALIDATE ORDER API V8 PRODUCTION =====");
   try {
     const body = await req.json();
     const sessionId = body.session_id;
@@ -25,11 +25,10 @@ export async function POST(req: NextRequest) {
     const validatedItems = [];
     let grandSubtotal = 0;
     let grandShipping = 0;
-    let grandTotal = 0;
 
     const missingProducts: any[] = [];
 
-    // Loop through ALL items submitted
+    // Loop through ALL items submitted concurrently
     for (const item of items) {
       const { product_name, quantity, selected_attributes = {} } = item;
       const mergedAttributes = selected_attributes || {};
@@ -39,19 +38,25 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ success: false, message: `Invalid quantity for ${product_name || "product"}.` }, { status: 400 });
       }
 
-      const search = product_name.trim();
+      // Clean the incoming search text
+      let search = product_name.trim().toLowerCase();
 
-      // 1. Primary Fuzzy Search
+      // 💡 GLOBAL NORMALIZATION LAYER: Intercept variation strings immediately
+      if (search === "tshirt" || search === "t shirt" || search === "shirt") {
+        search = "t-shirt";
+      }
+
+      // 1. Primary Fuzzy Search (Strictly scoped to user_id using isolated logical grouping)
       let { data: products, error: productError } = await supabase
         .from("products")
         .select("*")
         .eq("user_id", user_id) 
         .or(`name.ilike.%${search}%,category.ilike.%${search}%,description.ilike.%${search}%`);
 
-      // 2. Fallback Split-Phrase Search
-      if ((!products || products.length === 0) && search.toLowerCase().includes(" ")) {
+      // 2. Fallback Split-Phrase Search (If first lookup came up completely empty)
+      if ((!products || products.length === 0) && search.includes(" ")) {
         const words = search.split(" ").filter(Boolean);
-        let genericTerm = words[words.length - 1].toLowerCase(); 
+        let genericTerm = words[words.length - 1]; 
         
         if (genericTerm === "tshirt" || genericTerm === "shirt") {
           genericTerm = "t-shirt";
@@ -65,13 +70,13 @@ export async function POST(req: NextRequest) {
           
         if (fallbackProducts && fallbackProducts.length > 0) {
           products = fallbackProducts;
-          if (search.toLowerCase().includes("white") && !mergedAttributes.color) {
+          if (search.includes("white") && !mergedAttributes.color) {
             mergedAttributes.color = "White";
           }
         }
       }
 
-      // ❌ FIXED: If product is missing, add it to missingProducts and CONTINUE the loop instead of returning early
+      // If item still completely missing from database catalog, track it and continue
       if (productError || !products || products.length === 0) {
         missingProducts.push({
           product_name: product_name,
@@ -82,7 +87,7 @@ export async function POST(req: NextRequest) {
 
       let product = products[0];
 
-      // Exact Variant Matching Logic
+      // Exact Variant Matching Logic against JSONB variants array
       if (Object.keys(mergedAttributes).length > 0) {
         const matchedProduct = products.find((p: any) => {
           return Object.entries(mergedAttributes).every(([key, value]) => {
@@ -126,9 +131,8 @@ export async function POST(req: NextRequest) {
       
       grandSubtotal += subtotal;
       grandShipping += shipping;
-      grandTotal += subtotal + shipping;
 
-      // Sync Validated Items to Database
+      // Sync Validated Items to Database State Table
       const { error: upsertError } = await supabase
         .from("cart_sessions")
         .upsert(
@@ -159,13 +163,11 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // 3. Evaluate any items collected in our missing array AFTER the loop completes completely
+    // Evaluate any missing items gathered after loop processing complete
     if (missingProducts.length > 0) {
-      // Filter out products that completely failed catalog lookups
       const completelyNotFound = missingProducts.filter(p => p.error_type === "not_found");
       
       if (completelyNotFound.length > 0) {
-        // Fetch alternative suggestions from the merchant catalog
         const { data: storeAlternatives } = await supabase
           .from('products')
           .select('name')
@@ -182,7 +184,6 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      // Handle items that just need attribute selection (size/color)
       return NextResponse.json({
         success: false,
         requires_selection: true,
@@ -191,13 +192,13 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Success! All items verified
+    // Success! All items verified cleanly
     return NextResponse.json({
       success: true,
       items: validatedItems,
       subtotal: grandSubtotal,
       shipping: grandShipping,
-      total: grandTotal,
+      total: grandSubtotal + grandShipping,
       message: "All products are available. Kindly share your Name, Email and Phone Number.",
     });
 
