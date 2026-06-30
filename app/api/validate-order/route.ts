@@ -7,12 +7,12 @@ const supabase = createClient(
 );
 
 export async function POST(req: NextRequest) {
-  console.log("===== NEW VALIDATE ORDER API V5 =====");
+  console.log("===== NEW VALIDATE ORDER API V6 =====");
   try {
     const body = await req.json();
     const sessionId = body.session_id;
     const items = body.items;
-    const user_id = body.user_id; // 🔐 Crucial context: Extract the merchant/store owner identifier
+    const user_id = body.user_id; 
 
     if (!user_id) {
       return NextResponse.json({ success: false, message: "Missing user_id context." }, { status: 400 });
@@ -40,12 +40,12 @@ export async function POST(req: NextRequest) {
 
       const search = product_name.trim();
 
-      // 1. Fetch Product with Adaptive Fuzzy Text Matching (Scoped STRICTLY to the user_id)
+      // 1. Fetch Product Scoped STRICTLY to the merchant user_id using build-safe Supabase chaining
       let { data: products, error: productError } = await supabase
         .from("products")
         .select("*")
-        .eq("user_id", user_id) // 🛡️ Secures lookup to this specific merchant's catalog
-        .and(`name.ilike.%${search}%,category.ilike.%${search}%,description.ilike.%${search}%`);
+        .eq("user_id", user_id) 
+        .or(`name.ilike.%${search}%,category.ilike.%${search}%,description.ilike.%${search}%`);
 
       // FALLBACK LOOKUP: If phrase search fails, isolate generic terms specifically for this merchant
       if ((!products || products.length === 0) && search.toLowerCase().includes(" ")) {
@@ -59,8 +59,8 @@ export async function POST(req: NextRequest) {
         const { data: fallbackProducts } = await supabase
           .from("products")
           .select("*")
-          .eq("user_id", user_id) // 🛡️ Keeps alternative matching confined to the correct storefront
-          .and(`name.ilike.%${genericTerm}%,category.ilike.%${genericTerm}%`);
+          .eq("user_id", user_id) 
+          .or(`name.ilike.%${genericTerm}%,category.ilike.%${genericTerm}%`);
           
         if (fallbackProducts && fallbackProducts.length > 0) {
           products = fallbackProducts;
@@ -70,7 +70,7 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // If item still completely missing, pull real alternate items belonging to THIS tenant store
+      // Catalog Recommendation Engine Fallback if item is completely missing
       if (productError || !products || products.length === 0) {
         const { data: storeAlternatives } = await supabase
           .from('products')
@@ -116,8 +116,6 @@ export async function POST(req: NextRequest) {
           product = matchedProduct;
         }
       }
-
-      console.log("MATCHED PRODUCT RECORD:", product);
 
       const requiredFields = product.required_fields || [];
       const availableOptions = product.allowed_options || {};
@@ -169,11 +167,9 @@ export async function POST(req: NextRequest) {
         );
 
       if (upsertError) {
-        console.error("UPSERT FAILED:", JSON.stringify(upsertError, null, 2));
         return NextResponse.json({
           success: false,
           message: "Database update failed.",
-          details: upsertError.message
         }, { status: 500 });
       }
  
