@@ -218,8 +218,8 @@ export async function POST(req: Request) {
       ? data 
       : (data?.data || data?.products || fallbackProductsArray);
 
-    // 2. If multiple items are present (items > 1), strictly render the carousel layout
-    if (products.length > 1) {
+    // 2. If products are present, render the carousel layout with the dynamic notification message
+    if (products.length > 0) {
       return NextResponse.json({
         type: "carousel",
         items: products.map((p: any) => ({
@@ -229,7 +229,8 @@ export async function POST(req: Request) {
           product_url: p.product_url || p.productUrl || p.website_url || "",
           description: p.description || null
         })),
-        message: "Here are the products we found:"
+        // Use the custom message from the search API (e.g., "We couldn't find bottle. Here are some other...")
+        message: data?.message || "Here are the products we found:" 
       });
     }
     // 3. Fallback logic if it's a single item object or string response

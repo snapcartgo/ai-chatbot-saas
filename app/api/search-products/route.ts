@@ -59,22 +59,39 @@ export async function GET(request: Request) {
   }
 
   // 7. Execution and Response
-  const { data, error } = await query;
+  let { data, error } = await query;
 
   if (error) {
     console.error("Supabase Query Error:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  // ✨ FIX: If the database lookup returns no items, return a friendly message instead of a crash
+  // ✨ FIX: IF PRODUCT NOT FOUND, FETCH RELEVANT ALTERNATIVES DYNAMICALLY
   if (!data || data.length === 0) {
+    // Fetch up to 3 random items from this specific store owner's active catalog
+    const { data: alternatives, error: altError } = await supabase
+      .from('products')
+      .select('*')
+      .eq('user_id', user_id)
+      .limit(3);
+
+    if (!altError && alternatives && alternatives.length > 0) {
+      // Return the alternative products so n8n can still render them as a carousel card!
+      return NextResponse.json({ 
+        data: alternatives,
+        success: true, // Keep it true so it flows down the existing carousel layout branch
+        message: `We couldn't find "${q}". Here are some other premium items from our collection you might love:` 
+      });
+    }
+
+    // Absolute fallback if the store's entire product table is completely empty
     return NextResponse.json({ 
       data: [],
-      message: `The product you searched for is currently not available in our catalog. Let me know if you would like to see our premium clothing or furniture options instead!` 
+      success: false,
+      message: "That item is currently unavailable, and our catalog is undergoing an update. Check back soon!" 
     });
   }
 
-  return NextResponse.json({ data });
+  return NextResponse.json({ data, success: true, message: "Here is what we found:" });
 }
-
  

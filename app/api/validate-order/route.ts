@@ -12,6 +12,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const sessionId = body.session_id;
     const items = body.items;
+    const user_id = body.user_id; // <--- CRITICAL: Extract user_id from incoming request body
 
     if (!Array.isArray(items) || items.length === 0) {
       return NextResponse.json({ success: false, message: "No products provided." }, { status: 400 });
@@ -24,6 +25,7 @@ export async function POST(req: NextRequest) {
 
     const missingProducts: any[] = [];
 
+    // loop through all incoming items
     for (const item of items) {
       const { product_name, quantity, selected_attributes = {} } = item;
       const mergedAttributes = selected_attributes || {};
@@ -33,72 +35,107 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ success: false, message: `Invalid quantity for ${product_name || "product"}.` }, { status: 400 });
       }
 
-      const search = product_name.trim();
+      // ==========================================================
+      // 🔥 INTEGRATED NEW BLOCK: MULTI-TENANT & CATEGORY LOOKUP
+      // ==========================================================
+      const productRequested = product_name.trim().toLowerCase();
 
-      // 1. Fetch Product with Adaptive Fuzzy Text Matching
+      // Strict Multitenancy Boundary Check: Look for exact product name match first
       let { data: products, error: productError } = await supabase
-        .from("products")
-        .select("*")
-        .or(`name.ilike.%${search}%,category.ilike.%${search}%,description.ilike.%${search}%`);
+        .from('products')
+        .select('*')
+        .eq('user_id', user_id)
+        .ilike('name', `%${productRequested}%`);
 
-      // FALLBACK LOOKUP: If "White T-Shirt" yields no results, split the phrase
-      // FALLBACK LOOKUP: If "white tshirt" yields no results, split the phrase and normalize
-      if ((!products || products.length === 0) && search.toLowerCase().includes(" ")) {
-        const words = search.split(" ").filter(Boolean);
-        let genericTerm = words[words.length - 1].toLowerCase(); 
+      // BROAD CATEGORY INTERCEPTOR FALLBACK
+      if (!products || products.length === 0) {
+        let categoryFilter = `%${productRequested}%`;
         
-        // 💡 CRITICAL FIX: Convert variations of "tshirt" or "t shirt" to match "T-Shirt"
-        if (genericTerm === "tshirt" || genericTerm === "shirt") {
-          genericTerm = "t-shirt";
+        // Clean generalized keywords dynamically to match your database categories
+        if (productRequested === "furniture") categoryFilter = "%furniture%";
+        if (productRequested === "clothes" || productRequested === "apparel") categoryFilter = "%clothing%";
+
+        // Fetch items belonging specifically to this store owner's targeted category row
+        const { data: categoryProducts } = await supabase
+          .from('products')
+          .select('*')
+          .eq('user_id', user_id)
+          .ilike('category', categoryFilter);
+
+        // If products are found inside that category row, prompt the user with dynamic alternatives
+        if (categoryProducts && categoryProducts.length > 0) {
+          const productSuggestions = categoryProducts
+            .slice(0, 3)
+            .map(p => p.name)
+            .join(", ");
+
+          return NextResponse.json({
+            success: false,
+            requires_selection: true, // Stops the checkout path and requests clarification
+            intent: "validate_order",
+            message: `We have several options available under that collection! Which one would you like to buy? (For example: ${productSuggestions})`
+          });
         }
-        
-        const { data: fallbackProducts } = await supabase
-          .from("products")
-          .select("*")
-          .or(`name.ilike.%${genericTerm}%,category.ilike.%${genericTerm}%`);
+
+        // Adaptive phrase-split lookup fallback (e.g. "white tshirt")
+        if (productRequested.includes(" ")) {
+          const words = productRequested.split(" ").filter(Boolean);
+          let genericTerm = words[words.length - 1]; 
           
-        if (fallbackProducts && fallbackProducts.length > 0) {
-          products = fallbackProducts;
-          // Automatically backfill the implied color if it isn't set yet
-          if (search.toLowerCase().includes("white") && !mergedAttributes.color) {
-            mergedAttributes.color = "White";
+          if (genericTerm === "tshirt" || genericTerm === "shirt") {
+            genericTerm = "t-shirt";
+          }
+          
+          const { data: fallbackProducts } = await supabase
+            .from("products")
+            .select("*")
+            .eq('user_id', user_id)
+            .or(`name.ilike.%${genericTerm}%,category.ilike.%${genericTerm}%`);
+            
+          if (fallbackProducts && fallbackProducts.length > 0) {
+            products = fallbackProducts;
+            if (productRequested.includes("white") && !mergedAttributes.color) {
+              mergedAttributes.color = "White";
+            }
           }
         }
       }
 
+      // If absolutely no matches are found after name, category, and phrase splitting
       if (productError || !products || products.length === 0) {
         return NextResponse.json({
           success: false,
-          message: `Product not found: ${product_name}`,
+          requires_selection: false,
+          intent: "chat",
+          message: `The item "${product_name}" is currently not available in our store catalog. Please let me know if you would like to browse other collections!`
         });
       }
 
+      // Pick our reference item
       let product = products[0];
 
-      // 2. Exact Variant Matching Logic against JSONB variants array (Case-Insensitive Fix)
-if (Object.keys(mergedAttributes).length > 0) {
-  const matchedProduct = products.find((p: any) => {
-    return Object.entries(mergedAttributes).every(([key, value]) => {
-      // Get the value from the database row attribute structure
-      const dbValue = p.attributes?.[key];
-      
-      // If the database has an array of options or a single string, handle it cleanly
-      if (Array.isArray(dbValue)) {
-        return dbValue.map(v => String(v).toLowerCase().trim())
-                      .includes(String(value).toLowerCase().trim());
-      }
-      
-      return (
-        String(dbValue || "").toLowerCase().trim() ===
-        String(value).toLowerCase().trim()
-      );
-    });
-  });
+      // 2. Exact Variant Matching Logic against JSONB variants array
+      if (Object.keys(mergedAttributes).length > 0) {
+        const matchedProduct = products.find((p: any) => {
+          return Object.entries(mergedAttributes).every(([key, value]) => {
+            const dbValue = p.attributes?.[key];
+            
+            if (Array.isArray(dbValue)) {
+              return dbValue.map(v => String(v).toLowerCase().trim())
+                            .includes(String(value).toLowerCase().trim());
+            }
+            
+            return (
+              String(dbValue || "").toLowerCase().trim() ===
+              String(value).toLowerCase().trim()
+            );
+          });
+        });
 
-  if (matchedProduct) {
-    product = matchedProduct;
-  }
-}
+        if (matchedProduct) {
+          product = matchedProduct;
+        }
+      }
 
       console.log("MATCHED PRODUCT RECORD:", product);
 
@@ -119,7 +156,6 @@ if (Object.keys(mergedAttributes).length > 0) {
           missing_fields: missingFields,
           available_options: availableOptions,
         });
-        // Continue tracking other items in payload loops safely
         continue;
       }
 
