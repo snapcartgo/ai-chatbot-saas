@@ -220,27 +220,20 @@ export async function POST(req: Request) {
       "Here are some alternative items from our collection you might love:";
 
     // =========================================================================
-    // 1. CAROUSEL RENDERING PATH (NATIVE WIDGET COMPATIBLE LAYOUT)
+    // 1. CAROUSEL RENDERING PATH (Dynamic Dynamic Reply Extraction Fix)
     // =========================================================================
     if (products && Array.isArray(products) && products.length > 0) {
       
-      await saveMessage({
-        user_id: user_id || null,
-        bot_id,
-        conversation_id,
-        role: "user",
-        content: message,
-        channel,
-      });
-
-      await saveMessage({
-        user_id: user_id || null,
-        bot_id,
-        conversation_id,
-        role: "assistant",
-        content: fallbackText,
-        channel,
-      });
+      // 💡 THE FIX: Make sure the parser scans the 'reply' key from n8n immediately!
+      const fallbackText = 
+        data?.reply ||
+        rawData?.reply ||
+        data?.message || 
+        data?.custom_text || 
+        rawData?.message || 
+        rawData?.json?.message || 
+        rawData?.custom_text ||
+        "Here are some alternative items from our collection you might love:";
 
       return NextResponse.json({
         type: "carousel", 
