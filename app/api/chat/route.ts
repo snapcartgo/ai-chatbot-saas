@@ -212,11 +212,10 @@ export async function POST(req: Request) {
       : (data?.data || data?.products || fallbackProductsArray);
 
     // =========================================================================
-    // 1. CAROUSEL RENDERING PATH (Dual-Response System Array Fix)
+    // 1. CAROUSEL RENDERING PATH (Unified Type Object Layout Fix)
     // =========================================================================
     if (products && Array.isArray(products) && products.length > 0) {
       
-      // Extract the fallback notification message securely from all possible layers
       const fallbackText = 
         data?.message || 
         data?.custom_text || 
@@ -225,24 +224,28 @@ export async function POST(req: Request) {
         rawData?.custom_text ||
         "Here are some alternative items from our collection you might love:";
 
-      // 💡 THE ULTIMATE FIX: Return an array of sequential items to force both components to render!
-      return NextResponse.json([
-        {
-          type: "text",
-          reply: fallbackText,
-          message: fallbackText
-        },
-        {
-          type: "carousel",
-          items: products.map((p: any) => ({
-            name: p.name || p.product_name || "Product",
-            price: p.price || null,
-            image_url: p.image_url || p.imageUrl || null,
-            product_url: p.product_url || p.productUrl || p.website_url || "",
-            description: p.description || null
-          }))
-        }
-      ]);
+      return NextResponse.json({
+        // 💡 THE TRICK: Set type to "product" instead of "carousel"
+        type: "product", 
+        reply: fallbackText, 
+        message: fallbackText,
+        
+        // Single item preview mappings for legacy widgets blocks
+        name: products[0].name || products[0].product_name || "Alternative Collection",
+        description: products[0].description || null,
+        price: products[0].price || null,
+        image_url: products[0].image_url || products[0].imageUrl || null,
+        product_url: products[0].product_url || products[0].productUrl || "",
+        
+        // Pass down your entire list array inside your standard item mapper structure
+        items: products.map((p: any) => ({
+          name: p.name || p.product_name || "Product",
+          price: p.price || null,
+          image_url: p.image_url || p.imageUrl || null,
+          product_url: p.product_url || p.productUrl || p.website_url || "",
+          description: p.description || null
+        }))
+      });
     }
 
     // =========================================================================
