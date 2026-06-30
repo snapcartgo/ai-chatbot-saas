@@ -18,6 +18,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, message: "No products provided." }, { status: 400 });
     }
 
+    // Inside the POST function, right under your variables setup...
     const validatedItems = [];
     let grandSubtotal = 0;
     let grandShipping = 0;
@@ -25,27 +26,29 @@ export async function POST(req: NextRequest) {
 
     const missingProducts: any[] = [];
 
-    // loop through all incoming items
+    // 1. The loop starts here
     for (const item of items) {
       const { product_name, quantity, selected_attributes = {} } = item;
       const mergedAttributes = selected_attributes || {};
       const requestedQuantity = Number(quantity);
 
       if (!product_name || Number.isNaN(requestedQuantity) || requestedQuantity <= 0) {
-        return NextResponse.json({ success: false, message: `Invalid quantity for ${product_name || "product"}.` }, { status: 400 });
+        return NextResponse.json({ success: false, message: `Invalid quantity.` }, { status: 400 });
       }
 
-      // ==========================================================
-      // 🔥 INTEGRATED NEW BLOCK: MULTI-TENANT & CATEGORY LOOKUP
-      // ==========================================================
+      // 🛑 PLACE IT EXACTLY HERE (At the start of the item processing block):
       const productRequested = product_name.trim().toLowerCase();
 
-      // Strict Multitenancy Boundary Check: Look for exact product name match first
+      // This query acts as the tenant barrier wall
       let { data: products, error: productError } = await supabase
         .from('products')
         .select('*')
-        .eq('user_id', user_id)
+        .eq('user_id', user_id) // 🔐 This isolates Customer A from Customer B dynamically
         .ilike('name', `%${productRequested}%`);
+
+      // ==========================================================
+      // Below this line, the code continues to check category rollbacks 
+      // and variant match configurations...
 
       // BROAD CATEGORY INTERCEPTOR FALLBACK
       if (!products || products.length === 0) {
