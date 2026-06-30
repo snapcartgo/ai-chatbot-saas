@@ -7,7 +7,7 @@ const supabase = createClient(
 );
 
 export async function POST(req: NextRequest) {
-  console.log("===== NEW VALIDATE ORDER API V6 =====");
+  console.log("===== NEW VALIDATE ORDER API V7 =====");
   try {
     const body = await req.json();
     const sessionId = body.session_id;
@@ -29,6 +29,7 @@ export async function POST(req: NextRequest) {
 
     const missingProducts: any[] = [];
 
+    // Loop through ALL items submitted
     for (const item of items) {
       const { product_name, quantity, selected_attributes = {} } = item;
       const mergedAttributes = selected_attributes || {};
@@ -40,14 +41,14 @@ export async function POST(req: NextRequest) {
 
       const search = product_name.trim();
 
-      // 1. Fetch Product Scoped STRICTLY to the merchant user_id using build-safe Supabase chaining
+      // 1. Primary Fuzzy Search
       let { data: products, error: productError } = await supabase
         .from("products")
         .select("*")
         .eq("user_id", user_id) 
         .or(`name.ilike.%${search}%,category.ilike.%${search}%,description.ilike.%${search}%`);
 
-      // FALLBACK LOOKUP: If phrase search fails, isolate generic terms specifically for this merchant
+      // 2. Fallback Split-Phrase Search
       if ((!products || products.length === 0) && search.toLowerCase().includes(" ")) {
         const words = search.split(" ").filter(Boolean);
         let genericTerm = words[words.length - 1].toLowerCase(); 
@@ -70,51 +71,29 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Catalog Recommendation Engine Fallback if item is completely missing
+      // ❌ FIXED: If product is missing, add it to missingProducts and CONTINUE the loop instead of returning early
       if (productError || !products || products.length === 0) {
-        const { data: storeAlternatives } = await supabase
-          .from('products')
-          .select('name')
-          .eq('user_id', user_id)
-          .limit(3);
-
-        if (storeAlternatives && storeAlternatives.length > 0) {
-          const suggestionsList = storeAlternatives.map(p => p.name).join(", ");
-          return NextResponse.json({
-            success: false,
-            message: `The item "${product_name}" is currently not available in our store catalog. However, you can check out these amazing options from our collection instead: ${suggestionsList}! Which one would you prefer?`
-          });
-        }
-
-        return NextResponse.json({
-          success: false,
-          message: `Product not found: ${product_name}`,
+        missingProducts.push({
+          product_name: product_name,
+          error_type: "not_found"
         });
+        continue; 
       }
 
       let product = products[0];
 
-      // 2. Exact Variant Matching Logic against JSONB variants array
+      // Exact Variant Matching Logic
       if (Object.keys(mergedAttributes).length > 0) {
         const matchedProduct = products.find((p: any) => {
           return Object.entries(mergedAttributes).every(([key, value]) => {
             const dbValue = p.attributes?.[key];
-            
             if (Array.isArray(dbValue)) {
-              return dbValue.map(v => String(v).toLowerCase().trim())
-                            .includes(String(value).toLowerCase().trim());
+              return dbValue.map(v => String(v).toLowerCase().trim()).includes(String(value).toLowerCase().trim());
             }
-            
-            return (
-              String(dbValue || "").toLowerCase().trim() ===
-              String(value).toLowerCase().trim()
-            );
+            return String(dbValue || "").toLowerCase().trim() === String(value).toLowerCase().trim();
           });
         });
-
-        if (matchedProduct) {
-          product = matchedProduct;
-        }
+        if (matchedProduct) product = matchedProduct;
       }
 
       const requiredFields = product.required_fields || [];
@@ -136,7 +115,7 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      // 3. Stock & Price Calculation
+      // Stock Check
       const unitPrice = Number(product.price);
       if (requestedQuantity > Number(product.stock)) {
         return NextResponse.json({ success: false, message: `Only ${product.stock} left for ${product.name}.` });
@@ -149,7 +128,7 @@ export async function POST(req: NextRequest) {
       grandShipping += shipping;
       grandTotal += subtotal + shipping;
 
-      // 4. Perform Upsert with Session State Sync
+      // Sync Validated Items to Database
       const { error: upsertError } = await supabase
         .from("cart_sessions")
         .upsert(
@@ -167,10 +146,7 @@ export async function POST(req: NextRequest) {
         );
 
       if (upsertError) {
-        return NextResponse.json({
-          success: false,
-          message: "Database update failed.",
-        }, { status: 500 });
+        return NextResponse.json({ success: false, message: "Database update failed." }, { status: 500 });
       }
  
       validatedItems.push({
@@ -183,18 +159,39 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // 3. Evaluate any items collected in our missing array AFTER the loop completes completely
     if (missingProducts.length > 0) {
+      // Filter out products that completely failed catalog lookups
+      const completelyNotFound = missingProducts.filter(p => p.error_type === "not_found");
+      
+      if (completelyNotFound.length > 0) {
+        // Fetch alternative suggestions from the merchant catalog
+        const { data: storeAlternatives } = await supabase
+          .from('products')
+          .select('name')
+          .eq('user_id', user_id)
+          .limit(3);
+
+        const suggestionsList = storeAlternatives ? storeAlternatives.map(p => p.name).join(", ") : "";
+        const failedNames = completelyNotFound.map(p => `"${p.product_name}"`).join(" and ");
+
+        return NextResponse.json({
+          success: false,
+          requires_selection: true,
+          message: `The item ${failedNames} is currently not matching our store catalog format. However, you can check out these options from our collection: ${suggestionsList}! What would you like to choose?`
+        });
+      }
+
+      // Handle items that just need attribute selection (size/color)
       return NextResponse.json({
         success: false,
         requires_selection: true,
         missing_products: missingProducts,
-        message:
-          missingProducts.length === 1
-            ? `Please select ${missingProducts[0].missing_fields.join(", ")} for ${missingProducts[0].product_name}.`
-            : "Please provide the required attributes for each product."
+        message: `Please select options for ${missingProducts[0].product_name}.`
       });
     }
 
+    // Success! All items verified
     return NextResponse.json({
       success: true,
       items: validatedItems,
