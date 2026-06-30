@@ -721,25 +721,37 @@ export default function ChatWidget({
             }`}>
               
               {/* Conditional Message Rendering */}
-              {(m.messageType === "carousel" || (m as any).type === "carousel") && m.items ? (
-                /* 1. Carousel Layout */
-                <div className="flex gap-4 overflow-x-auto pb-2">
-                  {m.items.map((product, idx) => (
-                    <div key={idx} className="w-[180px] min-w-[180px] rounded-lg border bg-white p-2 text-gray-800">
-                      {product.image_url && (
-                        <img src={product.image_url} className="h-24 w-full object-cover rounded" alt={product.name} />
-                      )}
-                      <div className="font-bold mt-1 truncate">{product.name}</div>
-                      {product.price && <div className="text-blue-600 font-semibold">Rs.{product.price}</div>}
-                      {product.product_url && (
-                        <a href={product.product_url} target="_blank" rel="noopener noreferrer" className="mt-1 block text-center rounded bg-blue-50 py-1 text-[11px] font-medium text-blue-600 hover:bg-blue-100">
-                          View Product
-                        </a>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              ) : m.messageType === "product" || (m as any).type === "product" ? (
+{(m.messageType === "carousel" || (m as any).type === "carousel") && m.items ? (
+  /* 1. Carousel Layout */
+  <div className="flex flex-col gap-2 w-full">
+    
+    {/* 💬 FIX: Force the layout to print out the explanation text bubble bubble first */}
+    {m.content && (
+      <div className="text-gray-800 font-medium mb-1 leading-relaxed">
+        {m.content}
+      </div>
+    )}
+
+    {/* Horizontal Products Grid Deck */}
+    <div className="flex gap-4 overflow-x-auto pb-2">
+      {m.items.map((product, idx) => (
+        <div key={idx} className="w-[180px] min-w-[180px] rounded-lg border bg-white p-2 text-gray-800 shadow-sm">
+          {product.image_url && (
+            <img src={product.image_url} className="h-24 w-full object-cover rounded" alt={product.name} />
+          )}
+          <div className="font-bold mt-1 truncate">{product.name}</div>
+          {product.price && <div className="text-blue-600 font-semibold">Rs.{product.price}</div>}
+          {product.product_url && (
+            <a href={product.product_url} target="_blank" rel="noopener noreferrer" className="mt-1 block text-center rounded bg-blue-50 py-1 text-[11px] font-medium text-blue-600 hover:bg-blue-100">
+              View Product
+            </a>
+          )}
+        </div>
+      ))}
+    </div>
+
+  </div>
+) : m.messageType === "product" || (m as any).type === "product" ? (
   /* 2. Single Product Layout */
   <div className="w-full min-w-[220px] text-gray-800">
     {/* Product Image */}

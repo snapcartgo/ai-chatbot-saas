@@ -231,7 +231,7 @@ export async function POST(req: Request) {
     const shouldRenderCarousel = hasValidProducts && (isProductIntent || isCategoryIntent || data?.success === true || rawData?.success === true);
 
     // =========================================================================
-    // 1. CAROUSEL RENDERING PATH
+    // 1. CAROUSEL RENDERING PATH (Unified Type Object Layout Fix)
     // =========================================================================
     if (shouldRenderCarousel) {
       await saveMessage({
@@ -254,8 +254,11 @@ export async function POST(req: Request) {
 
       return NextResponse.json({
         type: "carousel", 
+        // 🔐 THE DUAL MAPPING TRICK: Expose the text bubble to both common key lookups!
         reply: fallbackText, 
         message: fallbackText,
+        text: fallbackText,
+        
         items: products.map((p: any) => ({
           name: p.name || p.product_name || "Product",
           price: p.price || null,
