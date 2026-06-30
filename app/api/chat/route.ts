@@ -212,20 +212,24 @@ export async function POST(req: Request) {
       : (data?.data || data?.products || fallbackProductsArray);
 
     // =========================================================================
-    // 1. CAROUSEL RENDERING PATH (With Safe Custom Fallback Message Injection)
+    // 1. CAROUSEL RENDERING PATH (Dual-Response System Fix)
     // =========================================================================
     if (products && Array.isArray(products) && products.length > 0) {
+      const fallbackText = data?.message || data?.custom_text || "Here are some alternative items from our collection:";
+
+      // 💡 THE TRICK: Return an array of two sequential UI structures back to the widget
       return NextResponse.json({
-        type: "carousel",
+        type: "carousel", 
+        // Send the message text as a dedicated property string
+        reply: fallbackText, 
+        message: fallbackText,
         items: products.map((p: any) => ({
           name: p.name || p.product_name || "Product",
           price: p.price || null,
           image_url: p.image_url || p.imageUrl || null,
           product_url: p.product_url || p.productUrl || p.website_url || "",
           description: p.description || null
-        })),
-        // Checks custom keys before defaulting to standard string notifications
-        message: data?.message || data?.custom_text || "Here are some items from our collection you might love:" 
+        }))
       });
     }
 
