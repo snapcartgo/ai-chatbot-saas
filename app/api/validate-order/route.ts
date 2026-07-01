@@ -220,14 +220,20 @@ export async function POST(req: NextRequest) {
       }
 
       // Scenario B: ⚡ INVALID VARIANT SELECTION (e.g., Red or size that doesn't exist)
+      // Scenario B: INVALID VARIANT SELECTION (e.g., Color or Size combinations that don't exist)
       if (invalidVariants.length > 0) {
         const item = invalidVariants[0];
+        
+        // Safely extract the distinct options available in your Supabase rows
         const allowedColors = item.available_options?.color ? item.available_options.color.join(" or ") : "";
         const allowedSizes = item.available_options?.size ? item.available_options.size.join(", ") : "";
         
-        let customErrorMessage = `Sorry, the requested options are not available for ${item.product_name}.`;
-        if (allowedColors) {
-          customErrorMessage += ` We currently have this available in ${allowedColors} color.`;
+        let customErrorMessage = `Sorry, that specific combination is not available for ${item.product_name}.`;
+        
+        if (allowedColors || allowedSizes) {
+          customErrorMessage += " We currently have this item available in:";
+          if (allowedColors) customErrorMessage += `\n- Colors: ${allowedColors}`;
+          if (allowedSizes) customErrorMessage += `\n- Sizes: ${allowedSizes}`;
         }
         
         return NextResponse.json({
