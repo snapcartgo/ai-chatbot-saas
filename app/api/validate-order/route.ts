@@ -163,23 +163,25 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // 5. Trigger Missing Selection Payloads (PERMANENT MULTI-ITEM FIX)
-    // 5. Trigger Missing Selection Payloads (PERMANENT DYNAMIC ATTRIBUTE FIX)
+    // 5. Trigger Missing Selection Payloads (COMPLETE MULTI-ITEM DETAILED FIX)
     if (missingProducts.length > 0) {
       
       let userFriendlyMessage = "";
 
       if (missingProducts.length === 1) {
         const item = missingProducts[0];
-        // Dynamically join whatever fields are actually missing (e.g., "style and material" or "color and size")
         const missingFieldsList = item.missing_fields.join(" and ");
-        
         userFriendlyMessage = `Please select options (${missingFieldsList}) for ${item.product_name}.`;
       } else {
-        // Multi-item construction handling fallback
-        const itemNames = missingProducts.map(p => p.product_name);
-        const lastItem = itemNames.pop();
-        userFriendlyMessage = `Please select required missing options for both ${itemNames.join(", ")} and ${lastItem}.`;
+        // ⚡ FIX FOR MULTIPLE PRODUCTS: Build a clear sentence for each item
+        const itemMessages = missingProducts.map(item => {
+          const missingFieldsList = item.missing_fields.join(", ");
+          return `${item.product_name} (${missingFieldsList})`;
+        });
+
+        // Combine them cleanly: "Product A (size, style) and Product B (style, finish)"
+        const lastItemMessage = itemMessages.pop();
+        userFriendlyMessage = `Please select required options for both ${itemMessages.join(" and ")} and ${lastItemMessage}.`;
       }
 
       return NextResponse.json({
