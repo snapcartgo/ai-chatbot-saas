@@ -85,9 +85,10 @@ export async function POST(req: NextRequest) {
         continue; 
       }
 
-      let product = products[0];
+      let product = null;
+      let variantMatched = false;
 
-      // Exact Variant Matching Logic against JSONB variants array
+      // ⚡ EXACT VARIANT MATCHING LOOKUP LAYER
       if (Object.keys(mergedAttributes).length > 0) {
         const matchedProduct = products.find((p: any) => {
           return Object.entries(mergedAttributes).every(([key, value]) => {
@@ -98,11 +99,46 @@ export async function POST(req: NextRequest) {
             return String(dbValue || "").toLowerCase().trim() === String(value).toLowerCase().trim();
           });
         });
-        if (matchedProduct) product = matchedProduct;
+
+        if (matchedProduct) {
+          product = matchedProduct;
+          variantMatched = true;
+        }
+      }
+
+      // ⚡ VALIDATION CHECK: If user provided attributes that DO NOT exist in database options
+      if (!variantMatched && Object.keys(mergedAttributes).length > 0) {
+        const totalAvailableOptions: Record<string, string[]> = {};
+        
+        // Loop over variants to see what colors/sizes are actually in stock
+        products.forEach((p: any) => {
+          if (p.attributes) {
+            Object.entries(p.attributes).forEach(([key, val]) => {
+              if (!totalAvailableOptions[key]) totalAvailableOptions[key] = [];
+              const strVal = String(val);
+              if (!totalAvailableOptions[key].includes(strVal)) {
+                totalAvailableOptions[key].push(strVal);
+              }
+            });
+          }
+        });
+
+        missingProducts.push({
+          product_name: products[0].name,
+          error_type: "invalid_variant",
+          requested_attributes: mergedAttributes,
+          available_options: totalAvailableOptions
+        });
+        continue;
+      }
+
+      // Fallback fallback pointer if no attributes were requested yet
+      if (!product) {
+        product = products[0];
       }
 
       const requiredFields = product.required_fields || [];
-      const availableOptions = product.allowed_options || {};
+      const availableOptions = product.allowed_options || product.attributes || {};
       const missingFields: string[] = [];
 
       for (const field of requiredFields) {
@@ -163,23 +199,53 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // 5. Trigger Missing Selection Payloads (COMPLETE MULTI-ITEM DETAILED FIX)
+    // =========================================================================
+    // 5. EVALUATE TARGET MISSING/INVALID SELECTION PAYLOADS
+    // =========================================================================
     if (missingProducts.length > 0) {
-      
-      let userFriendlyMessage = "";
+      const completelyNotFound = missingProducts.filter(p => p.error_type === "not_found");
+      const invalidVariants = missingProducts.filter(p => p.error_type === "invalid_variant");
 
+      // Scenario A: Completely missing from catalog lookups
+      if (completelyNotFound.length > 0) {
+        const { data: storeAlternatives } = await supabase.from('products').select('name').eq('user_id', user_id).limit(3);
+        const suggestionsList = storeAlternatives ? storeAlternatives.map(p => p.name).join(", ") : "";
+        const failedNames = completelyNotFound.map(p => `"${p.product_name}"`).join(" and ");
+
+        return NextResponse.json({
+          success: false,
+          requires_selection: true,
+          message: `The item ${failedNames} is currently not matching our store catalog format. Try: ${suggestionsList}`
+        });
+      }
+
+      // Scenario B: ⚡ INVALID VARIANT SELECTION (e.g., Red or size that doesn't exist)
+      if (invalidVariants.length > 0) {
+        const item = invalidVariants[0];
+        const allowedColors = item.available_options?.color ? item.available_options.color.join(" or ") : "";
+        const allowedSizes = item.available_options?.size ? item.available_options.size.join(", ") : "";
+        
+        let customErrorMessage = `Sorry, the requested options are not available for ${item.product_name}.`;
+        if (allowedColors) {
+          customErrorMessage += ` We currently have this available in ${allowedColors} color.`;
+        }
+        
+        return NextResponse.json({
+          success: false,
+          requires_selection: true,
+          missing_products: missingProducts,
+          message: customErrorMessage
+        });
+      }
+
+      // Scenario C: Normal item attribute selection flow handler
+      let userFriendlyMessage = "";
       if (missingProducts.length === 1) {
         const item = missingProducts[0];
         const missingFieldsList = item.missing_fields.join(" and ");
         userFriendlyMessage = `Please select options (${missingFieldsList}) for ${item.product_name}.`;
       } else {
-        // ⚡ FIX FOR MULTIPLE PRODUCTS: Build a clear sentence for each item
-        const itemMessages = missingProducts.map(item => {
-          const missingFieldsList = item.missing_fields.join(", ");
-          return `${item.product_name} (${missingFieldsList})`;
-        });
-
-        // Combine them cleanly: "Product A (size, style) and Product B (style, finish)"
+        const itemMessages = missingProducts.map(item => `${item.product_name} (${item.missing_fields.join(", ")})`);
         const lastItemMessage = itemMessages.pop();
         userFriendlyMessage = `Please select required options for both ${itemMessages.join(" and ")} and ${lastItemMessage}.`;
       }
