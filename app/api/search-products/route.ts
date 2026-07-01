@@ -4,12 +4,13 @@ import { createSupabaseServerClient } from '../../../lib/supabaseServer';
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
 
-  // 1. Extract query parameters
+  // 1. Extract query parameters (Added price_query)
   const category = searchParams.get('category');
   const product_type = searchParams.get('product_type');
   const q = searchParams.get('q'); 
   const color = searchParams.get('color');
-  const user_id = searchParams.get('user_id'); // <--- CRITICAL: Get user_id from query string
+  const price_query = searchParams.get('price_query'); // <--- NEW: Read the price query string from n8n
+  const user_id = searchParams.get('user_id'); 
 
   // 2. Enforce tenancy boundaries immediately
   if (!user_id) {
@@ -20,9 +21,9 @@ export async function GET(request: Request) {
   const supabase = await createSupabaseServerClient();
 
   // 4. Build the query and mandate user_id ownership immediately
-  let query = supabase.from('products').select('*').eq('user_id', user_id); // <--- CRITICAL FIX
+  let query = supabase.from('products').select('*').eq('user_id', user_id); 
 
- // 5. Apply conditional filters (with trim and lowercase sanitation)
+  // 5. Apply conditional filters (with trim and lowercase sanitation)
   if (category) query = query.ilike('category', `%${category.trim()}%`);
   if (product_type) query = query.ilike('product_type', `%${product_type.trim()}%`);
   
@@ -30,17 +31,43 @@ export async function GET(request: Request) {
     query = query.ilike('color', `%${color.trim()}%`);
   }
 
+  // ✨ NEW 5.5: Intelligent Price Filter Parser
+  if (price_query && price_query !== "null" && price_query.trim() !== "") {
+    const cleanPriceQuery = price_query.trim().toLowerCase();
+
+    // Case 1: Handle "under X"
+    if (cleanPriceQuery.startsWith('under')) {
+      const maxPrice = parseFloat(cleanPriceQuery.replace('under', '').trim());
+      if (!isNaN(maxPrice)) {
+        query = query.lte('price', maxPrice); // Less than or equal to
+      }
+    } 
+    // Case 2: Handle "exact X"
+    else if (cleanPriceQuery.startsWith('exact')) {
+      const exactPrice = parseFloat(cleanPriceQuery.replace('exact', '').trim());
+      if (!isNaN(exactPrice)) {
+        query = query.eq('price', exactPrice); // Equals
+      }
+    } 
+    // Case 3: Handle "between X to Y"
+    else if (cleanPriceQuery.startsWith('between')) {
+      const numericParts = cleanPriceQuery.replace('between', '').split('to').map(num => parseFloat(num.trim()));
+      const minPrice = numericParts[0];
+      const maxPrice = numericParts[1];
+      
+      if (!isNaN(minPrice) && !isNaN(maxPrice)) {
+        query = query.gte('price', minPrice).lte('price', maxPrice); // Greater than min AND Less than max
+      }
+    }
+  }
+
   // 6. Intelligent General Search (Color-Resilient Wildcard Fix)
   if (q) {
     let cleanQuery = q.trim().toLowerCase();
     
-    // List of common color adjectives to filter out if they bypass text bounds
     const colorAdjectives = ["white", "black", "blue", "red", "green", "grey", "gray", "yellow"];
-    
-    // Split the query into words, strip out explicit colors, and rebuild the text term
     let queryWords = cleanQuery.split(/\s+/).filter(word => !colorAdjectives.includes(word));
     
-    // Handle plural normalization variations (e.g., "shirts" -> "t-shirt")
     queryWords = queryWords.map(word => {
       if (word === "shirts" || word === "tshirt" || word === "tshirts") return "t-shirt";
       if (word === "chairs") return "chair";
@@ -50,7 +77,6 @@ export async function GET(request: Request) {
 
     const finalSearchTerm = queryWords.join(" ");
 
-    // Fall back safely if the search word array is completely empty
     if (finalSearchTerm.length > 0) {
       query = query.or(`name.ilike.%${finalSearchTerm}%,description.ilike.%${finalSearchTerm}%,category.ilike.%${finalSearchTerm}%`);
     } else {
@@ -66,9 +92,8 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  // ✨ FIX: IF PRODUCT NOT FOUND, FETCH RELEVANT ALTERNATIVES DYNAMICALLY
+  // IF PRODUCT NOT FOUND, FETCH RELEVANT ALTERNATIVES DYNAMICALLY
   if (!data || data.length === 0) {
-    // Fetch up to 3 random items from this specific store owner's active catalog
     const { data: alternatives, error: altError } = await supabase
       .from('products')
       .select('*')
@@ -76,15 +101,13 @@ export async function GET(request: Request) {
       .limit(3);
 
     if (!altError && alternatives && alternatives.length > 0) {
-      // Return the alternative products so n8n can still render them as a carousel card!
       return NextResponse.json({ 
         data: alternatives,
-        success: true, // Keep it true so it flows down the existing carousel layout branch
-        message: `We couldn't find "${q}". Here are some other premium items from our collection you might love:` 
+        success: true, 
+        message: `We couldn't find matches matching your criteria. Here are some options from our collection you might love:` 
       });
     }
 
-    // Absolute fallback if the store's entire product table is completely empty
     return NextResponse.json({ 
       data: [],
       success: false,
@@ -94,4 +117,3 @@ export async function GET(request: Request) {
 
   return NextResponse.json({ data, success: true, message: "Here is what we found:" });
 }
- 
