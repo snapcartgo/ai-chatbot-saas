@@ -43,7 +43,14 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Step 3: Check if the order is already shipped/delivered
+   // Step 3: Check the status state smoothly
+    if (order.verification_status === "CANCELLED") {
+      return NextResponse.json({
+        success: true,
+        message: `Order #${order_id} is already cancelled.`
+      });
+    }
+
     if (order.verification_status === "SHIPPED" || order.verification_status === "DELIVERED") {
       return NextResponse.json({
         success: false,
