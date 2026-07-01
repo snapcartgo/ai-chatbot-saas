@@ -12,6 +12,8 @@ const extractUTR = (text: string) => {
   return match ? match[0] : null;
 };
 
+// ⚡ ADD THIS FUNCTION HERE (Do not remove any other functions)
+// ⚡ REPLACE THE extractMarkdownUrl FUNCTION WITH THIS IMPROVED LOGIC
 const extractMarkdownUrl = (message: any): { cleanText: string; url: string | null } => {
   const text = String(message ?? '');
   
@@ -29,6 +31,7 @@ const extractMarkdownUrl = (message: any): { cleanText: string; url: string | nu
   if (rawUrlMatch) {
     const matchedUrl = rawUrlMatch[0];
     return {
+      // Strips the ugly raw text URL from the bubble text and clean-maps it
       cleanText: text.replace(matchedUrl, "").replace("at ", "below:").trim(),
       url: matchedUrl
     };
@@ -256,48 +259,6 @@ export async function POST(req: Request) {
     const shouldRenderCarousel = hasValidProducts && (isProductIntent || isCategoryIntent || data?.success === true || rawData?.success === true);
 
     // =========================================================================
-    // ⚡ CANCELLATION ENGINE LAYER INTERCEPTION
-    // =========================================================================
-    if (data?.intent === "cancel_order" || body?.intent === "cancel_order") {
-      const targetOrderId = data?.order_id || body?.order_id || order_id;
-
-      if (!targetOrderId) {
-        return NextResponse.json({
-          success: false,
-          reply: "Please provide your active Order ID so I can process the cancellation for you."
-        });
-      }
-
-      const { error: cancelError } = await supabase
-        .from("orders")
-        .update({ verification_status: "cancelled" })
-        .eq("id", targetOrderId);
-
-      if (cancelError) {
-        console.error("Supabase Cancellation Update Error:", cancelError.message);
-        return NextResponse.json({ success: false, reply: "Could not process cancellation at this moment." }, { status: 500 });
-      }
-
-      const cancelReply = `Your order #${targetOrderId} has been successfully cancelled.`;
-
-      await saveMessage({
-        user_id: user_id || null,
-        bot_id,
-        conversation_id,
-        role: "assistant",
-        content: cancelReply,
-        channel,
-      });
-
-      return NextResponse.json({
-        success: true,
-        intent: "cancel_order",
-        reply: cancelReply,
-        message: cancelReply
-      });
-    }
-
-    // =========================================================================
     // 1. CAROUSEL RENDERING PATH (Unified Type Object Layout Fix)
     // =========================================================================
     if (shouldRenderCarousel) {
@@ -321,6 +282,7 @@ export async function POST(req: Request) {
 
       return NextResponse.json({
         type: "carousel", 
+        // 🔐 THE DUAL MAPPING TRICK: Expose the text bubble to both common key lookups!
         reply: fallbackText, 
         message: fallbackText,
         text: fallbackText,
@@ -342,7 +304,10 @@ export async function POST(req: Request) {
     const productMessage = linkData.cleanText;
 
     const paymentLink = typeof data?.payment_link === "string" ? data.payment_link : null;
+    
+    // Use extracted markdown URL if no payment link is present
     const detectedWebUrl = linkData.url || (typeof data?.product_url === "string" ? data.product_url : null);
+    
     const productUrl = detectedWebUrl || (typeof data?.productUrl === "string" ? data.productUrl : null);
 
     let intent = null;
@@ -357,6 +322,8 @@ export async function POST(req: Request) {
         redirectUrl = `${baseUrl}/contact`;
       } else if (paymentLink) {
         redirectUrl = paymentLink;
+      } else if (productUrl) {
+        redirectUrl = productUrl; // ⚡ Assigns the extracted web link here
       }
     }
 
