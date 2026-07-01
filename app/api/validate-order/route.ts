@@ -106,18 +106,35 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // ⚡ VALIDATION CHECK: If user provided attributes that DO NOT exist in database options
+      // ⚡ FIX: Strong data grouping check to ensure keys never get mixed up
       if (!variantMatched && Object.keys(mergedAttributes).length > 0) {
-        const totalAvailableOptions: Record<string, string[]> = {};
+        const totalAvailableOptions: Record<string, string[]> = { color: [], size: [] };
         
-        // Loop over variants to see what colors/sizes are actually in stock
         products.forEach((p: any) => {
           if (p.attributes) {
             Object.entries(p.attributes).forEach(([key, val]) => {
-              if (!totalAvailableOptions[key]) totalAvailableOptions[key] = [];
-              const strVal = String(val);
-              if (!totalAvailableOptions[key].includes(strVal)) {
-                totalAvailableOptions[key].push(strVal);
+              const strVal = String(val).trim();
+              if (!strVal || strVal.toLowerCase() === "null") return;
+
+              // Detect if a value is actually a size but stored under a different attribute key
+              const isSizeValue = /^(m|l|xl|s|xs|30|32|34|36|38|40|42)$/i.test(strVal);
+              // Detect if a value is actually a color description
+              const isColorValue = /^(black|white|blue|red|green|yellow|pink|grey|cream|beige|maroon|navy)$/i.test(strVal);
+
+              if (isSizeValue) {
+                if (!totalAvailableOptions.size.includes(strVal)) {
+                  totalAvailableOptions.size.push(strVal);
+                }
+              } else if (isColorValue) {
+                if (!totalAvailableOptions.color.includes(strVal)) {
+                  totalAvailableOptions.color.push(strVal);
+                }
+              } else {
+                // Fallback to original key positioning if it doesn't match standard color/size rules
+                if (!totalAvailableOptions[key]) totalAvailableOptions[key] = [];
+                if (!totalAvailableOptions[key].includes(strVal)) {
+                  totalAvailableOptions[key].push(strVal);
+                }
               }
             });
           }
