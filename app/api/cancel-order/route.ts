@@ -7,52 +7,79 @@ const supabase = createClient(
 );
 
 export async function POST(req: NextRequest) {
-  console.log("===== DEDICATED CANCELLATION API =====");
+  console.log("===== SECURE CANCELLATION API =====");
   try {
     const body = await req.json();
     
-    // ⚡ ADD THIS CLEANING LAYER TO FIX CRASHES:
-    // If order_id is an empty string, convert it cleanly to null
+    // Clean inputs and handle empty strings from n8n cleanly
     const order_id = body.order_id === "" ? null : body.order_id;
-    const user_id = body.user_id;
+    const customer_name = body.customer_name?.trim() || null;
+    const phone = body.phone?.trim() || null;
 
-    // 1. Check if the user forgot to provide an Order ID
+    // Step 1: Request Order ID if missing
     if (!order_id) {
       return NextResponse.json({
         success: false,
-        requires_id: true,
-        message: "Please provide your active Order ID so I can process the cancellation for you."
+        requires_selection: true,
+        message: "Please provide your Order ID so I can look up your record."
       });
     }
 
-    // 2. Look up the order in Supabase to make sure it exists
+    // Step 2: Fetch the order row from Supabase to verify details
     const { data: order, error: fetchError } = await supabase
       .from("orders")
-      .select("verification_status")
+      .select("customer_name, phone, verification_status")
       .eq("id", order_id)
-      .single();
+      .maybeSingle();
 
     if (fetchError || !order) {
       return NextResponse.json({
         success: false,
-        requires_id: true,
-        message: `I couldn't find an order matching ID #${order_id}. Please check the number and try again.`
+        requires_selection: true,
+        message: `I couldn't find an order matching ID #${order_id}. Please check the ID and try again.`
       });
     }
 
-    // 3. Prevent cancellation if it's already shipped or delivered
-    if (order.verification_status === "shipped" || order.verification_status === "delivered") {
+    // Step 3: Check if the order is already shipped/delivered
+    if (order.verification_status === "SHIPPED" || order.verification_status === "DELIVERED") {
       return NextResponse.json({
         success: false,
-        requires_id: false,
-        message: `Sorry, Order #${order_id} has already been ${order.verification_status} and cannot be cancelled automatically.`
+        requires_selection: false,
+        message: `Sorry, Order #${order_id} has already been ${order.verification_status.toLowerCase()} and cannot be cancelled.`
       });
     }
 
-    // 4. Update the status in your Supabase 'orders' table to cancelled
+    // Step 4: Verify Customer Name (Case-Insensitive)
+    const dbName = String(order.customer_name || "").toLowerCase().trim();
+    const inputName = String(customer_name || "").toLowerCase().trim();
+
+    if (!customer_name || !dbName.includes(inputName)) {
+      return NextResponse.json({
+        success: false,
+        requires_selection: true,
+        message: "For security verification, please share the Name used to place this order."
+      });
+    }
+
+    // Step 5: Verify Phone Number (Matches last 10 digits to handle country codes safely)
+    const dbPhone = String(order.phone || "").replace(/\D/g, "");
+    const inputPhone = String(phone || "").replace(/\D/g, "");
+
+    const cleanDbPhone = dbPhone.substring(dbPhone.length - 10);
+    const cleanInputPhone = inputPhone.substring(inputPhone.length - 10);
+
+    if (!phone || cleanDbPhone !== cleanInputPhone) {
+      return NextResponse.json({
+        success: false,
+        requires_selection: true,
+        message: "Almost done! Please confirm the Phone Number associated with this order."
+      });
+    }
+
+    // Step 6: Success path! All 3 verified. Update to UPPERCASE "CANCELLED"
     const { error: cancelError } = await supabase
       .from("orders")
-      .update({ verification_status: "cancelled" })
+      .update({ verification_status: "CANCELLED" })
       .eq("id", order_id);
 
     if (cancelError) {
@@ -60,10 +87,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, message: "Could not process cancellation at this moment." }, { status: 500 });
     }
 
-    // Success response
     return NextResponse.json({
       success: true,
-      message: `Your order #${order_id} has been successfully cancelled.`
+      message: `Verification Successful! Your order #${order_id} has been successfully cancelled.`
     });
 
   } catch (err: any) {
