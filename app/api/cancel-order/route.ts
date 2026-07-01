@@ -10,19 +10,13 @@ export async function POST(req: NextRequest) {
   console.log("===== SECURE CANCELLATION API =====");
   try {
     const body = await req.json();
-    
-    // ⚡ CLEANING LAYER: Clean up symbols, spaces, and formatting quirks automatically
-    let rawId = String(body.order_id || "").trim();
-    
-    // Strip hashtag if present
-    if (rawId.startsWith("#")) {
-      rawId = rawId.substring(1);
-    }
-    
-    // Strip trailing periods or markdown characters
-    rawId = rawId.replace(/[.#`*]/g, "").trim();
+    const rawMessage = String(body.order_id || "").trim();
 
-    const order_id = rawId === "" ? null : rawId;
+    // ⚡ BULLETPROOF REGEX MATCHING LAYER:
+    // This looks for any text pattern matching your system ID format "ORD_xxxxxxxx_xxxxxxxxxxxxx"
+    const idMatch = rawMessage.match(/ORD_[a-zA-Z0-9]+_[0-9]+/i);
+    const order_id = idMatch ? idMatch[0].trim() : (rawMessage === "" ? null : rawMessage);
+
     const customer_name = body.customer_name?.trim() || null;
     const phone = body.phone?.trim() || null;
 
