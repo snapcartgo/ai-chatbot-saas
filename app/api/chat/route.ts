@@ -12,6 +12,34 @@ const extractUTR = (text: string) => {
   return match ? match[0] : null;
 };
 
+// ⚡ ADD THIS FUNCTION HERE (Do not remove any other functions)
+// ⚡ REPLACE THE extractMarkdownUrl FUNCTION WITH THIS IMPROVED LOGIC
+const extractMarkdownUrl = (message: any): { cleanText: string; url: string | null } => {
+  const text = String(message ?? '');
+  
+  // 1. First, check if it's a Markdown styled link: [Name](https://...)
+  const markdownMatch = text.match(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/);
+  if (markdownMatch) {
+    return {
+      cleanText: text.replace(markdownMatch[0], "below:"),
+      url: markdownMatch[2]
+    };
+  }
+  
+  // 2. Second, check if it's just a raw plain text link: https://...
+  const rawUrlMatch = text.match(/(https?:\/\/[^\s]+)/);
+  if (rawUrlMatch) {
+    const matchedUrl = rawUrlMatch[0];
+    return {
+      // Strips the ugly raw text URL from the bubble text and clean-maps it
+      cleanText: text.replace(matchedUrl, "").replace("at ", "below:").trim(),
+      url: matchedUrl
+    };
+  }
+  
+  return { cleanText: text, url: null };
+};
+
 async function saveMessage(data: {
   user_id: string | null;
   bot_id: string | null;
@@ -272,15 +300,15 @@ export async function POST(req: Request) {
     // =========================================================================
     // 2. TEXT/GENERAL CHAT CONVERSATION PATH (Fixed Fallback)
     // =========================================================================
-    const productMessage = fallbackText;
+    const linkData = extractMarkdownUrl(fallbackText);
+    const productMessage = linkData.cleanText;
 
     const paymentLink = typeof data?.payment_link === "string" ? data.payment_link : null;
-    const productUrl =
-      typeof data?.product_url === "string" 
-        ? data.product_url 
-        : typeof data?.productUrl === "string"
-        ? data.productUrl
-        : null;
+    
+    // Use extracted markdown URL if no payment link is present
+    const detectedWebUrl = linkData.url || (typeof data?.product_url === "string" ? data.product_url : null);
+    
+    const productUrl = detectedWebUrl || (typeof data?.productUrl === "string" ? data.productUrl : null);
 
     let intent = null;
     let redirectUrl = typeof data?.redirect_url === "string" ? data.redirect_url : null;
@@ -294,6 +322,8 @@ export async function POST(req: Request) {
         redirectUrl = `${baseUrl}/contact`;
       } else if (paymentLink) {
         redirectUrl = paymentLink;
+      } else if (productUrl) {
+        redirectUrl = productUrl; // ⚡ Assigns the extracted web link here
       }
     }
 
