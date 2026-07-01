@@ -88,15 +88,29 @@ export async function POST(req: NextRequest) {
       let product = null;
       let variantMatched = false;
 
-      // ⚡ EXACT VARIANT MATCHING LOOKUP LAYER
+      // ⚡ EXACT VARIANT MATCHING LOOKUP LAYER (CASE-INSENSITIVE FIX)
       if (Object.keys(mergedAttributes).length > 0) {
         const matchedProduct = products.find((p: any) => {
           return Object.entries(mergedAttributes).every(([key, value]) => {
-            const dbValue = p.attributes?.[key];
-            if (Array.isArray(dbValue)) {
-              return dbValue.map(v => String(v).toLowerCase().trim()).includes(String(value).toLowerCase().trim());
-            }
-            return String(dbValue || "").toLowerCase().trim() === String(value).toLowerCase().trim();
+            // Read what key value is inside this database row variant
+            const dbValue1 = p.attributes?.[key];
+            const dbValue2 = p.attributes?.[key === "color" ? "size" : "color"]; // Check cross-over columns
+
+            const targetVal = String(value).toLowerCase().trim();
+
+            if (!dbValue1) return false;
+
+            // Check primary matching path safely
+            const isMatchPrimary = Array.isArray(dbValue1)
+              ? dbValue1.map(v => String(v).toLowerCase().trim()).includes(targetVal)
+              : String(dbValue1).toLowerCase().trim() === targetVal;
+
+            // Check swapped matching path safely to account for mixed database columns
+            const isMatchSwapped = dbValue2 && (Array.isArray(dbValue2)
+              ? dbValue2.map(v => String(v).toLowerCase().trim()).includes(targetVal)
+              : String(dbValue2).toLowerCase().trim() === targetVal);
+
+            return isMatchPrimary || isMatchSwapped;
           });
         });
 
@@ -106,7 +120,7 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // ⚡ FIX: Strong data grouping check to ensure keys never get mixed up
+      // ⚡ VALIDATION CHECK: Case-Insensitive fallback grouping options collector
       if (!variantMatched && Object.keys(mergedAttributes).length > 0) {
         const totalAvailableOptions: Record<string, string[]> = { color: [], size: [] };
         
@@ -116,21 +130,20 @@ export async function POST(req: NextRequest) {
               const strVal = String(val).trim();
               if (!strVal || strVal.toLowerCase() === "null") return;
 
-              // Detect if a value is actually a size but stored under a different attribute key
-              const isSizeValue = /^(m|l|xl|s|xs|30|32|34|36|38|40|42)$/i.test(strVal);
-              // Detect if a value is actually a color description
-              const isColorValue = /^(black|white|blue|red|green|yellow|pink|grey|cream|beige|maroon|navy)$/i.test(strVal);
+              // Smarter normalized detection to prevent label swapping bugs
+              const cleanVal = strVal.toLowerCase();
+              const isStandardSizeWord = /^(m|l|xl|s|xs|xxl|30|32|34|36|38|40|42)$/i.test(cleanVal);
+              const isStandardColorWord = /^(black|white|blue|red|green|yellow|pink|grey|cream|beige|maroon|navy)$/i.test(cleanVal);
 
-              if (isSizeValue) {
+              if (isStandardSizeWord || key.toLowerCase() === "size" || cleanVal === "l" || cleanVal === "m") {
                 if (!totalAvailableOptions.size.includes(strVal)) {
                   totalAvailableOptions.size.push(strVal);
                 }
-              } else if (isColorValue) {
+              } else if (isStandardColorWord || key.toLowerCase() === "color" || cleanVal === "white" || cleanVal === "black") {
                 if (!totalAvailableOptions.color.includes(strVal)) {
                   totalAvailableOptions.color.push(strVal);
                 }
               } else {
-                // Fallback to original key positioning if it doesn't match standard color/size rules
                 if (!totalAvailableOptions[key]) totalAvailableOptions[key] = [];
                 if (!totalAvailableOptions[key].includes(strVal)) {
                   totalAvailableOptions[key].push(strVal);
@@ -149,7 +162,7 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      // Fallback fallback pointer if no attributes were requested yet
+      // Fallback baseline assignment pointer if no attributes were requested yet
       if (!product) {
         product = products[0];
       }
@@ -223,7 +236,6 @@ export async function POST(req: NextRequest) {
       const completelyNotFound = missingProducts.filter(p => p.error_type === "not_found");
       const invalidVariants = missingProducts.filter(p => p.error_type === "invalid_variant");
 
-      // Scenario A: Completely missing from catalog lookups
       if (completelyNotFound.length > 0) {
         const { data: storeAlternatives } = await supabase.from('products').select('name').eq('user_id', user_id).limit(3);
         const suggestionsList = storeAlternatives ? storeAlternatives.map(p => p.name).join(", ") : "";
@@ -236,8 +248,6 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      // Scenario B: ⚡ INVALID VARIANT SELECTION (e.g., Red or size that doesn't exist)
-     
       // Scenario B: INVALID VARIANT SELECTION (Clean layout formatting with HTML breaks)
       if (invalidVariants.length > 0) {
         const item = invalidVariants[0];
