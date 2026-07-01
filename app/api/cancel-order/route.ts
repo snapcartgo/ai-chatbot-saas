@@ -10,29 +10,32 @@ export async function POST(req: NextRequest) {
   console.log("===== SECURE CANCELLATION API =====");
   try {
     const body = await req.json();
+    
+    // ⚡ BULLETPROOF REGEX SANITIZER LAYER:
+    // This instantly extracts just the clean ID pattern and strips away any hashtags (#), spaces, or text around it
     const rawMessage = String(body.order_id || "").trim();
-
-    // ⚡ BULLETPROOF REGEX MATCHING LAYER:
-    // This looks for any text pattern matching your system ID format "ORD_xxxxxxxx_xxxxxxxxxxxxx"
     const idMatch = rawMessage.match(/ORD_[a-zA-Z0-9]+_[0-9]+/i);
+    
     const order_id = idMatch ? idMatch[0].trim() : (rawMessage === "" ? null : rawMessage);
-
     const customer_name = body.customer_name?.trim() || null;
     const phone = body.phone?.trim() || null;
 
+    console.log("Sanitized Order ID for lookup:", order_id);
+
+    // Step 1: Request Order ID if missing
     if (!order_id) {
       return NextResponse.json({
         success: false,
         requires_selection: true,
-        message: "Please provide your active Order ID so I can look up your record."
+        message: "Please provide your Order ID so I can look up your record."
       });
     }
 
-    // Execute lookup with sanitized variable data
+    // Step 2: Fetch the order row from Supabase to verify details
     const { data: order, error: fetchError } = await supabase
       .from("orders")
       .select("customer_name, phone, verification_status")
-      .eq("id", order_id)
+      .eq("id", order_id) // This will now search cleanly for "ORD_s4ypqmq_1782820471700" without a hashtag!
       .maybeSingle();
 
     if (fetchError || !order) {
