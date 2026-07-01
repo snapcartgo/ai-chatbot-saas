@@ -11,8 +11,11 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     
-    // Clean inputs and handle empty strings from n8n cleanly
-    const order_id = body.order_id === "" ? null : body.order_id;
+    // ⚡ FIX: Automatically remove any "#" symbols or whitespace spaces from the ID
+    let order_id = typeof body.order_id === "string" 
+      ? body.order_id.replace("#", "").trim() 
+      : (body.order_id === "" ? null : body.order_id);
+
     const customer_name = body.customer_name?.trim() || null;
     const phone = body.phone?.trim() || null;
 
