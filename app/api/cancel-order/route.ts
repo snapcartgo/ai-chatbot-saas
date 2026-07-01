@@ -11,24 +11,30 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     
-    // ⚡ FIX: Automatically remove any "#" symbols or whitespace spaces from the ID
-    let order_id = typeof body.order_id === "string" 
-      ? body.order_id.replace("#", "").trim() 
-      : (body.order_id === "" ? null : body.order_id);
+    // ⚡ CLEANING LAYER: Clean up symbols, spaces, and formatting quirks automatically
+    let rawId = String(body.order_id || "").trim();
+    
+    // Strip hashtag if present
+    if (rawId.startsWith("#")) {
+      rawId = rawId.substring(1);
+    }
+    
+    // Strip trailing periods or markdown characters
+    rawId = rawId.replace(/[.#`*]/g, "").trim();
 
+    const order_id = rawId === "" ? null : rawId;
     const customer_name = body.customer_name?.trim() || null;
     const phone = body.phone?.trim() || null;
 
-    // Step 1: Request Order ID if missing
     if (!order_id) {
       return NextResponse.json({
         success: false,
         requires_selection: true,
-        message: "Please provide your Order ID so I can look up your record."
+        message: "Please provide your active Order ID so I can look up your record."
       });
     }
 
-    // Step 2: Fetch the order row from Supabase to verify details
+    // Execute lookup with sanitized variable data
     const { data: order, error: fetchError } = await supabase
       .from("orders")
       .select("customer_name, phone, verification_status")
