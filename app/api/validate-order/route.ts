@@ -164,25 +164,29 @@ export async function POST(req: NextRequest) {
     }
 
     // 5. Trigger Missing Selection Payloads (PERMANENT MULTI-ITEM FIX)
+    // 5. Trigger Missing Selection Payloads (PERMANENT DYNAMIC ATTRIBUTE FIX)
     if (missingProducts.length > 0) {
-      // Dynamically list the names of all items that are missing fields
-      const itemsNeedingOptions = missingProducts.map(p => p.product_name);
       
-      // Construct a clean, unified message listing all items
       let userFriendlyMessage = "";
-      if (itemsNeedingOptions.length === 1) {
-        userFriendlyMessage = `Please select options (size/color) for ${itemsNeedingOptions[0]}.`;
+
+      if (missingProducts.length === 1) {
+        const item = missingProducts[0];
+        // Dynamically join whatever fields are actually missing (e.g., "style and material" or "color and size")
+        const missingFieldsList = item.missing_fields.join(" and ");
+        
+        userFriendlyMessage = `Please select options (${missingFieldsList}) for ${item.product_name}.`;
       } else {
-        // Creates a clean list: "Premium Cotton T-Shirt and Slim Fit Jeans"
-        const lastItem = itemsNeedingOptions.pop();
-        userFriendlyMessage = `Please select options (size/color) for both ${itemsNeedingOptions.join(", ")} and ${lastItem}.`;
+        // Multi-item construction handling fallback
+        const itemNames = missingProducts.map(p => p.product_name);
+        const lastItem = itemNames.pop();
+        userFriendlyMessage = `Please select required missing options for both ${itemNames.join(", ")} and ${lastItem}.`;
       }
 
       return NextResponse.json({
         success: false,
         requires_selection: true,
         missing_products: missingProducts,
-        message: userFriendlyMessage // ⚡ Sends the complete list to the chatbot window!
+        message: userFriendlyMessage 
       });
     }
 
