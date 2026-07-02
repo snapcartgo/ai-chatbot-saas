@@ -12,12 +12,9 @@ const extractUTR = (text: string) => {
   return match ? match[0] : null;
 };
 
-// ⚡ ADD THIS FUNCTION HERE (Do not remove any other functions)
-// ⚡ REPLACE THE extractMarkdownUrl FUNCTION WITH THIS IMPROVED LOGIC
 const extractMarkdownUrl = (message: any): { cleanText: string; url: string | null } => {
   const text = String(message ?? '');
   
-  // 1. First, check if it's a Markdown styled link: [Name](https://...)
   const markdownMatch = text.match(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/);
   if (markdownMatch) {
     return {
@@ -26,12 +23,10 @@ const extractMarkdownUrl = (message: any): { cleanText: string; url: string | nu
     };
   }
   
-  // 2. Second, check if it's just a raw plain text link: https://...
   const rawUrlMatch = text.match(/(https?:\/\/[^\s]+)/);
   if (rawUrlMatch) {
     const matchedUrl = rawUrlMatch[0];
     return {
-      // Strips the ugly raw text URL from the bubble text and clean-maps it
       cleanText: text.replace(matchedUrl, "").replace("at ", "below:").trim(),
       url: matchedUrl
     };
@@ -235,6 +230,39 @@ export async function POST(req: Request) {
       }
     }
 
+    // 🛡️ CRITICAL LOOP & CRASH FIX START
+    // This catches scenarios where data isn't structured or where an attribute validation response text arrives
+    if (data && data.intent === "validate_order" && data.message) {
+      const fallbackText = data.message;
+      
+      await saveMessage({
+        user_id: user_id || null,
+        bot_id,
+        conversation_id,
+        role: "user",
+        content: message,
+        channel,
+      });
+
+      await saveMessage({
+        user_id: user_id || null,
+        bot_id,
+        conversation_id,
+        role: "assistant",
+        content: fallbackText,
+        channel,
+      });
+
+      return NextResponse.json({
+        type: "text",
+        reply: fallbackText,
+        message: fallbackText,
+        intent: "validate_order",
+        items: data.items || []
+      });
+    }
+    // 🛡️ CRITICAL LOOP & CRASH FIX END
+
     // Extract products list if available
     const products = Array.isArray(data) 
       ? data 
@@ -254,7 +282,6 @@ export async function POST(req: Request) {
     const isProductIntent = data?.type === "product" || !!data?.product_name || !!data?.name;
     const isCategoryIntent = data?.type === "category" || /category|show collection|browse/i.test(userMsg);
     
-    // ✨ FIX CRITERIA: A genuine product response needs a non-empty products array AND a product matching intent context
     const hasValidProducts = Array.isArray(products) && products.length > 0;
     const shouldRenderCarousel = hasValidProducts && (isProductIntent || isCategoryIntent || data?.success === true || rawData?.success === true);
 
@@ -282,7 +309,6 @@ export async function POST(req: Request) {
 
       return NextResponse.json({
         type: "carousel", 
-        // 🔐 THE DUAL MAPPING TRICK: Expose the text bubble to both common key lookups!
         reply: fallbackText, 
         message: fallbackText,
         text: fallbackText,
@@ -305,9 +331,7 @@ export async function POST(req: Request) {
 
     const paymentLink = typeof data?.payment_link === "string" ? data.payment_link : null;
     
-    // Use extracted markdown URL if no payment link is present
     const detectedWebUrl = linkData.url || (typeof data?.product_url === "string" ? data.product_url : null);
-    
     const productUrl = detectedWebUrl || (typeof data?.productUrl === "string" ? data.productUrl : null);
 
     let intent = null;
@@ -323,7 +347,7 @@ export async function POST(req: Request) {
       } else if (paymentLink) {
         redirectUrl = paymentLink;
       } else if (productUrl) {
-        redirectUrl = productUrl; // ⚡ Assigns the extracted web link here
+        redirectUrl = productUrl;
       }
     }
 
@@ -396,7 +420,7 @@ export async function POST(req: Request) {
       
       product_url: isProductIntent || isCategoryIntent ? finalProductUrl : "",
       payment_link: paymentLink,
-      intent,
+      intent: data?.intent || intent,
       actionUrl: redirectUrl || paymentLink || finalProductUrl || undefined,
       actionLabel: data?.actionLabel || (paymentLink ? "Pay Now" : "Open Page"),
       redirect_url: redirectUrl,
