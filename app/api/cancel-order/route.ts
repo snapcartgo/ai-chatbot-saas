@@ -7,20 +7,17 @@ const supabase = createClient(
 );
 
 export async function POST(req: NextRequest) {
-  console.log("===== SECURE CANCELLATION API =====");
+  console.log("===== SECURE CANCELLATION & DELETE API =====");
   try {
     const body = await req.json();
     
-    // ⚡ BULLETPROOF REGEX SANITIZER LAYER:
-    // This instantly extracts just the clean ID pattern and strips away any hashtags (#), spaces, or text around it
+    // ⚡ BULLETPROOF REGEX SANITIZER: Strips hashtag (#), spaces, or text around the ID
     const rawMessage = String(body.order_id || "").trim();
     const idMatch = rawMessage.match(/ORD_[a-zA-Z0-9]+_[0-9]+/i);
     
     const order_id = idMatch ? idMatch[0].trim() : (rawMessage === "" ? null : rawMessage);
     const customer_name = body.customer_name?.trim() || null;
     const phone = body.phone?.trim() || null;
-
-    console.log("Sanitized Order ID for lookup:", order_id);
 
     // Step 1: Request Order ID if missing
     if (!order_id) {
@@ -35,7 +32,7 @@ export async function POST(req: NextRequest) {
     const { data: order, error: fetchError } = await supabase
       .from("orders")
       .select("customer_name, phone, verification_status")
-      .eq("id", order_id) // This will now search cleanly for "ORD_s4ypqmq_1782820471700" without a hashtag!
+      .eq("id", order_id)
       .maybeSingle();
 
     if (fetchError || !order) {
@@ -46,23 +43,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-   // Step 3: Check the status state smoothly
-    if (order.verification_status === "CANCELLED") {
-      return NextResponse.json({
-        success: true,
-        message: `Order #${order_id} is already cancelled.`
-      });
-    }
-
-    if (order.verification_status === "SHIPPED" || order.verification_status === "DELIVERED") {
-      return NextResponse.json({
-        success: false,
-        requires_selection: false,
-        message: `Sorry, Order #${order_id} has already been ${order.verification_status.toLowerCase()} and cannot be cancelled.`
-      });
-    }
-
-    // Step 4: Verify Customer Name (Case-Insensitive)
+    // Step 3: Verify Customer Name (Case-Insensitive check)
     const dbName = String(order.customer_name || "").toLowerCase().trim();
     const inputName = String(customer_name || "").toLowerCase().trim();
 
@@ -74,7 +55,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Step 5: Verify Phone Number (Matches last 10 digits to handle country codes safely)
+    // Step 4: Verify Phone Number (Matches last 10 digits safely)
     const dbPhone = String(order.phone || "").replace(/\D/g, "");
     const inputPhone = String(phone || "").replace(/\D/g, "");
 
@@ -89,20 +70,20 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Step 6: Success path! All 3 verified. Update to UPPERCASE "CANCELLED"
-    const { error: cancelError } = await supabase
+    // ⚡ Step 5: SUCCESS PATH! Row verification complete. DELETE row from table.
+    const { error: deleteError } = await supabase
       .from("orders")
-      .update({ verification_status: "CANCELLED" })
+      .delete()
       .eq("id", order_id);
 
-    if (cancelError) {
-      console.error("Supabase Cancellation Update Error:", cancelError.message);
-      return NextResponse.json({ success: false, message: "Could not process cancellation at this moment." }, { status: 500 });
+    if (deleteError) {
+      console.error("Supabase Row Delete Error:", deleteError.message);
+      return NextResponse.json({ success: false, message: "Could not drop order record at this moment." }, { status: 500 });
     }
 
     return NextResponse.json({
       success: true,
-      message: `Verification Successful! Your order #${order_id} has been successfully cancelled.`
+      message: `Verification Successful! Your order #${order_id} has been completely removed from our records.`
     });
 
   } catch (err: any) {
