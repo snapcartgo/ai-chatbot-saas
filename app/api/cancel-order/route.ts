@@ -16,12 +16,6 @@ export async function POST(req: NextRequest) {
     const customer_name = body.customer_name?.trim() || null;
     const phone = body.phone?.trim() || null;
 
-    // 🔍 CONNECTION DIAGNOSTIC LOGS:
-    console.log("----------------------------------------");
-    console.log("ACTIVE DB URL BEING QUERIED:", process.env.NEXT_PUBLIC_SUPABASE_URL);
-    console.log("INCOMING RAW ORDER ID:", rawId);
-    console.log("----------------------------------------");
-
     if (!rawId || rawId === "null") {
       return NextResponse.json({
         success: false,
@@ -30,32 +24,40 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Clean up formatting issues or hashtags from n8n inputs
-    let cleanIdForDb = rawId.replace(/#/g, "").trim();
+    // 1. Clean formatting characters like hashtags
+    const cleanId = rawId.replace(/#/g, "").trim();
 
-    // Safe string boundary adjustment (slices at 24 or 25 characters depending on storage string length)
-    if (cleanIdForDb.startsWith("ORD_") && cleanIdForDb.length > 25) {
-      cleanIdForDb = cleanIdForDb.substring(0, 24);
-    } else if (cleanIdForDb.startsWith("ORD_") && cleanIdForDb.length === 26) {
-      cleanIdForDb = cleanIdForDb.substring(0, 25);
-    }
-
-    // ⚡ STEP 1: Query matching your real column layout names: id, name, phone
-    const { data: order, error: fetchError } = await supabase
+    // ⚡ 2. FIRST TRY: Look up the exact ID as sent by n8n (25 characters ending in 1)
+    let { data: order, error: fetchError } = await supabase
       .from("orders")
       .select("id, name, phone")
-      .eq("id", cleanIdForDb)
+      .eq("id", cleanId)
       .maybeSingle();
 
-    if (fetchError || !order) {
+    // ⚡ 3. FALLBACK SECOND TRY: If not found, try a wildcard partial match on the first 24 characters
+    if (!order && cleanId.length >= 24) {
+      const idBase = cleanId.substring(0, 24);
+      const { data: fallbackOrder, error: fallbackError } = await supabase
+        .from("orders")
+        .select("id, name, phone")
+        .ilike("id", `${idBase}%`)
+        .maybeSingle();
+      
+      if (!fallbackError && fallbackOrder) {
+        order = fallbackOrder;
+      }
+    }
+
+    // If still not found anywhere in the table
+    if (!order) {
       return NextResponse.json({
         success: false,
         requires_selection: true,
-        message: `I couldn't find an order matching ID # ${cleanIdForDb}. Please check the ID and try again.`
+        message: `I couldn't find an order matching ID # ${cleanId}. Please check the ID and try again.`
       });
     }
 
-    // ⚡ STEP 2: Validate against the correct table column key 'name'
+    // Validate Name if present
     if (customer_name) {
       const dbName = String(order.name || "").toLowerCase().trim();
       const inputName = String(customer_name).toLowerCase().trim();
@@ -68,7 +70,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // ⚡ STEP 3: Validate against the correct table column key 'phone'
+    // Validate Phone if present
     if (phone) {
       const dbPhone = String(order.phone || "").replace(/\D/g, "");
       const inputPhone = String(phone).replace(/\D/g, "");
@@ -81,7 +83,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // ⚡ STEP 4: Delete the row if BOTH verification steps are provided and pass
+    // ⚡ 4. DELETE THE ROW: If verification parameters are valid and provided
     if (customer_name && phone) {
       const { error: deleteError } = await supabase
         .from("orders")
@@ -98,7 +100,6 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Step 5: If order is found but name/phone are missing, ask for Name first
     return NextResponse.json({
       success: false,
       requires_selection: true,
