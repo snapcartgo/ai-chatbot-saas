@@ -3,16 +3,10 @@ import { createClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
 
-// Initialize Supabase with strict options to ensure RLS bypass works locally
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-
-const supabase = createClient(supabaseUrl, supabaseServiceKey, {
-  auth: {
-    persistSession: false,
-    autoRefreshToken: false
-  }
-});
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
 export async function POST(req: NextRequest) {
   try {
@@ -22,59 +16,81 @@ export async function POST(req: NextRequest) {
     const customer_name = body.customer_name?.trim() || null;
     const phone = body.phone?.trim() || null;
 
-    const idMatch = rawId.match(/ORD_[a-zA-Z0-9]+_[0-9]+/i);
-    let sanitizedId = idMatch ? idMatch[0].trim() : rawId.replace(/#/g, "").trim();
-
-    // Standardize length format matching your Supabase row string 
-    const cleanIdForDb = sanitizedId.length === 25 ? sanitizedId.substring(0, 24) : sanitizedId;
-
-    // 🔍 DEBUG LOGS: Print out connection parameters to your VS Code Terminal
-    console.log("--- SUPABASE CONNECTION DIAGNOSTICS ---");
-    console.log("Connecting to Supabase URL:", supabaseUrl);
-    console.log("Using Key (First 10 characters):", supabaseServiceKey.substring(0, 15) + "...");
-    console.log("Searching for Order ID:", cleanIdForDb);
-    console.log("---------------------------------------");
-
-    // Test a wide open lookup without column constraints
-    const { data: order, error: fetchError } = await supabase
-      .from("orders")
-      .select("*")
-      .eq("id", cleanIdForDb)
-      .maybeSingle();
-
-    if (fetchError) {
-      console.error("Database Query Error:", fetchError.message);
-      return NextResponse.json({ success: false, message: fetchError.message });
-    }
-
-    if (!order) {
+    // ⚡ STEP 1: If order_id is missing or null, IMMEDIATELY stop and ask for it!
+    if (!rawId || rawId === "null") {
       return NextResponse.json({
         success: false,
         requires_selection: true,
-        message: `Database Mismatch: The database at ${supabaseUrl.substring(0, 25)}... contains 0 rows matching ID: ${cleanIdForDb}`
+        message: "Please provide your Order ID so I can look up your record."
       });
     }
 
-    // Security field verifications
-    const dbName = String(order.customer_name || "").toLowerCase().trim();
-    const inputName = String(customer_name || "").toLowerCase().trim();
-    if (customer_name && !dbName.includes(inputName)) {
-      return NextResponse.json({ success: false, message: "Name mismatch verification failed." });
-    }
+    const idMatch = rawId.match(/ORD_[a-zA-Z0-9]+_[0-9]+/i);
+    let sanitizedId = idMatch ? idMatch[0].trim() : rawId.replace(/#/g, "").trim();
+    const cleanIdForDb = sanitizedId.length === 25 ? sanitizedId.substring(0, 24) : sanitizedId;
 
-    // Execute direct table removal action
-    const { error: deleteError } = await supabase
+    // Step 2: Query Supabase cleanly
+    const { data: order, error: fetchError } = await supabase
       .from("orders")
-      .delete()
-      .eq("id", order.id);
+      .select("id, customer_name, phone")
+      .eq("id", cleanIdForDb)
+      .maybeSingle();
 
-    if (deleteError) {
-      return NextResponse.json({ success: false, message: deleteError.message }, { status: 500 });
+    if (fetchError || !order) {
+      return NextResponse.json({
+        success: false,
+        requires_selection: true,
+        message: `I couldn't find an order matching ID # ${cleanIdForDb}. Please check the ID and try again.`
+      });
     }
 
+    // Step 3: Security checks (Only validate if fields are actually sent by n8n)
+    if (customer_name) {
+      const dbName = String(order.customer_name || "").toLowerCase().trim();
+      const inputName = String(customer_name).toLowerCase().trim();
+      if (!dbName.includes(inputName) && !inputName.includes(dbName)) {
+        return NextResponse.json({
+          success: false,
+          requires_selection: true,
+          message: "Security Verification Failed: The name provided does not match our records."
+        });
+      }
+    }
+
+    if (phone) {
+      const dbPhone = String(order.phone || "").replace(/\D/g, "");
+      const inputPhone = String(phone).replace(/\D/g, "");
+      if (dbPhone.substring(dbPhone.length - 10) !== inputPhone.substring(inputPhone.length - 10)) {
+        return NextResponse.json({
+          success: false,
+          requires_selection: true,
+          message: "Security Verification Failed: The phone number provided does not match our records."
+        });
+      }
+    }
+
+    // Step 4: Delete order record if both Name and Phone have already been verified
+    if (customer_name && phone) {
+      const { error: deleteError } = await supabase
+        .from("orders")
+        .delete()
+        .eq("id", order.id);
+
+      if (deleteError) {
+        return NextResponse.json({ success: false, message: deleteError.message }, { status: 500 });
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: `Verification Successful! Your order #${order.id} has been completely removed from our records.`
+      });
+    }
+
+    // Fallback response if more details are needed
     return NextResponse.json({
-      success: true,
-      message: `Verification Successful! Order #${order.id} deleted from database.`
+      success: false,
+      requires_selection: true,
+      message: "Order found. For verification, please confirm your Name or Phone number."
     });
 
   } catch (err: any) {
