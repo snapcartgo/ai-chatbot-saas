@@ -16,7 +16,12 @@ export async function POST(req: NextRequest) {
     const customer_name = body.customer_name?.trim() || null;
     const phone = body.phone?.trim() || null;
 
-    // ⚡ STEP 1: If order_id is missing or null, IMMEDIATELY stop and ask for it!
+    // 🔍 CONNECTION DIAGNOSTIC LOGS:
+    console.log("----------------------------------------");
+    console.log("ACTIVE DB URL BEING QUERIED:", process.env.NEXT_PUBLIC_SUPABASE_URL);
+    console.log("INCOMING RAW ORDER ID:", rawId);
+    console.log("----------------------------------------");
+
     if (!rawId || rawId === "null") {
       return NextResponse.json({
         success: false,
@@ -25,14 +30,20 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const idMatch = rawId.match(/ORD_[a-zA-Z0-9]+_[0-9]+/i);
-    let sanitizedId = idMatch ? idMatch[0].trim() : rawId.replace(/#/g, "").trim();
-    const cleanIdForDb = sanitizedId.length === 25 ? sanitizedId.substring(0, 24) : sanitizedId;
+    // Clean up formatting issues or hashtags from n8n inputs
+    let cleanIdForDb = rawId.replace(/#/g, "").trim();
 
-    // Step 2: Query Supabase cleanly
+    // Safe string boundary adjustment (slices at 24 or 25 characters depending on storage string length)
+    if (cleanIdForDb.startsWith("ORD_") && cleanIdForDb.length > 25) {
+      cleanIdForDb = cleanIdForDb.substring(0, 24);
+    } else if (cleanIdForDb.startsWith("ORD_") && cleanIdForDb.length === 26) {
+      cleanIdForDb = cleanIdForDb.substring(0, 25);
+    }
+
+    // ⚡ STEP 1: Query matching your real column layout names: id, name, phone
     const { data: order, error: fetchError } = await supabase
       .from("orders")
-      .select("id, customer_name, phone")
+      .select("id, name, phone")
       .eq("id", cleanIdForDb)
       .maybeSingle();
 
@@ -44,9 +55,9 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Step 3: Security checks (Only validate if fields are actually sent by n8n)
+    // ⚡ STEP 2: Validate against the correct table column key 'name'
     if (customer_name) {
-      const dbName = String(order.customer_name || "").toLowerCase().trim();
+      const dbName = String(order.name || "").toLowerCase().trim();
       const inputName = String(customer_name).toLowerCase().trim();
       if (!dbName.includes(inputName) && !inputName.includes(dbName)) {
         return NextResponse.json({
@@ -57,6 +68,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // ⚡ STEP 3: Validate against the correct table column key 'phone'
     if (phone) {
       const dbPhone = String(order.phone || "").replace(/\D/g, "");
       const inputPhone = String(phone).replace(/\D/g, "");
@@ -69,7 +81,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Step 4: Delete order record if both Name and Phone have already been verified
+    // ⚡ STEP 4: Delete the row if BOTH verification steps are provided and pass
     if (customer_name && phone) {
       const { error: deleteError } = await supabase
         .from("orders")
@@ -86,14 +98,25 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Fallback response if more details are needed
+    // Step 5: If order is found but name/phone are missing, ask for Name first
     return NextResponse.json({
       success: false,
       requires_selection: true,
-      message: "Order found. For verification, please confirm your Name or Phone number."
+      message: "For security verification, please share the Name used to place this order."
     });
 
   } catch (err: any) {
     return NextResponse.json({ success: false, message: err?.message || "Server Error" }, { status: 500 });
   }
+}
+
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 200,
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Headers": "Content-Type",
+      "Access-Control-Allow-Methods": "POST, OPTIONS",
+    },
+  });
 }
