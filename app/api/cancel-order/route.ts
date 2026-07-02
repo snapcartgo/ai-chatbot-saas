@@ -24,17 +24,15 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // 1. Clean formatting characters like hashtags
     const cleanId = rawId.replace(/#/g, "").trim();
 
-    // ⚡ 2. FIRST TRY: Look up the exact ID as sent by n8n (25 characters ending in 1)
+    // 1. Database Row Lookup
     let { data: order, error: fetchError } = await supabase
       .from("orders")
       .select("id, name, phone")
       .eq("id", cleanId)
       .maybeSingle();
 
-    // ⚡ 3. FALLBACK SECOND TRY: If not found, try a wildcard partial match on the first 24 characters
     if (!order && cleanId.length >= 24) {
       const idBase = cleanId.substring(0, 24);
       const { data: fallbackOrder, error: fallbackError } = await supabase
@@ -48,7 +46,6 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // If still not found anywhere in the table
     if (!order) {
       return NextResponse.json({
         success: false,
@@ -57,7 +54,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Validate Name if present
+    // 2. Validate Name if provided
     if (customer_name) {
       const dbName = String(order.name || "").toLowerCase().trim();
       const inputName = String(customer_name).toLowerCase().trim();
@@ -70,7 +67,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Validate Phone if present
+    // 3. Validate Phone if provided
     if (phone) {
       const dbPhone = String(order.phone || "").replace(/\D/g, "");
       const inputPhone = String(phone).replace(/\D/g, "");
@@ -83,7 +80,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // ⚡ 4. DELETE THE ROW: If verification parameters are valid and provided
+    // 4. SUCCESS PATH: If BOTH have been submitted and verified, execute row delete action
     if (customer_name && phone) {
       const { error: deleteError } = await supabase
         .from("orders")
@@ -100,10 +97,11 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // ⚡ 5. COMBINED PROMPT: Ask for Name and Phone together at the same time
     return NextResponse.json({
       success: false,
       requires_selection: true,
-      message: "For security verification, please share the Name used to place this order."
+      message: "Order found! For security verification, please provide the full Name and Phone Number associated with this order."
     });
 
   } catch (err: any) {
