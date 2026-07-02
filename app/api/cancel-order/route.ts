@@ -16,23 +16,26 @@ export async function POST(req: NextRequest) {
     const customer_name = body.customer_name?.trim() || null;
     const phone = body.phone?.trim() || null;
 
-    if (!rawId || rawId === "null") {
+    // ⚡ STEP 1: If ANY of the three required fields are missing, ask for all of them together immediately!
+    if (!rawId || rawId === "null" || !customer_name || !phone) {
       return NextResponse.json({
         success: false,
         requires_selection: true,
-        message: "Please provide your Order ID so I can look up your record."
+        message: "To cancel your order, please provide your **Order ID**, the **Name**, and the **Phone Number** associated with the order all in one message so I can securely verify and delete your record."
       });
     }
 
+    // Clean formatting characters like hashtags
     const cleanId = rawId.replace(/#/g, "").trim();
 
-    // 1. Database Row Lookup
+    // 2. Database Row Lookup
     let { data: order, error: fetchError } = await supabase
       .from("orders")
       .select("id, name, phone")
       .eq("id", cleanId)
       .maybeSingle();
 
+    // Fallback logic for variations in trailing characters
     if (!order && cleanId.length >= 24) {
       const idBase = cleanId.substring(0, 24);
       const { data: fallbackOrder, error: fallbackError } = await supabase
@@ -54,54 +57,40 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // 2. Validate Name if provided
-    if (customer_name) {
-      const dbName = String(order.name || "").toLowerCase().trim();
-      const inputName = String(customer_name).toLowerCase().trim();
-      if (!dbName.includes(inputName) && !inputName.includes(dbName)) {
-        return NextResponse.json({
-          success: false,
-          requires_selection: true,
-          message: "Security Verification Failed: The name provided does not match our records."
-        });
-      }
-    }
-
-    // 3. Validate Phone if provided
-    if (phone) {
-      const dbPhone = String(order.phone || "").replace(/\D/g, "");
-      const inputPhone = String(phone).replace(/\D/g, "");
-      if (dbPhone.substring(dbPhone.length - 10) !== inputPhone.substring(inputPhone.length - 10)) {
-        return NextResponse.json({
-          success: false,
-          requires_selection: true,
-          message: "Security Verification Failed: The phone number provided does not match our records."
-        });
-      }
-    }
-
-    // 4. SUCCESS PATH: If BOTH have been submitted and verified, execute row delete action
-    if (customer_name && phone) {
-      const { error: deleteError } = await supabase
-        .from("orders")
-        .delete()
-        .eq("id", order.id);
-
-      if (deleteError) {
-        return NextResponse.json({ success: false, message: deleteError.message }, { status: 500 });
-      }
-
+    // 3. Security Verification Checks
+    const dbName = String(order.name || "").toLowerCase().trim();
+    const inputName = String(customer_name).toLowerCase().trim();
+    if (!dbName.includes(inputName) && !inputName.includes(dbName)) {
       return NextResponse.json({
-        success: true,
-        message: `Verification Successful! Your order #${order.id} has been completely removed from our records.`
+        success: false,
+        requires_selection: true,
+        message: "Security Verification Failed: The name provided does not match our records."
       });
     }
 
-    // ⚡ 5. COMBINED PROMPT: Ask for Name and Phone together at the same time
+    const dbPhone = String(order.phone || "").replace(/\D/g, "");
+    const inputPhone = String(phone).replace(/\D/g, "");
+    if (dbPhone.substring(dbPhone.length - 10) !== inputPhone.substring(inputPhone.length - 10)) {
+      return NextResponse.json({
+        success: false,
+        requires_selection: true,
+        message: "Security Verification Failed: The phone number provided does not match our records."
+      });
+    }
+
+    // 4. EXECUTE CANCELLATION DELETION
+    const { error: deleteError } = await supabase
+      .from("orders")
+      .delete()
+      .eq("id", order.id);
+
+    if (deleteError) {
+      return NextResponse.json({ success: false, message: deleteError.message }, { status: 500 });
+    }
+
     return NextResponse.json({
-      success: false,
-      requires_selection: true,
-      message: "Order found! For security verification, please provide the full Name and Phone Number associated with this order."
+      success: true,
+      message: `Verification Successful! Your order #${order.id} has been completely removed from our records.`
     });
 
   } catch (err: any) {
