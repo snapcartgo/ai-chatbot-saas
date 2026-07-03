@@ -97,12 +97,11 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  // IF PRODUCT NOT FOUND, FETCH RELEVANT ALTERNATIVES DYNAMICALLY
+  // IF NO PRODUCT MATCHES KEYWORDS, RUN THE BROAD BUDGET FILTER
   if (!data || data.length === 0) {
-    // ✨ FIX: Make sure the fallback alternatives ALSO respect the budget limit!
     let altQuery = supabase.from('products').select('*').eq('user_id', user_id);
 
-    // Apply the exact same price logic to your fallback query
+    // Apply the price filtering rules
     if (price_query && price_query !== "null" && price_query.trim() !== "") {
       const cleanPriceQuery = price_query.trim().toLowerCase();
       if (cleanPriceQuery.startsWith('under')) {
@@ -119,22 +118,25 @@ export async function GET(request: Request) {
       }
     }
 
-    const { data: alternatives, error: altError } = await altQuery.limit(3);
+    // 🛑 FIX: Remove .limit(3) so it pulls ALL items under that budget constraint!
+    const { data: alternatives, error: altError } = await altQuery; 
 
     if (!altError && alternatives && alternatives.length > 0) {
       return NextResponse.json({ 
         data: alternatives,
         success: true, 
-        message: `We couldn't find exact matches for your keyword, but here are some options under your budget layout:` 
+        // ✨ FIX: Dynamic message so it doesn't sound like an error
+        message: `Here are all the options available in our collection under your budget layout:` 
       });
     }
 
     return NextResponse.json({ 
       data: [],
       success: false,
-      message: "That item is currently unavailable, and our catalog is undergoing an update. Check back soon!" 
+      message: "We couldn't find any items matching that budget criteria right now." 
     });
   }
 
+  // If the initial search query worked perfectly fine
   return NextResponse.json({ data, success: true, message: "Here is what we found:" });
 }
