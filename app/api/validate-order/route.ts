@@ -270,13 +270,35 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      // Scenario C: Normal item attribute selection flow handler
+      // Scenario C: Normal item attribute selection flow handler (with dynamic available options)
       let userFriendlyMessage = "";
       if (missingProducts.length === 1) {
         const item = missingProducts[0];
         const missingFieldsList = item.missing_fields.join(" and ");
+        
         userFriendlyMessage = `Please select options (${missingFieldsList}) for ${item.product_name}.`;
+
+        // Dynamically parse whatever attributes exist in the schema (Multi-Tenant Friendly)
+        const opts = item.available_options || {};
+        const optionsStringArray: string[] = [];
+
+        Object.entries(opts).forEach(([key, values]) => {
+          if (Array.isArray(values) && values.length > 0) {
+            // Capitalize the key name nicely (e.g., color -> Colors)
+            const label = key.charAt(0).toUpperCase() + key.slice(1) + "s";
+            optionsStringArray.push(`<br />• ${label}: ${values.join(" or ")}`);
+          } else if (typeof values === "string" && values.trim().toLowerCase() !== "null" && values.trim() !== "") {
+            const label = key.charAt(0).toUpperCase() + key.slice(1);
+            optionsStringArray.push(`<br />• ${label}: ${values}`);
+          }
+        });
+
+        if (optionsStringArray.length > 0) {
+          userFriendlyMessage += `<br /><br />Available Choices:${optionsStringArray.join("")}`;
+        }
+
       } else {
+        // Handle multiple products with missing fields simultaneously
         const itemMessages = missingProducts.map(item => `${item.product_name} (${item.missing_fields.join(", ")})`);
         const lastItemMessage = itemMessages.pop();
         userFriendlyMessage = `Please select required options for both ${itemMessages.join(" and ")} and ${lastItemMessage}.`;
