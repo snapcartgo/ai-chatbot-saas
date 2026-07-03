@@ -251,10 +251,14 @@ export async function POST(req: Request) {
       }
     }
 
-    // ⚙️ CHANGES MADE HERE: Intercept the evaluation to check if n8n flagged a handoff
-    const handoffStatus = (data?.needsHuman === true || data?.needsHuman === "true" || data?.ecommerce?.needsHuman === true) 
-      ? "pending" 
-      : null;
+    // ⚙️ UPDATE THIS LINE INSIDE YOUR NEXT.JS ROUTE TO READ THE N8N JSON WRAPPER:
+const handoffStatus = (
+  data?.needsHuman === true || 
+  data?.needsHuman === "true" || 
+  data?.json?.needsHuman === true || 
+  data?.json?.needsHuman === "true" || 
+  data?.ecommerce?.needsHuman === true
+) ? "pending" : null;
 
     // 🛡️ CRITICAL LOOP & CRASH FIX START
     // This catches scenarios where data isn't structured or where an attribute validation response text arrives
