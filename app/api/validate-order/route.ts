@@ -270,7 +270,7 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      // Scenario C: Normal item attribute selection flow handler (with dynamic available options)
+      // Scenario C: Normal item attribute selection flow handler (with universal newline \n formatting)
       let userFriendlyMessage = "";
       if (missingProducts.length === 1) {
         const item = missingProducts[0];
@@ -286,15 +286,15 @@ export async function POST(req: NextRequest) {
           if (Array.isArray(values) && values.length > 0) {
             // Capitalize the key name nicely (e.g., color -> Colors)
             const label = key.charAt(0).toUpperCase() + key.slice(1) + "s";
-            optionsStringArray.push(`<br />• ${label}: ${values.join(" or ")}`);
+            optionsStringArray.push(`\n- ${label}: ${values.join(" or ")}`);
           } else if (typeof values === "string" && values.trim().toLowerCase() !== "null" && values.trim() !== "") {
             const label = key.charAt(0).toUpperCase() + key.slice(1);
-            optionsStringArray.push(`<br />• ${label}: ${values}`);
+            optionsStringArray.push(`\n- ${label}: ${values}`);
           }
         });
 
         if (optionsStringArray.length > 0) {
-          userFriendlyMessage += `<br /><br />Available Choices:${optionsStringArray.join("")}`;
+          userFriendlyMessage += `\n\nAvailable Choices:${optionsStringArray.join("")}`;
         }
 
       } else {
