@@ -62,13 +62,16 @@ export async function GET(request: Request) {
   }
 
   // 6. Intelligent General Search (Color-Resilient Wildcard & Generic Noise Fix)
+  // 🛑 FIX: Declare variable out here so the entire function scope can see it!
+  let isGenericSearch = false; 
+
   if (q) {
     let cleanQuery = q.trim().toLowerCase();
-    
-    // ✨ FIX: If the search query is completely generic, skip text matching entirely
     const genericWords = ["product", "products", "item", "items", "thing", "things", "all", "list"];
     
-    if (!genericWords.includes(cleanQuery)) {
+    if (genericWords.includes(cleanQuery)) {
+      isGenericSearch = true;
+    } else {
       const colorAdjectives = ["white", "black", "blue", "red", "green", "grey", "gray", "yellow"];
       let queryWords = cleanQuery.split(/\s+/).filter(word => !colorAdjectives.includes(word));
       
@@ -76,6 +79,7 @@ export async function GET(request: Request) {
         if (word === "shirts" || word === "tshirt" || word === "tshirts") return "t-shirt";
         if (word === "chairs") return "chair";
         if (word === "tables") return "table";
+        if (word === "beds") return "bed";
         return word;
       });
 
@@ -101,8 +105,8 @@ export async function GET(request: Request) {
   if (!data || data.length === 0) {
     let altQuery = supabase.from('products').select('*').eq('user_id', user_id);
     let hasPriceFilter = false;
+    let priceLabel = "";
 
-    // Apply the price filtering rules if they exist
     if (price_query && price_query !== "null" && price_query.trim() !== "") {
       const cleanPriceQuery = price_query.trim().toLowerCase();
       if (cleanPriceQuery.startsWith('under')) {
@@ -110,34 +114,37 @@ export async function GET(request: Request) {
         if (!isNaN(maxPrice)) {
           altQuery = altQuery.lte('price', maxPrice);
           hasPriceFilter = true;
+          priceLabel = `under Rs. ${maxPrice}`;
         }
       } else if (cleanPriceQuery.startsWith('exact')) {
         const exactPrice = parseFloat(cleanPriceQuery.replace('exact', '').trim());
         if (!isNaN(exactPrice)) {
           altQuery = altQuery.eq('price', exactPrice);
           hasPriceFilter = true;
+          priceLabel = `at exactly Rs. ${exactPrice}`;
         }
       } else if (cleanPriceQuery.startsWith('between')) {
         const numericParts = cleanPriceQuery.replace('between', '').split('to').map(num => parseFloat(num.trim()));
         if (!isNaN(numericParts[0]) && !isNaN(numericParts[1])) {
           altQuery = altQuery.gte('price', numericParts[0]).lte('price', numericParts[1]);
           hasPriceFilter = true;
+          priceLabel = `between Rs. ${numericParts[0]} to Rs. ${numericParts[1]}`;
         }
       }
     }
 
-    // Pull options (Limit to 4 for clean layout recommendations)
-    const { data: alternatives, error: altError } = await altQuery.limit(4);
+    const { data: alternatives, error: altError } = await altQuery; 
 
     if (!altError && alternatives && alternatives.length > 0) {
-      // ✨ FIX: Grab the keyword the user typed, default to "that item" if empty
       const searchItemName = q ? `"${q.trim()}"` : "that item";
-      
-      // 🌟 Better Dynamic Messages
-      let responseMessage = `I'm sorry, we don't have ${searchItemName} in our store at the moment. However, you might love these popular pieces from our collection:`;
-      
-      if (hasPriceFilter) {
-        responseMessage = `Here are the options available in our collection under your budget layout:`;
+      let responseMessage = "";
+
+      if (q && !isGenericSearch) {
+        responseMessage = `I'm sorry, we don't have ${searchItemName} ${priceLabel ? priceLabel : ''} in our store at the moment. However, you might love these options from our collection within that range:`;
+      } else if (hasPriceFilter) {
+        responseMessage = `Here are the options available in our collection ${priceLabel}:`;
+      } else {
+        responseMessage = `I'm sorry, we don't have ${searchItemName} in our store at the moment. However, you might love these popular pieces from our collection:`;
       }
 
       return NextResponse.json({ 
@@ -150,10 +157,15 @@ export async function GET(request: Request) {
     return NextResponse.json({ 
       data: [],
       success: false,
-      message: q ? `We couldn't find any matches for "${q.trim()}" right now.` : "That item is currently unavailable."
+      message: q ? `We couldn't find any items matching "${q.trim()}" right now.` : "That item is currently unavailable."
     });
   }
 
-  // If the initial keyword search worked perfectly fine
-  return NextResponse.json({ data, success: true, message: "Here is what we found:" });
+  // If initial explicit search criteria matched perfectly
+  let matchMessage = "Here is what we found:";
+  if (isGenericSearch && price_query) {
+    matchMessage = "Here are the options available in our collection matching your budget layout:";
+  }
+
+  return NextResponse.json({ data, success: true, message: matchMessage });
 }
