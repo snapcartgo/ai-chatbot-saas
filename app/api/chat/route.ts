@@ -42,11 +42,13 @@ async function saveMessage(data: {
   role: "user" | "assistant";
   content: string;
   channel: "website" | "whatsapp";
+  human_handoff?: string | null; // ◄ Add this line
 }) {
   const { error } = await supabase.from("messages").insert({
     ...data,
     phone_number: null,
     external_user_id: null,
+    "human handoff": data.human_handoff || null, // ◄ Add this line (must use quotes due to space)
   });
 
   if (error) {
@@ -230,6 +232,11 @@ export async function POST(req: Request) {
       }
     }
 
+    // ⚙️ CHANGES MADE HERE: Intercept the evaluation to check if n8n flagged a handoff
+    const handoffStatus = (data?.needsHuman === true || data?.needsHuman === "true" || data?.ecommerce?.needsHuman === true) 
+      ? "pending" 
+      : null;
+
     // 🛡️ CRITICAL LOOP & CRASH FIX START
     // This catches scenarios where data isn't structured or where an attribute validation response text arrives
     if (data && data.intent === "validate_order" && data.message) {
@@ -251,6 +258,7 @@ export async function POST(req: Request) {
         role: "assistant",
         content: fallbackText,
         channel,
+        human_handoff: handoffStatus, // ◄ Add this line
       });
 
       return NextResponse.json({
@@ -305,6 +313,7 @@ export async function POST(req: Request) {
         role: "assistant",
         content: fallbackText,
         channel,
+        human_handoff: handoffStatus, // ◄ Add this line
       });
 
       return NextResponse.json({
@@ -367,6 +376,7 @@ export async function POST(req: Request) {
       role: "assistant",
       content: productMessage,
       channel,
+      human_handoff: handoffStatus, // ◄ Add this line
     });
 
     if (paymentLink && product_name && price) {
