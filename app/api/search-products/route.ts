@@ -61,26 +61,31 @@ export async function GET(request: Request) {
     }
   }
 
-  // 6. Intelligent General Search (Color-Resilient Wildcard Fix)
+  // 6. Intelligent General Search (Color-Resilient Wildcard & Generic Noise Fix)
   if (q) {
     let cleanQuery = q.trim().toLowerCase();
     
-    const colorAdjectives = ["white", "black", "blue", "red", "green", "grey", "gray", "yellow"];
-    let queryWords = cleanQuery.split(/\s+/).filter(word => !colorAdjectives.includes(word));
+    // ✨ FIX: If the search query is completely generic, skip text matching entirely
+    const genericWords = ["product", "products", "item", "items", "thing", "things", "all", "list"];
     
-    queryWords = queryWords.map(word => {
-      if (word === "shirts" || word === "tshirt" || word === "tshirts") return "t-shirt";
-      if (word === "chairs") return "chair";
-      if (word === "tables") return "table";
-      return word;
-    });
+    if (!genericWords.includes(cleanQuery)) {
+      const colorAdjectives = ["white", "black", "blue", "red", "green", "grey", "gray", "yellow"];
+      let queryWords = cleanQuery.split(/\s+/).filter(word => !colorAdjectives.includes(word));
+      
+      queryWords = queryWords.map(word => {
+        if (word === "shirts" || word === "tshirt" || word === "tshirts") return "t-shirt";
+        if (word === "chairs") return "chair";
+        if (word === "tables") return "table";
+        return word;
+      });
 
-    const finalSearchTerm = queryWords.join(" ");
+      const finalSearchTerm = queryWords.join(" ");
 
-    if (finalSearchTerm.length > 0) {
-      query = query.or(`name.ilike.%${finalSearchTerm}%,description.ilike.%${finalSearchTerm}%,category.ilike.%${finalSearchTerm}%`);
-    } else {
-      query = query.or(`name.ilike.%${q.trim()}%,description.ilike.%${q.trim()}%`);
+      if (finalSearchTerm.length > 0) {
+        query = query.or(`name.ilike.%${finalSearchTerm}%,description.ilike.%${finalSearchTerm}%,category.ilike.%${finalSearchTerm}%`);
+      } else {
+        query = query.or(`name.ilike.%${q.trim()}%,description.ilike.%${q.trim()}%`);
+      }
     }
   }
 
@@ -94,17 +99,33 @@ export async function GET(request: Request) {
 
   // IF PRODUCT NOT FOUND, FETCH RELEVANT ALTERNATIVES DYNAMICALLY
   if (!data || data.length === 0) {
-    const { data: alternatives, error: altError } = await supabase
-      .from('products')
-      .select('*')
-      .eq('user_id', user_id)
-      .limit(3);
+    // ✨ FIX: Make sure the fallback alternatives ALSO respect the budget limit!
+    let altQuery = supabase.from('products').select('*').eq('user_id', user_id);
+
+    // Apply the exact same price logic to your fallback query
+    if (price_query && price_query !== "null" && price_query.trim() !== "") {
+      const cleanPriceQuery = price_query.trim().toLowerCase();
+      if (cleanPriceQuery.startsWith('under')) {
+        const maxPrice = parseFloat(cleanPriceQuery.replace('under', '').trim());
+        if (!isNaN(maxPrice)) altQuery = altQuery.lte('price', maxPrice);
+      } else if (cleanPriceQuery.startsWith('exact')) {
+        const exactPrice = parseFloat(cleanPriceQuery.replace('exact', '').trim());
+        if (!isNaN(exactPrice)) altQuery = altQuery.eq('price', exactPrice);
+      } else if (cleanPriceQuery.startsWith('between')) {
+        const numericParts = cleanPriceQuery.replace('between', '').split('to').map(num => parseFloat(num.trim()));
+        if (!isNaN(numericParts[0]) && !isNaN(numericParts[1])) {
+          altQuery = altQuery.gte('price', numericParts[0]).lte('price', numericParts[1]);
+        }
+      }
+    }
+
+    const { data: alternatives, error: altError } = await altQuery.limit(3);
 
     if (!altError && alternatives && alternatives.length > 0) {
       return NextResponse.json({ 
         data: alternatives,
         success: true, 
-        message: `We couldn't find matches matching your criteria. Here are some options from our collection you might love:` 
+        message: `We couldn't find exact matches for your keyword, but here are some options under your budget layout:` 
       });
     }
 
