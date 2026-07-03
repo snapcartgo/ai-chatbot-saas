@@ -130,8 +130,11 @@ export async function GET(request: Request) {
     const { data: alternatives, error: altError } = await altQuery.limit(4);
 
     if (!altError && alternatives && alternatives.length > 0) {
-      // ✨ FIX: Dynamically change the message depending on whether a budget was actually sent!
-      let responseMessage = "We don't carry that specific item at the moment, but here are some popular pieces from our collection you might love:";
+      // ✨ FIX: Grab the keyword the user typed, default to "that item" if empty
+      const searchItemName = q ? `"${q.trim()}"` : "that item";
+      
+      // 🌟 Better Dynamic Messages
+      let responseMessage = `I'm sorry, we don't have ${searchItemName} in our store at the moment. However, you might love these popular pieces from our collection:`;
       
       if (hasPriceFilter) {
         responseMessage = `Here are the options available in our collection under your budget layout:`;
@@ -147,7 +150,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ 
       data: [],
       success: false,
-      message: "That item is currently unavailable, and our catalog is undergoing an update. Check back soon!" 
+      message: q ? `We couldn't find any matches for "${q.trim()}" right now.` : "That item is currently unavailable."
     });
   }
 
