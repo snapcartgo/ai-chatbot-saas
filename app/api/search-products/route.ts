@@ -97,46 +97,60 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  // IF NO PRODUCT MATCHES KEYWORDS, RUN THE BROAD BUDGET FILTER
+  // IF PRODUCT NOT FOUND OR SEARCH RETURNED NO RESULTS
   if (!data || data.length === 0) {
     let altQuery = supabase.from('products').select('*').eq('user_id', user_id);
+    let hasPriceFilter = false;
 
-    // Apply the price filtering rules
+    // Apply the price filtering rules if they exist
     if (price_query && price_query !== "null" && price_query.trim() !== "") {
       const cleanPriceQuery = price_query.trim().toLowerCase();
       if (cleanPriceQuery.startsWith('under')) {
         const maxPrice = parseFloat(cleanPriceQuery.replace('under', '').trim());
-        if (!isNaN(maxPrice)) altQuery = altQuery.lte('price', maxPrice);
+        if (!isNaN(maxPrice)) {
+          altQuery = altQuery.lte('price', maxPrice);
+          hasPriceFilter = true;
+        }
       } else if (cleanPriceQuery.startsWith('exact')) {
         const exactPrice = parseFloat(cleanPriceQuery.replace('exact', '').trim());
-        if (!isNaN(exactPrice)) altQuery = altQuery.eq('price', exactPrice);
+        if (!isNaN(exactPrice)) {
+          altQuery = altQuery.eq('price', exactPrice);
+          hasPriceFilter = true;
+        }
       } else if (cleanPriceQuery.startsWith('between')) {
         const numericParts = cleanPriceQuery.replace('between', '').split('to').map(num => parseFloat(num.trim()));
         if (!isNaN(numericParts[0]) && !isNaN(numericParts[1])) {
           altQuery = altQuery.gte('price', numericParts[0]).lte('price', numericParts[1]);
+          hasPriceFilter = true;
         }
       }
     }
 
-    // 🛑 FIX: Remove .limit(3) so it pulls ALL items under that budget constraint!
-    const { data: alternatives, error: altError } = await altQuery; 
+    // Pull options (Limit to 4 for clean layout recommendations)
+    const { data: alternatives, error: altError } = await altQuery.limit(4);
 
     if (!altError && alternatives && alternatives.length > 0) {
+      // ✨ FIX: Dynamically change the message depending on whether a budget was actually sent!
+      let responseMessage = "We don't carry that specific item at the moment, but here are some popular pieces from our collection you might love:";
+      
+      if (hasPriceFilter) {
+        responseMessage = `Here are the options available in our collection under your budget layout:`;
+      }
+
       return NextResponse.json({ 
         data: alternatives,
         success: true, 
-        // ✨ FIX: Dynamic message so it doesn't sound like an error
-        message: `Here are all the options available in our collection under your budget layout:` 
+        message: responseMessage
       });
     }
 
     return NextResponse.json({ 
       data: [],
       success: false,
-      message: "We couldn't find any items matching that budget criteria right now." 
+      message: "That item is currently unavailable, and our catalog is undergoing an update. Check back soon!" 
     });
   }
 
-  // If the initial search query worked perfectly fine
+  // If the initial keyword search worked perfectly fine
   return NextResponse.json({ data, success: true, message: "Here is what we found:" });
 }
