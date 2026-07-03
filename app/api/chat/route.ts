@@ -42,14 +42,30 @@ async function saveMessage(data: {
   role: "user" | "assistant";
   content: string;
   channel: "website" | "whatsapp";
-  human_handoff?: string | null; // ◄ Add this line
+  human_handoff?: string | null; 
 }) {
-  const { error } = await supabase.from("messages").insert({
-    ...data,
+  // Explicitly mapping out every key ensures the driver writes to your exact database row format
+  const payload: Record<string, any> = {
+    user_id: data.user_id,
+    bot_id: data.bot_id,
+    conversation_id: data.conversation_id,
+    role: data.role,
+    content: data.content,
+    channel: data.channel,
     phone_number: null,
     external_user_id: null,
-    "human handoff": data.human_handoff || null, // ◄ Add this line (must use quotes due to space)
-  });
+  };
+
+  // Explicitly inject the key with the column space naming format
+  if (data.human_handoff) {
+    payload["human handoff"] = data.human_handoff;
+  } else {
+    payload["human handoff"] = null;
+  }
+
+  const { error } = await supabase
+    .from("messages")
+    .insert([payload]); // Passing an explicit single-item array object
 
   if (error) {
     console.error("Supabase Message Save Error Details:", error.message, error.details);
@@ -187,6 +203,9 @@ export async function POST(req: Request) {
     });
 
     const rawData = await webhookResponse.json();
+
+    // 🔍 ADD THIS LOG RIGHT HERE TO SEE N8N OUTPUT IN YOUR TERMINAL:
+    console.log("👉 REAL N8N DATA RECEIVED:", JSON.stringify(rawData, null, 2));
 
     if (!webhookResponse.ok) {
       return NextResponse.json(
