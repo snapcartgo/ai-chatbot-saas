@@ -27,30 +27,52 @@ async function sendWhatsAppMessage(phone_number_id: string, toPhone: string, tex
 }
 
 export async function POST(req: NextRequest) {
-  console.log("===== WHATSAPP APPS PRODUCTION ORDER VALIDATOR =====");
+  console.log("===== HYBRID WHATSAPP ORDER VALIDATOR ROUTE =====");
   try {
     const body = await req.json();
 
-    // 1. WhatsApp Webhook Extraction Guardrail
-    const entry = body?.entry?.[0];
-    const change = entry?.changes?.[0]?.value;
-    const message = change?.messages?.[0];
+    let customerPhone = "";
+    let phone_number_id = "";
+    let itemsToValidate: any[] = [];
 
-    if (!message || message.type !== "order") {
-      return NextResponse.json({ success: true, message: "Ignored non-order payload type." });
+    // Check if payload is a Raw Meta Webhook vs Processed n8n JSON
+    const isRawWebhook = !!body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
+
+    if (isRawWebhook) {
+      const entry = body.entry[0];
+      const change = entry?.changes?.[0]?.value;
+      const message = change?.messages?.[0];
+
+      if (!message || message.type !== "order") {
+        return NextResponse.json({ success: true, message: "Ignored non-order payload type." });
+      }
+
+      customerPhone = message.from;
+      phone_number_id = change?.metadata?.phone_number_id; 
+      const rawItems = message.order?.product_items || [];
+      
+      // Map catalog items to standard validation array
+      itemsToValidate = rawItems.map((item: any) => ({
+        product_name: item.product_retailer_id,
+        quantity: Number(item.quantity),
+        selected_attributes: {}
+      }));
+    } else {
+      customerPhone = body.customerPhone || body.from;
+      phone_number_id = body.phone_number_id || body.whatsapp_phone_number_id;
+      itemsToValidate = body.items || [];
     }
-
-    const customerPhone = message.from;
-    const phone_number_id = change?.metadata?.phone_number_id; 
-    const orderData = message.order;
-    const rawItems = orderData.product_items || [];
 
     // Static analysis input guardrail to block path-traversal attacks instantly
     if (!phone_number_id || !/^\d+$/.test(phone_number_id)) {
       return NextResponse.json({ success: false, message: "Invalid payload format." }, { status: 400 });
     }
 
-    // 2. Fetch Merchant profile and grab our own server-trusted ID reference
+    if (!customerPhone || itemsToValidate.length === 0) {
+      return NextResponse.json({ success: false, message: "Missing required contact metadata or items." }, { status: 400 });
+    }
+
+    // Fetch Merchant profile and grab our own server-trusted ID reference
     const { data: merchant, error: merchantError } = await supabase
       .from("merchants")
       .select("user_id, whatsapp_phone_number_id")
@@ -71,16 +93,16 @@ export async function POST(req: NextRequest) {
     let grandShipping = 0;
     const missingProducts: any[] = [];
 
-    // 3. Process the WhatsApp Cart Items list
-    for (const item of rawItems) {
-      const product_retailer_id = item.product_retailer_id;
+    for (const item of itemsToValidate) {
+      const product_name = item.product_name;
       const requestedQuantity = Number(item.quantity);
+      const mergedAttributes = item.selected_attributes || {};
 
-      if (!product_retailer_id || Number.isNaN(requestedQuantity) || requestedQuantity <= 0) {
+      if (!product_name || Number.isNaN(requestedQuantity) || requestedQuantity <= 0) {
         continue;
       }
 
-      let search = product_retailer_id.trim().toLowerCase();
+      let search = product_name.trim().toLowerCase();
       if (search === "tshirt" || search === "t shirt" || search === "shirt") {
         search = "t-shirt";
       }
@@ -93,7 +115,7 @@ export async function POST(req: NextRequest) {
 
       if (productError || !products || products.length === 0) {
         missingProducts.push({
-          product_name: product_retailer_id,
+          product_name: product_name,
           error_type: "not_found"
         });
         continue;
@@ -103,13 +125,12 @@ export async function POST(req: NextRequest) {
       const unitPrice = Number(product.price);
 
       if (requestedQuantity > Number(product.stock)) {
-        // Safe call using verified target string
         await sendWhatsAppMessage(
           trusted_phone_id,
           customerPhone,
           `⚠️ Order Alert: Only ${product.stock} units left in stock for "${product.name}". Please adjust your checkout cart count.`
         );
-        return NextResponse.json({ success: true });
+        return NextResponse.json({ success: false, message: `Only ${product.stock} units left.` });
       }
 
       const subtotal = unitPrice * requestedQuantity;
@@ -126,13 +147,12 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // 4. Send layout notifications back via sanitized messaging parameters
     if (missingProducts.length > 0) {
       const failedNames = missingProducts.map(p => `"${p.product_name}"`).join(", ");
       const alertMsg = `❌ Sorry, the following item(s): ${failedNames} are out of stock or could not be found. Please open the shop catalogs drawer and select an alternative option.`;
       
       await sendWhatsAppMessage(trusted_phone_id, customerPhone, alertMsg);
-      return NextResponse.json({ success: true });
+      return NextResponse.json({ success: false, message: alertMsg });
     }
 
     const checkoutSummary = 
@@ -146,7 +166,14 @@ export async function POST(req: NextRequest) {
       `✅ Items are locked. Kindly text us back with your *Full Name, Delivery Address, and Email* to finalise dispatch routing details.`;
 
     await sendWhatsAppMessage(trusted_phone_id, customerPhone, checkoutSummary);
-    return NextResponse.json({ success: true });
+    
+    return NextResponse.json({ 
+      success: true, 
+      message: "Order successfully verified.",
+      subtotal: grandSubtotal,
+      shipping: grandShipping,
+      total: grandSubtotal + grandShipping
+    });
 
   } catch (err: any) {
     console.error("Critical Exception processing WhatsApp pipeline: ", err);
