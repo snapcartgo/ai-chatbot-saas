@@ -8,7 +8,7 @@ const supabase = createClient(
 
 // Meta Graph API helper function to reply back to the WhatsApp user
 async function sendWhatsAppMessage(phone_number_id: string, toPhone: string, textBody: string) {
-  const WHATSAPP_TOKEN = process.env.WHATSAPP_ACCESS_TOKEN; // Ensure this is saved in your env parameters
+  const WHATSAPP_TOKEN = process.env.WHATSAPP_ACCESS_TOKEN;
   
   await fetch(`https://graph.facebook.com/v20.0/${phone_number_id}/messages`, {
     method: "POST",
@@ -36,7 +36,6 @@ export async function POST(req: NextRequest) {
     const change = entry?.changes?.[0]?.value;
     const message = change?.messages?.[0];
 
-    // If it's a routine webhook status check or not an order message, exit early
     if (!message || message.type !== "order") {
       return NextResponse.json({ success: true, message: "Ignored non-order payload type." });
     }
@@ -44,13 +43,17 @@ export async function POST(req: NextRequest) {
     const customerPhone = message.from;
     const phone_number_id = change?.metadata?.phone_number_id; 
     const orderData = message.order;
-    const catalogId = orderData.catalog_id;
-    const rawItems = orderData.product_items || []; // Array containing retail ids and quantities
+    const rawItems = orderData.product_items || [];
 
-    // 2. Fetch Merchant profile by tracking who owns this phone_number_id or catalogId
+    // Static analysis input guardrail to block path-traversal attacks instantly
+    if (!phone_number_id || !/^\d+$/.test(phone_number_id)) {
+      return NextResponse.json({ success: false, message: "Invalid payload format." }, { status: 400 });
+    }
+
+    // 2. Fetch Merchant profile and grab our own server-trusted ID reference
     const { data: merchant, error: merchantError } = await supabase
-      .from("merchants") // Assuming you keep a connection mapper table named 'merchants'
-      .select("user_id")
+      .from("merchants")
+      .select("user_id, whatsapp_phone_number_id")
       .eq("whatsapp_phone_number_id", phone_number_id)
       .single();
 
@@ -59,7 +62,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, message: "Unknown merchant metadata." }, { status: 400 });
     }
 
+    // Fixed identifiers to fully clear SSRF vulnerabilities
+    const trusted_phone_id = merchant.whatsapp_phone_number_id;
     const user_id = merchant.user_id;
+
     const validatedItems = [];
     let grandSubtotal = 0;
     let grandShipping = 0;
@@ -67,27 +73,24 @@ export async function POST(req: NextRequest) {
 
     // 3. Process the WhatsApp Cart Items list
     for (const item of rawItems) {
-      const product_retailer_id = item.product_retailer_id; // The SKU name inside your Meta Catalog dashboard
+      const product_retailer_id = item.product_retailer_id;
       const requestedQuantity = Number(item.quantity);
 
       if (!product_retailer_id || Number.isNaN(requestedQuantity) || requestedQuantity <= 0) {
         continue;
       }
 
-      // Convert your text variations mapping strategies directly to lookups
       let search = product_retailer_id.trim().toLowerCase();
       if (search === "tshirt" || search === "t shirt" || search === "shirt") {
         search = "t-shirt";
       }
 
-      // Primary Fuzzy Search (Strictly scoped to user_id context derived from the specific phone account match)
       let { data: products, error: productError } = await supabase
         .from("products")
         .select("*")
         .eq("user_id", user_id)
         .or(`sku.ilike.%${search}%,name.ilike.%${search}%,category.ilike.%${search}%`);
 
-      // Fallback matching lookup routines
       if (productError || !products || products.length === 0) {
         missingProducts.push({
           product_name: product_retailer_id,
@@ -99,10 +102,10 @@ export async function POST(req: NextRequest) {
       const product = products[0];
       const unitPrice = Number(product.price);
 
-      // Stock level verification guardrails
       if (requestedQuantity > Number(product.stock)) {
+        // Safe call using verified target string
         await sendWhatsAppMessage(
-          phone_number_id,
+          trusted_phone_id,
           customerPhone,
           `⚠️ Order Alert: Only ${product.stock} units left in stock for "${product.name}". Please adjust your checkout cart count.`
         );
@@ -110,7 +113,7 @@ export async function POST(req: NextRequest) {
       }
 
       const subtotal = unitPrice * requestedQuantity;
-      const shipping = subtotal >= 999 ? 0 : 40; // Standard shipping fallback calculation value
+      const shipping = subtotal >= 999 ? 0 : 40;
       
       grandSubtotal += subtotal;
       grandShipping += shipping;
@@ -123,16 +126,15 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // 4. Send structured message notifications back to the customer's phone line
+    // 4. Send layout notifications back via sanitized messaging parameters
     if (missingProducts.length > 0) {
       const failedNames = missingProducts.map(p => `"${p.product_name}"`).join(", ");
-      const alertMsg = `❌ Sorry, the following item(s): ${failedNames} are out of stock or could not be found in our core store inventory index. Please open the shop catalogs drawer and select an alternative product option.`;
+      const alertMsg = `❌ Sorry, the following item(s): ${failedNames} are out of stock or could not be found. Please open the shop catalogs drawer and select an alternative option.`;
       
-      await sendWhatsAppMessage(phone_number_id, customerPhone, alertMsg);
+      await sendWhatsAppMessage(trusted_phone_id, customerPhone, alertMsg);
       return NextResponse.json({ success: true });
     }
 
-    // Success Sequence block execution
     const checkoutSummary = 
       `🛍️ *Order Confirmation Receipt Summary* \n` +
       `---------------------------------\n` +
@@ -143,7 +145,7 @@ export async function POST(req: NextRequest) {
       `*Grand Total Amount: ₹${grandSubtotal + grandShipping}*\n\n` +
       `✅ Items are locked. Kindly text us back with your *Full Name, Delivery Address, and Email* to finalise dispatch routing details.`;
 
-    await sendWhatsAppMessage(phone_number_id, customerPhone, checkoutSummary);
+    await sendWhatsAppMessage(trusted_phone_id, customerPhone, checkoutSummary);
     return NextResponse.json({ success: true });
 
   } catch (err: any) {
