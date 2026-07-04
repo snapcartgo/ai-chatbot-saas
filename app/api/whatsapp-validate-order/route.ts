@@ -34,6 +34,7 @@ export async function POST(req: NextRequest) {
     let customerPhone = "";
     let phone_number_id = "";
     let itemsToValidate: any[] = [];
+    const request_user_id = body.user_id;
 
     // Check if payload is a Raw Meta Webhook vs Processed n8n JSON
     const isRawWebhook = !!body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
@@ -72,12 +73,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, message: "Missing required contact metadata or items." }, { status: 400 });
     }
 
-    // Fetch Merchant profile and grab our own server-trusted ID reference
-    const { data: merchant, error: merchantError } = await supabase
-      .from("merchants")
-      .select("user_id, whatsapp_phone_number_id")
-      .eq("whatsapp_phone_number_id", phone_number_id)
-      .single();
+    // Build a flexible query to handle direct phone ID matching or user_id matching fallbacks
+    let merchantQuery = supabase.from("merchants").select("user_id, whatsapp_phone_number_id");
+
+    if (isRawWebhook) {
+      merchantQuery = merchantQuery.eq("whatsapp_phone_number_id", phone_number_id);
+    } else if (request_user_id) {
+      merchantQuery = merchantQuery.eq("user_id", request_user_id);
+    } else {
+      merchantQuery = merchantQuery.eq("whatsapp_phone_number_id", phone_number_id);
+    }
+
+    const { data: merchant, error: merchantError } = await merchantQuery.single();
 
     if (merchantError || !merchant?.user_id) {
       console.error("Merchant mapping error:", merchantError);
@@ -85,7 +92,8 @@ export async function POST(req: NextRequest) {
     }
 
     // Fixed identifiers to fully clear SSRF vulnerabilities
-    const trusted_phone_id = merchant.whatsapp_phone_number_id;
+    // Use the database trusted phone ID, falling back to request ID if database column is empty
+    const trusted_phone_id = merchant.whatsapp_phone_number_id || phone_number_id;
     const user_id = merchant.user_id;
 
     const validatedItems = [];
