@@ -27,7 +27,7 @@ async function sendWhatsAppMessage(phone_number_id: string, toPhone: string, tex
 }
 
 export async function POST(req: NextRequest) {
-  console.log("===== HYBRID RESILIENT WHATSAPP ORDER VALIDATOR ROUTE =====");
+  console.log("===== HYBRID RESILIENT MULTI-STAGE WHATSAPP ORDER VALIDATOR ROUTE =====");
   try {
     const body = await req.json();
 
@@ -82,7 +82,7 @@ export async function POST(req: NextRequest) {
     let grandShipping = 0;
     const missingProducts: any[] = [];
 
-    // Fetch all products for this user once to perform extremely resilient bidirectional matching in memory
+    // Fetch all products for this user once to perform resilient bidirectional matching in memory
     let { data: allProducts, error: allProductsError } = await supabase
       .from("products")
       .select("*")
@@ -106,9 +106,7 @@ export async function POST(req: NextRequest) {
         search = "t-shirt";
       }
 
-      // Bidirectional matching loop:
-      // Case A: Database value contains our search term (e.g. database has "Premium Cotton T-Shirt" and search is "T-Shirt")
-      // Case B: Our search term contains the database value (e.g. database has "T-Shirt" and search is "Premium Cotton T-Shirt")
+      // --- STAGE 1: Bidirectional Matching in Memory ---
       let matchedProducts = allProducts.filter((p: any) => {
         const dbName = (p.name || "").toLowerCase().trim();
         const dbSku = (p.sku || "").toLowerCase().trim();
@@ -128,13 +126,52 @@ export async function POST(req: NextRequest) {
         return false;
       });
 
-      // Split-phrase keyword fallback matching with explicit parameter typing to clear 'noImplicitAny'
+      // --- STAGE 2: Direct Scoped Database Fuzzy Lookup fallback ---
+      if (matchedProducts.length === 0) {
+        let fallbackQuery = supabase.from("products").select("*");
+        if (user_id) {
+          fallbackQuery = fallbackQuery.eq("user_id", user_id);
+        }
+        fallbackQuery = fallbackQuery.or(`name.ilike.%${search}%,sku.ilike.%${search}%`);
+        const { data: directProducts } = await fallbackQuery;
+        if (directProducts && directProducts.length > 0) {
+          matchedProducts = directProducts;
+        }
+      }
+
+      // --- STAGE 3: Global Database Fuzzy Lookup fallback (Bypassing user_id mapping) ---
+      if (matchedProducts.length === 0) {
+        const globalFallbackQuery = supabase
+          .from("products")
+          .select("*")
+          .or(`name.ilike.%${search}%,sku.ilike.%${search}%`);
+        const { data: globalDirectProducts } = await globalFallbackQuery;
+        if (globalDirectProducts && globalDirectProducts.length > 0) {
+          matchedProducts = globalDirectProducts;
+        }
+      }
+
+      // --- STAGE 4: Split-phrase keyword fallback matching ---
       if (matchedProducts.length === 0 && search.includes(" ")) {
         const words: string[] = search.split(" ").filter((w: string) => w.length > 2);
+        
+        // Try on localized merchant array first
         matchedProducts = allProducts.filter((p: any) => {
           const dbName = (p.name || "").toLowerCase().trim();
           return words.some((word: string) => dbName.includes(word) || word.includes(dbName));
         });
+
+        // If still empty, check database globally for any word matches
+        if (matchedProducts.length === 0) {
+          const orConditions = words.map(word => `name.ilike.%${word}%,sku.ilike.%${word}%`).join(",");
+          const { data: globalWordMatches } = await supabase
+            .from("products")
+            .select("*")
+            .or(orConditions);
+          if (globalWordMatches && globalWordMatches.length > 0) {
+            matchedProducts = globalWordMatches;
+          }
+        }
       }
 
       if (matchedProducts.length === 0) {
