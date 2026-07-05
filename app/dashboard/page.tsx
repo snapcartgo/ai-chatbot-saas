@@ -203,6 +203,7 @@ export default function DashboardPage() {
         phone_number: phoneNumber.trim(),
         automation_enabled: true,
         workflow_type: "whatsapp_only",
+        category: chatbotCategory,
         status: "active",
       } as any,
       { onConflict: "user_id" }
@@ -213,7 +214,7 @@ export default function DashboardPage() {
     if (error) {
       alert("Database write error: " + error.message);
     } else {
-      alert("WhatsApp Phone Number saved into configuration table successfully!");
+      alert("WhatsApp configuration and category saved successfully!");
     }
   }
 
