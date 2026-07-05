@@ -20,6 +20,7 @@ export default function DashboardPage() {
   const [clientName, setClientName] = useState("");
 
   const [phoneNumber, setPhoneNumber] = useState("");
+  const [chatbotCategory, setChatbotCategory] = useState("booking");
   const [isSavingPhone, setIsSavingPhone] = useState(false);
 
   useEffect(() => {
@@ -324,50 +325,69 @@ export default function DashboardPage() {
           </div>
 
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 flex flex-col">
-            <h2 className="text-xl font-bold mb-2 text-gray-800">
-              WhatsApp Onboarding
-            </h2>
-            <p className="text-sm text-gray-600 mb-6">
-              Connect your official Meta WhatsApp Business Account to enable
-              automated AI messaging.
-            </p>
+  <h2 className="text-xl font-bold mb-2 text-gray-800">
+    WhatsApp Onboarding
+  </h2>
+  <p className="text-sm text-gray-600 mb-6">
+    Connect your official Meta WhatsApp Business Account to enable
+    automated AI messaging.
+  </p>
 
-            <div className="space-y-4 mt-auto">
-              <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1">
-                  Actual WhatsApp Phone Number
-                </label>
+  <div className="space-y-4 mt-auto">
+    {/* 1. Phone Number Input */}
+    <div>
+      <label className="block text-xs font-semibold text-gray-600 mb-1">
+        Actual WhatsApp Phone Number
+      </label>
+      <input
+        value={phoneNumber}
+        onChange={(e) => setPhoneNumber(e.target.value)}
+        placeholder="e.g. +14155238886"
+        className="w-full border rounded-lg p-3 text-sm text-gray-900 bg-white focus:outline-none"
+      />
+    </div>
 
-                <div className="flex gap-2">
-                  <input
-                    value={phoneNumber}
-                    onChange={(e) => setPhoneNumber(e.target.value)}
-                    placeholder="e.g. +14155238886"
-                    className="flex-1 border rounded-lg p-3 text-sm text-gray-900 bg-white focus:outline-none"
-                  />
-                  <button
-                    onClick={saveManualPhoneNumber}
-                    disabled={isSavingPhone}
-                    className="bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg px-4 text-xs transition-colors whitespace-nowrap"
-                  >
-                    {isSavingPhone ? "Saving..." : "Save Number"}
-                  </button>
-                </div>
-              </div>
+    {/* 2. Chatbot Category Dropdown Selector */}
+    <div>
+      <label className="block text-xs font-semibold text-gray-600 mb-1">
+        Chatbot Category
+      </label>
+      <select
+        value={chatbotCategory}
+        onChange={(e) => setChatbotCategory(e.target.value)}
+        className="w-full border rounded-lg p-3 text-sm text-gray-900 bg-white focus:outline-none appearance-none"
+        style={{ backgroundImage: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%236B7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'></polyline></svg>")`, backgroundPosition: 'right 12px center', backgroundRepeat: 'no-repeat', backgroundSize: '16px' }}
+      >
+        <option value="booking">Booking</option>
+        <option value="ecommerce">E-commerce</option>
+      </select>
+    </div>
 
-              {userId ? (
-                <WhatsAppSetupButton clientId={userId} />
-              ) : (
-                <div className="h-12 w-full bg-gray-100 animate-pulse rounded-lg flex items-center justify-center text-gray-400 text-sm">
-                  Loading user session...
-                </div>
-              )}
+    {/* 3. Combined Save Button */}
+    <button
+      onClick={saveManualPhoneNumber}
+      disabled={isSavingPhone}
+      className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg p-3 text-sm transition-colors whitespace-nowrap mb-2"
+    >
+      {isSavingPhone ? "Saving Settings..." : "Save Configuration Settings"}
+    </button>
 
-              <p className="text-[10px] text-gray-400 mt-1 text-center">
-                Requires Meta Business Verification for full message volume.
-              </p>
-            </div>
-          </div>
+    <div className="border-t border-gray-100 my-2 pt-2"></div>
+
+    {/* 4. Connect WhatsApp Action */}
+    {userId ? (
+      <WhatsAppSetupButton clientId={userId} />
+    ) : (
+      <div className="h-12 w-full bg-gray-100 animate-pulse rounded-lg flex items-center justify-center text-gray-400 text-sm">
+        Loading user session...
+      </div>
+    )}
+
+    <p className="text-[10px] text-gray-400 mt-1 text-center">
+      Requires Meta Business Verification for full message volume.
+    </p>
+  </div>
+</div>
         </div>
       </div>
     </main>
