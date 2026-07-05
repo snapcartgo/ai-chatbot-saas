@@ -27,14 +27,17 @@ async function sendWhatsAppMessage(phone_number_id: string, toPhone: string, tex
 }
 
 export async function POST(req: NextRequest) {
-  console.log("===== HYBRID WHATSAPP ORDER VALIDATOR ROUTE =====");
+  console.log("===== HYBRID WHATSAPP ORDER VALIDATOR ROUTE (NO-MERCHANT-TABLE-FIX) =====");
   try {
     const body = await req.json();
 
     let customerPhone = "";
     let phone_number_id = "";
     let itemsToValidate: any[] = [];
-    const request_user_id = body.user_id;
+    
+    // Parse the user_id from query parameters (fallback for webhooks) or request body properties
+    const { searchParams } = new URL(req.url);
+    const user_id = searchParams.get("user_id") || body.user_id || body.request_user_id || process.env.DEFAULT_USER_ID;
 
     // Check if payload is a Raw Meta Webhook vs Processed n8n JSON
     const isRawWebhook = !!body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
@@ -64,7 +67,7 @@ export async function POST(req: NextRequest) {
       itemsToValidate = body.items || [];
     }
 
-    // Static analysis input guardrail to block path-traversal attacks instantly
+    // Static analysis input guardrail to block path-traversal/SSRF attacks instantly
     if (!phone_number_id || !/^\d+$/.test(phone_number_id)) {
       return NextResponse.json({ success: false, message: "Invalid payload format." }, { status: 400 });
     }
@@ -73,28 +76,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, message: "Missing required contact metadata or items." }, { status: 400 });
     }
 
-    // Build a flexible query to handle direct phone ID matching or user_id matching fallbacks
-    let merchantQuery = supabase.from("merchants").select("user_id, whatsapp_phone_number_id");
-
-    if (isRawWebhook) {
-      merchantQuery = merchantQuery.eq("whatsapp_phone_number_id", phone_number_id);
-    } else if (request_user_id) {
-      merchantQuery = merchantQuery.eq("user_id", request_user_id);
-    } else {
-      merchantQuery = merchantQuery.eq("whatsapp_phone_number_id", phone_number_id);
-    }
-
-    const { data: merchant, error: merchantError } = await merchantQuery.single();
-
-    if (merchantError || !merchant?.user_id) {
-      console.error("Merchant mapping error:", merchantError);
-      return NextResponse.json({ success: false, message: "Unknown merchant metadata." }, { status: 400 });
-    }
-
-    // Fixed identifiers to fully clear SSRF vulnerabilities
-    // Use the database trusted phone ID, falling back to request ID if database column is empty
-    const trusted_phone_id = merchant.whatsapp_phone_number_id || phone_number_id;
-    const user_id = merchant.user_id;
+    // Since the merchants table does not exist, use the validated phone_number_id directly!
+    const trusted_phone_id = phone_number_id;
 
     const validatedItems = [];
     let grandSubtotal = 0;
@@ -104,7 +87,6 @@ export async function POST(req: NextRequest) {
     for (const item of itemsToValidate) {
       const product_name = item.product_name;
       const requestedQuantity = Number(item.quantity);
-      const mergedAttributes = item.selected_attributes || {};
 
       if (!product_name || Number.isNaN(requestedQuantity) || requestedQuantity <= 0) {
         continue;
@@ -115,11 +97,14 @@ export async function POST(req: NextRequest) {
         search = "t-shirt";
       }
 
-      let { data: products, error: productError } = await supabase
-        .from("products")
-        .select("*")
-        .eq("user_id", user_id)
-        .or(`sku.ilike.%${search}%,name.ilike.%${search}%,category.ilike.%${search}%`);
+      // Build product lookup query (Scope to user_id if available, otherwise search globally)
+      let productQuery = supabase.from("products").select("*");
+      if (user_id) {
+        productQuery = productQuery.eq("user_id", user_id);
+      }
+      productQuery = productQuery.or(`sku.ilike.%${search}%,name.ilike.%${search}%,category.ilike.%${search}%`);
+
+      let { data: products, error: productError } = await productQuery;
 
       if (productError || !products || products.length === 0) {
         missingProducts.push({
