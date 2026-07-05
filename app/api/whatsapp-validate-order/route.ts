@@ -27,7 +27,7 @@ async function sendWhatsAppMessage(phone_number_id: string, toPhone: string, tex
 }
 
 export async function POST(req: NextRequest) {
-  console.log("===== HYBRID WHATSAPP ORDER VALIDATOR ROUTE (NO-MERCHANT-TABLE-FIX) =====");
+  console.log("===== HYBRID RESILIENT WHATSAPP ORDER VALIDATOR ROUTE =====");
   try {
     const body = await req.json();
 
@@ -76,37 +76,68 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, message: "Missing required contact metadata or items." }, { status: 400 });
     }
 
-    // Since the merchants table does not exist, use the validated phone_number_id directly!
     const trusted_phone_id = phone_number_id;
-
     const validatedItems = [];
     let grandSubtotal = 0;
     let grandShipping = 0;
     const missingProducts: any[] = [];
 
+    // Fetch all products for this user once to perform extremely resilient bidirectional matching in memory
+    let { data: allProducts, error: allProductsError } = await supabase
+      .from("products")
+      .select("*")
+      .eq("user_id", user_id);
+
+    if (allProductsError || !allProducts) {
+      console.error("Supabase query error or empty products catalogue table:", allProductsError);
+      allProducts = [];
+    }
+
     for (const item of itemsToValidate) {
-      const product_name = item.product_name;
+      const product_name = item.product_name as string;
       const requestedQuantity = Number(item.quantity);
 
       if (!product_name || Number.isNaN(requestedQuantity) || requestedQuantity <= 0) {
         continue;
       }
 
-      let search = product_name.trim().toLowerCase();
+      let search: string = product_name.trim().toLowerCase();
       if (search === "tshirt" || search === "t shirt" || search === "shirt") {
         search = "t-shirt";
       }
 
-      // Build product lookup query (Scope to user_id if available, otherwise search globally)
-      let productQuery = supabase.from("products").select("*");
-      if (user_id) {
-        productQuery = productQuery.eq("user_id", user_id);
+      // Bidirectional matching loop:
+      // Case A: Database value contains our search term (e.g. database has "Premium Cotton T-Shirt" and search is "T-Shirt")
+      // Case B: Our search term contains the database value (e.g. database has "T-Shirt" and search is "Premium Cotton T-Shirt")
+      let matchedProducts = allProducts.filter((p: any) => {
+        const dbName = (p.name || "").toLowerCase().trim();
+        const dbSku = (p.sku || "").toLowerCase().trim();
+        const dbCategory = (p.category || "").toLowerCase().trim();
+
+        if (dbName.includes(search) || dbSku.includes(search) || dbCategory.includes(search)) {
+          return true;
+        }
+
+        if (dbName.length > 2 && search.includes(dbName)) {
+          return true;
+        }
+        if (dbSku.length > 2 && search.includes(dbSku)) {
+          return true;
+        }
+
+        return false;
+      });
+
+      // Split-phrase keyword fallback matching with explicit parameter typing to clear 'noImplicitAny'
+      if (matchedProducts.length === 0 && search.includes(" ")) {
+        const words: string[] = search.split(" ").filter((w: string) => w.length > 2);
+        matchedProducts = allProducts.filter((p: any) => {
+          const dbName = (p.name || "").toLowerCase().trim();
+          return words.some((word: string) => dbName.includes(word) || word.includes(dbName));
+        });
       }
-      productQuery = productQuery.or(`sku.ilike.%${search}%,name.ilike.%${search}%,category.ilike.%${search}%`);
 
-      let { data: products, error: productError } = await productQuery;
-
-      if (productError || !products || products.length === 0) {
+      if (matchedProducts.length === 0) {
         missingProducts.push({
           product_name: product_name,
           error_type: "not_found"
@@ -114,7 +145,7 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      const product = products[0];
+      const product = matchedProducts[0];
       const unitPrice = Number(product.price);
 
       if (requestedQuantity > Number(product.stock)) {
@@ -165,7 +196,11 @@ export async function POST(req: NextRequest) {
       message: "Order successfully verified.",
       subtotal: grandSubtotal,
       shipping: grandShipping,
-      total: grandSubtotal + grandShipping
+      total: grandSubtotal + grandShipping,
+      items: validatedItems,
+      catalog_id: body.catalog_id || body.catalogId || null,
+      phone_number_id: phone_number_id,
+      customerPhone: customerPhone
     });
 
   } catch (err: any) {
