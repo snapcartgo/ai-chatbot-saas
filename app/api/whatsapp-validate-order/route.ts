@@ -82,6 +82,39 @@ export async function POST(req: NextRequest) {
     let grandShipping = 0;
     const missingProducts: any[] = [];
 
+    // --- DYNAMIC SHIPPING PARAMETERS RESOLUTION ---
+    // Default to the store context fallback: ₹1 shipping fee below ₹999 threshold
+    let shippingThreshold = 999;
+    let shippingFee = 1;
+
+    // 1. Try to fetch dynamic shipping from database configurations safely if table exists
+    try {
+      const { data: config } = await supabase
+        .from("whatsapp_configs")
+        .select("shipping_fee, shipping_threshold")
+        .eq("user_id", user_id)
+        .maybeSingle();
+
+      if (config) {
+        if (config.shipping_fee !== undefined && config.shipping_fee !== null) {
+          shippingFee = Number(config.shipping_fee);
+        }
+        if (config.shipping_threshold !== undefined && config.shipping_threshold !== null) {
+          shippingThreshold = Number(config.shipping_threshold);
+        }
+      }
+    } catch (e) {
+      console.log("whatsapp_configs table not found, using context defaults.");
+    }
+
+    // 2. Allow explicit overrides from n8n request payload
+    if (body.shipping_fee !== undefined && body.shipping_fee !== null) {
+      shippingFee = Number(body.shipping_fee);
+    }
+    if (body.shipping_threshold !== undefined && body.shipping_threshold !== null) {
+      shippingThreshold = Number(body.shipping_threshold);
+    }
+
     // Fetch all products for this user once to perform resilient bidirectional matching in memory
     let { data: allProducts, error: allProductsError } = await supabase
       .from("products")
@@ -195,7 +228,9 @@ export async function POST(req: NextRequest) {
       }
 
       const subtotal = unitPrice * requestedQuantity;
-      const shipping = subtotal >= 999 ? 0 : 40;
+      
+      // Compute shipping dynamically based on calculated threshold config
+      const shipping = subtotal >= shippingThreshold ? 0 : shippingFee;
       
       grandSubtotal += subtotal;
       grandShipping += shipping;
@@ -210,7 +245,7 @@ export async function POST(req: NextRequest) {
 
     if (missingProducts.length > 0) {
       const failedNames = missingProducts.map(p => `"${p.product_name}"`).join(", ");
-      const alertMsg = `❌ Sorry, the following item(s): ${failedNames} are out of stock or could not be found. Please open the shop catalogs drawer and select an alternative option.`;
+      const alertMsg = `Sorry, the following item(s): ${failedNames} are out of stock or could not be found. Please open the shop catalogs drawer and select an alternative option.`;
       
       await sendWhatsAppMessage(trusted_phone_id, customerPhone, alertMsg);
       return NextResponse.json({ success: false, message: alertMsg });
