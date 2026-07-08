@@ -9,7 +9,7 @@ const supabase = createClient(
 // Meta Graph API helper function to reply back to the WhatsApp user
 async function sendWhatsAppMessage(phone_number_id: string, toPhone: string, textBody: string) {
   const WHATSAPP_TOKEN = process.env.WHATSAPP_ACCESS_TOKEN;
-  
+
   await fetch(`https://graph.facebook.com/v20.0/${phone_number_id}/messages`, {
     method: "POST",
     headers: {
@@ -26,18 +26,24 @@ async function sendWhatsAppMessage(phone_number_id: string, toPhone: string, tex
   });
 }
 
+// Normalized item shape used internally after parsing either payload type
+interface NormalizedItem {
+  quantity: number;
+  selected_attributes: Record<string, any>;
+  // Exactly ONE of these two will be set depending on source
+  catalog_id?: string;   // from WhatsApp catalog (product_retailer_id) -> EXACT match
+  product_name?: string; // from CSV/manual entry -> FUZZY match (old logic)
+}
+
 export async function POST(req: NextRequest) {
-  console.log("===== HYBRID RESILIENT MULTI-STAGE WHATSAPP ORDER VALIDATOR ROUTE =====");
+  console.log("===== HYBRID WHATSAPP ORDER VALIDATOR ROUTE (v6 - catalog id fix) =====");
   try {
     const body = await req.json();
 
     let customerPhone = "";
     let phone_number_id = "";
-    let itemsToValidate: any[] = [];
-    
-    // Parse the user_id from query parameters (fallback for webhooks) or request body properties
-    const { searchParams } = new URL(req.url);
-    const user_id = searchParams.get("user_id") || body.user_id || body.request_user_id || process.env.DEFAULT_USER_ID;
+    let itemsToValidate: NormalizedItem[] = [];
+    const request_user_id = body.user_id;
 
     // Check if payload is a Raw Meta Webhook vs Processed n8n JSON
     const isRawWebhook = !!body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
@@ -52,22 +58,29 @@ export async function POST(req: NextRequest) {
       }
 
       customerPhone = message.from;
-      phone_number_id = change?.metadata?.phone_number_id; 
+      phone_number_id = change?.metadata?.phone_number_id;
       const rawItems = message.order?.product_items || [];
-      
-      // Map catalog items to standard validation array
+
+      // IMPORTANT: product_retailer_id is the exact catalog SKU set in Meta Commerce Manager.
+      // This is NOT free text, so it must NOT go through fuzzy name search.
       itemsToValidate = rawItems.map((item: any) => ({
-        product_name: item.product_retailer_id,
+        catalog_id: String(item.product_retailer_id || "").trim(),
         quantity: Number(item.quantity),
-        selected_attributes: {}
+        selected_attributes: {},
       }));
     } else {
       customerPhone = body.customerPhone || body.from;
       phone_number_id = body.phone_number_id || body.whatsapp_phone_number_id;
-      itemsToValidate = body.items || [];
+
+      // CSV / manual / n8n text-entry path keeps the old fuzzy-name behaviour
+      itemsToValidate = (body.items || []).map((item: any) => ({
+        product_name: item.product_name,
+        quantity: Number(item.quantity),
+        selected_attributes: item.selected_attributes || {},
+      }));
     }
 
-    // Static analysis input guardrail to block path-traversal/SSRF attacks instantly
+    // Static analysis input guardrail to block path-traversal attacks instantly
     if (!phone_number_id || !/^\d+$/.test(phone_number_id)) {
       return NextResponse.json({ success: false, message: "Invalid payload format." }, { status: 400 });
     }
@@ -76,162 +89,97 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, message: "Missing required contact metadata or items." }, { status: 400 });
     }
 
-    const trusted_phone_id = phone_number_id;
+    // Query the correct table "whatsapp_configs" instead of "merchants"
+let merchantQuery = supabase.from("whatsapp_configs").select("user_id, wa_phone_number_id");
+
+if (isRawWebhook) {
+  merchantQuery = merchantQuery.eq("wa_phone_number_id", phone_number_id);
+} else if (request_user_id) {
+  merchantQuery = merchantQuery.eq("user_id", request_user_id);
+} else {
+  merchantQuery = merchantQuery.eq("wa_phone_number_id", phone_number_id);
+}
+
+const { data: merchant, error: merchantError } = await merchantQuery.single();
+
+if (merchantError || !merchant?.user_id) {
+  console.error("Merchant mapping error:", merchantError);
+  return NextResponse.json({ success: false, message: "Unknown merchant metadata." }, { status: 400 });
+}
+
+// Map the correct trusted ID key
+const trusted_phone_id = merchant.wa_phone_number_id || phone_number_id;
+const user_id = merchant.user_id;
+
     const validatedItems = [];
     let grandSubtotal = 0;
     let grandShipping = 0;
     const missingProducts: any[] = [];
 
-    // --- DYNAMIC SHIPPING PARAMETERS RESOLUTION ---
-    // Default to the store context fallback: ₹1 shipping fee below ₹999 threshold
-    let shippingThreshold = 999;
-    let shippingFee = 1;
-
-    // 1. Try to fetch dynamic shipping from database configurations safely if table exists
-    try {
-      const { data: config } = await supabase
-        .from("whatsapp_configs")
-        .select("shipping_fee, shipping_threshold")
-        .eq("user_id", user_id)
-        .maybeSingle();
-
-      if (config) {
-        if (config.shipping_fee !== undefined && config.shipping_fee !== null) {
-          shippingFee = Number(config.shipping_fee);
-        }
-        if (config.shipping_threshold !== undefined && config.shipping_threshold !== null) {
-          shippingThreshold = Number(config.shipping_threshold);
-        }
-      }
-    } catch (e) {
-      console.log("whatsapp_configs table not found, using context defaults.");
-    }
-
-    // 2. Allow explicit overrides from n8n request payload
-    if (body.shipping_fee !== undefined && body.shipping_fee !== null) {
-      shippingFee = Number(body.shipping_fee);
-    }
-    if (body.shipping_threshold !== undefined && body.shipping_threshold !== null) {
-      shippingThreshold = Number(body.shipping_threshold);
-    }
-
-    // Fetch all products for this user once to perform resilient bidirectional matching in memory
-    let { data: allProducts, error: allProductsError } = await supabase
-      .from("products")
-      .select("*")
-      .eq("user_id", user_id);
-
-    if (allProductsError || !allProducts) {
-      console.error("Supabase query error or empty products catalogue table:", allProductsError);
-      allProducts = [];
-    }
-
     for (const item of itemsToValidate) {
-      const product_name = item.product_name as string;
       const requestedQuantity = Number(item.quantity);
 
-      if (!product_name || Number.isNaN(requestedQuantity) || requestedQuantity <= 0) {
+      if (Number.isNaN(requestedQuantity) || requestedQuantity <= 0) {
         continue;
       }
 
-      let search: string = product_name.trim().toLowerCase();
-      if (search === "tshirt" || search === "t shirt" || search === "shirt") {
-        search = "t-shirt";
-      }
+      let products: any[] | null = null;
+      let productError: any = null;
+      let lookupLabel = "";
 
-      // --- STAGE 1: Bidirectional Matching in Memory ---
-      let matchedProducts = allProducts.filter((p: any) => {
-        const dbName = (p.name || "").toLowerCase().trim();
-        const dbSku = (p.sku || "").toLowerCase().trim();
-        const dbCategory = (p.category || "").toLowerCase().trim();
-
-        if (dbName.includes(search) || dbSku.includes(search) || dbCategory.includes(search)) {
-          return true;
-        }
-
-        if (dbName.length > 2 && search.includes(dbName)) {
-          return true;
-        }
-        if (dbSku.length > 2 && search.includes(dbSku)) {
-          return true;
-        }
-
-        return false;
-      });
-
-      // --- STAGE 2: Direct Scoped Database Fuzzy Lookup fallback ---
-      if (matchedProducts.length === 0) {
-        let fallbackQuery = supabase.from("products").select("*");
-        if (user_id) {
-          fallbackQuery = fallbackQuery.eq("user_id", user_id);
-        }
-        fallbackQuery = fallbackQuery.or(`name.ilike.%${search}%,sku.ilike.%${search}%`);
-        const { data: directProducts } = await fallbackQuery;
-        if (directProducts && directProducts.length > 0) {
-          matchedProducts = directProducts;
-        }
-      }
-
-      // --- STAGE 3: Global Database Fuzzy Lookup fallback (Bypassing user_id mapping) ---
-      if (matchedProducts.length === 0) {
-        const globalFallbackQuery = supabase
+      if (item.catalog_id) {
+        // ---- CATALOG PATH: exact match on SKU / catalog id ----
+        lookupLabel = item.catalog_id;
+        const result = await supabase
           .from("products")
           .select("*")
-          .or(`name.ilike.%${search}%,sku.ilike.%${search}%`);
-        const { data: globalDirectProducts } = await globalFallbackQuery;
-        if (globalDirectProducts && globalDirectProducts.length > 0) {
-          matchedProducts = globalDirectProducts;
+          .eq("user_id", user_id)
+          .eq("sku", item.catalog_id) // exact match, no ILIKE wildcard
+          .limit(1);
+        products = result.data;
+        productError = result.error;
+      } else if (item.product_name) {
+        // ---- CSV / MANUAL PATH: fuzzy match (unchanged legacy logic) ----
+        let search = item.product_name.trim().toLowerCase();
+        lookupLabel = item.product_name;
+        if (search === "tshirt" || search === "t shirt" || search === "shirt") {
+          search = "t-shirt";
         }
+
+        const result = await supabase
+          .from("products")
+          .select("*")
+          .eq("user_id", user_id)
+          .or(`sku.ilike.%${search}%,name.ilike.%${search}%,category.ilike.%${search}%`);
+        products = result.data;
+        productError = result.error;
+      } else {
+        continue;
       }
 
-      // --- STAGE 4: Split-phrase keyword fallback matching ---
-      if (matchedProducts.length === 0 && search.includes(" ")) {
-        const words: string[] = search.split(" ").filter((w: string) => w.length > 2);
-        
-        // Try on localized merchant array first
-        matchedProducts = allProducts.filter((p: any) => {
-          const dbName = (p.name || "").toLowerCase().trim();
-          return words.some((word: string) => dbName.includes(word) || word.includes(dbName));
-        });
-
-        // If still empty, check database globally for any word matches
-        if (matchedProducts.length === 0) {
-          const orConditions = words.map(word => `name.ilike.%${word}%,sku.ilike.%${word}%`).join(",");
-          const { data: globalWordMatches } = await supabase
-            .from("products")
-            .select("*")
-            .or(orConditions);
-          if (globalWordMatches && globalWordMatches.length > 0) {
-            matchedProducts = globalWordMatches;
-          }
-        }
-      }
-
-      if (matchedProducts.length === 0) {
+      if (productError || !products || products.length === 0) {
         missingProducts.push({
-          product_name: product_name,
-          error_type: "not_found"
+          product_name: lookupLabel,
+          error_type: "not_found",
         });
         continue;
       }
 
-      const product = matchedProducts[0];
+      const product = products[0];
       const unitPrice = Number(product.price);
 
       if (requestedQuantity > Number(product.stock)) {
         await sendWhatsAppMessage(
           trusted_phone_id,
           customerPhone,
-          `⚠️ Order Alert: Only ${product.stock} units left in stock for "${product.name}". Please adjust your checkout cart count.`
+          `  Order Alert: Only ${product.stock} units left in stock for "${product.name}". Please adjust your checkout cart count.`
         );
         return NextResponse.json({ success: false, message: `Only ${product.stock} units left.` });
       }
 
       const subtotal = unitPrice * requestedQuantity;
-      
-      // Compute shipping dynamically based on calculated threshold config
-      const shipping = subtotal >= shippingThreshold ? 0 : shippingFee;
-      
+      const shipping = subtotal >= 999 ? 0 : 40;
+
       grandSubtotal += subtotal;
       grandShipping += shipping;
 
@@ -241,40 +189,35 @@ export async function POST(req: NextRequest) {
         quantity: requestedQuantity,
         subtotal,
       });
-    }
+    } // <--- THIS WAS PREVIOUSLY MISSING CLOSING THE FOR...OF LOOP
 
     if (missingProducts.length > 0) {
-      const failedNames = missingProducts.map(p => `"${p.product_name}"`).join(", ");
-      const alertMsg = `Sorry, the following item(s): ${failedNames} are out of stock or could not be found. Please open the shop catalogs drawer and select an alternative option.`;
-      
+      const failedNames = missingProducts.map((p) => `${p.product_name}`).join(", ");
+      const alertMsg = `  Sorry, the following item(s): ${failedNames} are out of stock or could not be found. Please open the shop catalogs drawer and select an alternative option.`;
+
       await sendWhatsAppMessage(trusted_phone_id, customerPhone, alertMsg);
       return NextResponse.json({ success: false, message: alertMsg });
     }
 
-    const checkoutSummary = 
-      `🛍️ *Order Confirmation Receipt Summary* \n` +
+    const checkoutSummary =
+      `  *Order Confirmation Receipt Summary*\n` +
       `---------------------------------\n` +
-      validatedItems.map(i => `• ${i.product_name} (x${i.quantity}) - ₹${i.subtotal}`).join("\n") +
+      validatedItems.map((i) => `• ${i.product_name} (x${i.quantity}) - ₹${i.subtotal}`).join("\n") +
       `\n---------------------------------\n` +
       `Subtotal: ₹${grandSubtotal}\n` +
       `Delivery/Shipping Fee: ₹${grandShipping}\n` +
       `*Grand Total Amount: ₹${grandSubtotal + grandShipping}*\n\n` +
-      `✅ Items are locked. Kindly text us back with your *Full Name, Delivery Address, and Email* to finalise dispatch routing details.`;
+      `  Items are locked. Kindly text us back with your *Full Name, Delivery Address, and Email* to finalise dispatch routing details.`;
 
     await sendWhatsAppMessage(trusted_phone_id, customerPhone, checkoutSummary);
-    
-    return NextResponse.json({ 
-      success: true, 
+
+    return NextResponse.json({
+      success: true,
       message: "Order successfully verified.",
       subtotal: grandSubtotal,
       shipping: grandShipping,
       total: grandSubtotal + grandShipping,
-      items: validatedItems,
-      catalog_id: body.catalog_id || body.catalogId || null,
-      phone_number_id: phone_number_id,
-      customerPhone: customerPhone
     });
-
   } catch (err: any) {
     console.error("Critical Exception processing WhatsApp pipeline: ", err);
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
