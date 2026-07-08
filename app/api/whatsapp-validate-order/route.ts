@@ -90,26 +90,30 @@ export async function POST(req: NextRequest) {
     }
 
     // Query the correct table "whatsapp_configs" instead of "merchants"
-let merchantQuery = supabase.from("whatsapp_configs").select("user_id, wa_phone_number_id");
+    let merchantQuery = supabase.from("whatsapp_configs").select("user_id, wa_phone_number_id");
 
-if (isRawWebhook) {
-  merchantQuery = merchantQuery.eq("wa_phone_number_id", phone_number_id);
-} else if (request_user_id) {
-  merchantQuery = merchantQuery.eq("user_id", request_user_id);
-} else {
-  merchantQuery = merchantQuery.eq("wa_phone_number_id", phone_number_id);
-}
+    if (isRawWebhook) {
+      merchantQuery = merchantQuery.eq("wa_phone_number_id", phone_number_id);
+    } else if (request_user_id) {
+      merchantQuery = merchantQuery.eq("user_id", request_user_id);
+    } else {
+      merchantQuery = merchantQuery.eq("wa_phone_number_id", phone_number_id);
+    }
 
-const { data: merchant, error: merchantError } = await merchantQuery.single();
+    const { data: merchant, error: merchantError } = await merchantQuery.single();
 
-if (merchantError || !merchant?.user_id) {
-  console.error("Merchant mapping error:", merchantError);
-  return NextResponse.json({ success: false, message: "Unknown merchant metadata." }, { status: 400 });
-}
+    if (merchantError || !merchant?.user_id) {
+      console.error("Merchant mapping error:", merchantError);
+      return NextResponse.json({ success: false, message: "Unknown merchant metadata." }, { status: 400 });
+    }
 
-// Map the correct trusted ID key
-const trusted_phone_id = merchant.wa_phone_number_id || phone_number_id;
-const user_id = merchant.user_id;
+    // Map the correct trusted ID key
+    const trusted_phone_id = merchant.wa_phone_number_id || phone_number_id;
+    const user_id = merchant.user_id;
+
+    // Define the dynamic shipping threshold constants parsed from the knowledge base profile
+    const baseShippingFee = Number((merchant as any)?.shipping_fee ?? 40);
+    const freeShippingMin = Number((merchant as any)?.free_shipping_threshold ?? 999);
 
     const validatedItems = [];
     let grandSubtotal = 0;
@@ -164,10 +168,34 @@ const user_id = merchant.user_id;
         });
         continue;
       }
-
+      
+      // 1. Grab the matched base product
       const product = products[0];
       const unitPrice = Number(product.price);
 
+      // 2. Extract variant attributes if they exist
+      const requiredFields: string[] = Array.isArray(product.required_fields) 
+        ? product.required_fields 
+        : typeof product.required_fields === "string" 
+          ? JSON.parse(product.required_fields) 
+          : [];
+
+      // 3. Check if the incoming request already has these selections
+      const incomingAttributes = item.selected_attributes || {};
+      const missingAttributes = requiredFields.filter(field => !incomingAttributes[field]);
+
+      // 4. If fields are missing, stop checkout and ask the user for them!
+      if (missingAttributes.length > 0) {
+        const optionsMessage = `👕 *Select Options for ${product.name}*\n\n` +
+          `To proceed with your checkout order, please reply specifying your preferred:\n` +
+          missingAttributes.map(attr => `• *${attr.toUpperCase()}*`).join("\n") + 
+          `\n\n_Example reply: "Tshirt size M color black"_`;
+
+        await sendWhatsAppMessage(trusted_phone_id, customerPhone, optionsMessage);
+        return NextResponse.json({ success: false, message: `Awaiting product attributes: ${missingAttributes.join(", ")}` });
+      }
+
+      // 5. Run the requested warehouse safety margin stock check
       if (requestedQuantity > Number(product.stock)) {
         await sendWhatsAppMessage(
           trusted_phone_id,
@@ -178,7 +206,7 @@ const user_id = merchant.user_id;
       }
 
       const subtotal = unitPrice * requestedQuantity;
-      const shipping = subtotal >= 999 ? 0 : 40;
+      const shipping = subtotal >= freeShippingMin ? 0 : baseShippingFee;
 
       grandSubtotal += subtotal;
       grandShipping += shipping;
@@ -189,7 +217,7 @@ const user_id = merchant.user_id;
         quantity: requestedQuantity,
         subtotal,
       });
-    } // <--- THIS WAS PREVIOUSLY MISSING CLOSING THE FOR...OF LOOP
+    } // Ends the item validation traversal loop cleanly
 
     if (missingProducts.length > 0) {
       const failedNames = missingProducts.map((p) => `${p.product_name}`).join(", ");
@@ -207,7 +235,7 @@ const user_id = merchant.user_id;
       `Subtotal: ₹${grandSubtotal}\n` +
       `Delivery/Shipping Fee: ₹${grandShipping}\n` +
       `*Grand Total Amount: ₹${grandSubtotal + grandShipping}*\n\n` +
-      `  Items are locked. Kindly text us back with your *Full Name, Delivery Address, and Email* to finalise dispatch routing details.`;
+      `  Items are locked. Kindly text us back with your *Full Name, Delivery Address, phone number and Email* to finalise dispatch routing details.`;
 
     await sendWhatsAppMessage(trusted_phone_id, customerPhone, checkoutSummary);
 
