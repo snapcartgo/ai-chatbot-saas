@@ -115,6 +115,7 @@ export async function POST(req: NextRequest) {
     const baseShippingFee = Number((merchant as any)?.shipping_fee ?? 40);
     const freeShippingMin = Number((merchant as any)?.free_shipping_threshold ?? 999);
 
+    const sendSMSFlag = body.send_sms !== undefined ? String(body.send_sms) !== "false" : true;
     const validatedItems = [];
     let grandSubtotal = 0;
     let grandShipping = 0;
@@ -231,18 +232,22 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, message: alertMsg });
     }
 
-    const checkoutSummary =
-      `  *Order Confirmation Receipt Summary*\n` +
-      `---------------------------------\n` +
-      validatedItems.map((i) => `• ${i.product_name} (x${i.quantity}) - ₹${i.subtotal}`).join("\n") +
-      `\n---------------------------------\n` +
-      `Subtotal: ₹${grandSubtotal}\n` +
-      `Delivery/Shipping Fee: ₹${grandShipping}\n` +
-      `*Grand Total Amount: ₹${grandSubtotal + grandShipping}*\n\n` +
-      `  Items are locked. Kindly text us back with your *Full Name, Delivery Address, phone number and Email* to finalise dispatch routing details.`;
+    // Wrap this whole block inside an IF check so it stays silent when n8n runs it
+    if (sendSMSFlag) {
+      const checkoutSummary =
+        `  *Order Confirmation Receipt Summary*\n` +
+        `---------------------------------\n` +
+        validatedItems.map((i) => `• ${i.product_name} (x${i.quantity}) - ₹${i.subtotal}`).join("\n") +
+        `\n---------------------------------\n` +
+        `Subtotal: ₹${grandSubtotal}\n` +
+        `Delivery/Shipping Fee: ₹${grandShipping}\n` +
+        `*Grand Total Amount: ₹${grandSubtotal + grandShipping}*\n\n` +
+        `  Items are locked. Kindly text us back with your *Full Name, Delivery Address, phone number and Email* to finalise dispatch routing details.`;
 
-    await sendWhatsAppMessage(trusted_phone_id, customerPhone, checkoutSummary);
+      await sendWhatsAppMessage(trusted_phone_id, customerPhone, checkoutSummary);
+    }
 
+    // This return block stays completely outside the if condition so n8n still receives the total prices!
     return NextResponse.json({
       success: true,
       message: "Order successfully verified.",
