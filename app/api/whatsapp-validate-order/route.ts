@@ -112,7 +112,7 @@ export async function POST(req: NextRequest) {
     const user_id = merchant.user_id;
 
     // Define the dynamic shipping threshold constants parsed from the knowledge base profile
-    const baseShippingFee = Number((merchant as any)?.shipping_fee ?? 40);
+    const baseShippingFee = Number((merchant as any)?.YOUR_EXACT_COLUMN_NAME ?? 40);
     const freeShippingMin = Number((merchant as any)?.free_shipping_threshold ?? 999);
 
     const sendSMSFlag = body.send_sms !== undefined ? String(body.send_sms) !== "false" : true;
