@@ -180,9 +180,13 @@ export async function POST(req: NextRequest) {
           ? JSON.parse(product.required_fields) 
           : [];
 
-      // 3. Check if the incoming request already has these selections
+      // 3. Check if the incoming request already has these selections (Normalized to lowercase keys)
       const incomingAttributes = item.selected_attributes || {};
-      const missingAttributes = requiredFields.filter(field => !incomingAttributes[field]);
+      const normalizedAttributes = Object.fromEntries(
+        Object.entries(incomingAttributes).map(([key, val]) => [key.toLowerCase(), val])
+      );
+
+      const missingAttributes = requiredFields.filter(field => !normalizedAttributes[field.toLowerCase()]);
 
       // 4. If fields are missing, stop checkout and ask the user for them!
       if (missingAttributes.length > 0) {
