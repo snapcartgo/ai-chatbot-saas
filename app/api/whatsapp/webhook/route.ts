@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
-
+import { NextRequest } from "next/server";
+export const dynamic = "force-dynamic";
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -24,26 +25,34 @@ export async function GET(req: Request) {
   return new Response("Verification failed", { status: 403 });
 }
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) { // <--- Changed from Request to NextRequest
   try {
     const body = await req.json();
-    console.log("META WEBHOOK INCOMING PAYLOAD:", JSON.stringify(body, null, 2));
 
     const entry = body.entry?.[0];
     const changes = entry?.changes?.[0];
     const value = changes?.value;
 
-    // 1. Instantly dismiss status notifications or empty events safely
     if (!value?.messages?.length) {
       return new Response("EVENT_RECEIVED", { status: 200 });
     }
 
-    // 2. FORK THE FLOW TO THE BACKGROUND
-    processWebhookExecution(body).catch((err) => {
-      console.error("Safely caught background execution pipeline failure: ", err);
-    });
+    // 2. Wrap your background execution in req.waitUntil()
+    // This tells Vercel: "Keep the CPU alive until this background promise finishes!"
+    if (typeof (req as any).waitUntil === "function") {
+      (req as any).waitUntil(
+        processWebhookExecution(body).catch((err) => {
+          console.error("Background processing pipeline failure: ", err);
+        })
+      );
+    } else {
+      // Fallback for local testing environments where waitUntil isn't present
+      processWebhookExecution(body).catch((err) => {
+        console.error("Background processing pipeline failure: ", err);
+      });
+    }
 
-    // 3. IMMEDIATELY REPLY TO META (Under 50ms)
+    // 3. IMMEDIATELY REPLY TO META
     return new Response("EVENT_RECEIVED", { status: 200 });
 
   } catch (error) {
@@ -51,7 +60,6 @@ export async function POST(req: Request) {
     return new Response("EVENT_RECEIVED", { status: 200 });
   }
 }
-
 // 4. BACKGROUND PROCESSING PIPELINE
 async function processWebhookExecution(body: any) {
   try {
