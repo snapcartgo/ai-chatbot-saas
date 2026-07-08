@@ -233,6 +233,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Wrap this whole block inside an IF check so it stays silent when n8n runs it
+    // Only send the message to WhatsApp if sendSMSFlag is TRUE
     if (sendSMSFlag) {
       const checkoutSummary =
         `  *Order Confirmation Receipt Summary*\n` +
@@ -247,7 +248,6 @@ export async function POST(req: NextRequest) {
       await sendWhatsAppMessage(trusted_phone_id, customerPhone, checkoutSummary);
     }
 
-    // This return block stays completely outside the if condition so n8n still receives the total prices!
     return NextResponse.json({
       success: true,
       message: "Order successfully verified.",
