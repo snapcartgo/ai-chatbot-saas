@@ -67,6 +67,29 @@ export default function OrdersPage() {
       ? orders
       : orders.filter((order) => (order.channel || "website") === channelFilter);
 
+  // Helper styling for Payment Status Badges
+  const getPaymentStyles = (status: string) => {
+    switch (status?.toLowerCase()) {
+      case "paid":
+        return "bg-green-100 text-green-700 border border-green-200";
+      case "refunded":
+        return "bg-purple-100 text-purple-700 border border-purple-200";
+      default:
+        return "bg-yellow-100 text-yellow-700 border border-yellow-200";
+    }
+  };
+
+  // Helper styling for Order Status Badges
+  const getOrderStatusStyles = (status: string) => {
+    switch (status?.toLowerCase()) {
+      case "canceled":
+      case "cancelled":
+        return "bg-red-100 text-red-700 border border-red-200";
+      default:
+        return "bg-blue-100 text-blue-700 border border-blue-200";
+    }
+  };
+
   if (loading) return <p className="p-6">Loading orders...</p>;
 
   return (
@@ -90,63 +113,96 @@ export default function OrdersPage() {
       </div>
 
       <div className="overflow-x-auto border rounded-lg">
-        <table className="min-w-[1000px] w-full text-sm text-left">
+        <table className="min-w-[1200px] w-full text-sm text-left">
           <thead className="bg-gray-50 text-gray-600 font-medium border-b">
             <tr>
               <th className="p-4">Order ID</th>
               <th className="p-4">Customer</th>
+              <th className="p-4">Phone</th>
               <th className="p-4">Product</th>
               <th className="p-4">Amount</th>
-              <th className="p-4">Status</th>
+              <th className="p-4">Payment Status</th>
+              <th className="p-4">Order Status</th>
               <th className="p-4">Channel</th>
               <th className="p-4">Action</th>
               <th className="p-4">Date</th>
             </tr>
           </thead>
           <tbody className="divide-y">
-            {filteredOrders.map((order) => (
-              <tr key={order.id} className="hover:bg-gray-50">
-                <td className="p-4 font-mono text-xs text-blue-600">{order.id}</td>
-                <td className="p-4">
-                  <div className="font-medium">{order.name}</div>
-                  <div className="text-gray-500 text-xs">{order.customer_email}</div>
-                </td>
-                <td className="p-4">{order.product_name}</td>
-                <td className="p-4 font-bold">${order.price}</td>
-                <td className="p-4">
-                  <span
-                    className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${
-                      order.payment_status === "Paid"
-                        ? "bg-green-100 text-green-700"
-                        : "bg-yellow-100 text-yellow-700"
-                    }`}
-                  >
-                    {order.payment_status || "Pending"}
-                  </span>
-                </td>
-                <td className="p-4">
-                  <span className="px-2 py-1 rounded bg-gray-100 text-xs">
-                    {order.channel || "website"}
-                  </span>
-                </td>
-                <td className="p-4">
-                  {order.payment_status !== "Paid" ? (
-                    <button
-                      onClick={() => handleApprove(order.id)}
-                      disabled={updatingId === order.id}
-                      className="bg-blue-600 text-white px-3 py-1 rounded text-xs disabled:opacity-50"
-                    >
-                      {updatingId === order.id ? "Updating..." : "Approve"}
-                    </button>
-                  ) : (
-                    <span className="text-green-600 font-medium">✓ Verified</span>
-                  )}
-                </td>
-                <td className="p-4 text-gray-500">
-                  {new Date(order.created_at).toLocaleDateString()}
-                </td>
-              </tr>
-            ))}
+            {filteredOrders.map((order) => {
+              const payStatus = order.payment_status || "Pending";
+              const orderStatus = order.order_status || "Active";
+
+              const isPaid = payStatus.toLowerCase() === "paid";
+              const isCanceled = orderStatus.toLowerCase() === "canceled" || orderStatus.toLowerCase() === "cancelled";
+
+              // Safely extract the raw phone number value from your db column
+              const displayPhone = order.phone !== undefined && order.phone !== null ? String(order.phone) : (order.phone_number || "—");
+
+              return (
+                <tr key={order.id} className="hover:bg-gray-50">
+                  <td className="p-4 font-mono text-xs text-blue-600">{order.id}</td>
+                  <td className="p-4">
+                    <div className="font-medium">{order.name}</div>
+                    <div className="text-gray-500 text-xs">{order.customer_email}</div>
+                  </td>
+                  
+                  {/* Dynamic Phone Column Fixed */}
+                  <td className="p-4 text-gray-700 font-mono text-xs">
+                    {displayPhone}
+                  </td>
+
+                  <td className="p-4">{order.product_name}</td>
+                  <td className="p-4 font-bold">${order.price}</td>
+                  
+                  {/* Payment Status Badge */}
+                  <td className="p-4">
+                    <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider ${getPaymentStyles(payStatus)}`}>
+                      {payStatus}
+                    </span>
+                  </td>
+
+                  {/* Order Status Badge */}
+                  <td className="p-4">
+                    <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider ${getOrderStatusStyles(orderStatus)}`}>
+                      {orderStatus}
+                    </span>
+                  </td>
+
+                  <td className="p-4">
+                    <span className="px-2 py-1 rounded bg-gray-100 text-xs">
+                      {order.channel || "website"}
+                    </span>
+                  </td>
+
+                  {/* Conditional Action Output */}
+                  <td className="p-4">
+                    {isCanceled && isPaid ? (
+                      <div className="text-purple-600 font-bold flex flex-col leading-tight">
+                        <span>✕ Canceled</span>
+                        <span className="text-[10px] text-gray-500 font-normal mt-0.5">(Needs Refund)</span>
+                      </div>
+                    ) : isCanceled ? (
+                      <span className="text-red-500 font-medium italic">✕ Canceled</span>
+                    ) : isPaid ? (
+                      <span className="text-green-600 font-medium">✓ Verified</span>
+                    ) : (
+                      <button
+                        onClick={() => handleApprove(order.id)}
+                        disabled={updatingId === order.id}
+                        className="bg-blue-600 text-white px-3 py-1 rounded text-xs disabled:opacity-50 hover:bg-blue-700 transition"
+                      >
+                        {updatingId === order.id ? "Updating..." : "Approve"}
+                      </button>
+                    )}
+                  </td>
+
+                  <td className="p-4 text-gray-500">
+                    {new Date(order.created_at).toLocaleDateString()}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
