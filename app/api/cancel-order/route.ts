@@ -16,12 +16,12 @@ export async function POST(req: NextRequest) {
     const customer_name = body.customer_name?.trim() || null;
     const phone = body.phone?.trim() || null;
 
-    // ⚡ STEP 1: If ANY of the three required fields are missing, ask for all of them together immediately!
+    // ⚡ STEP 1: Required Fields Validation
     if (!rawId || rawId === "null" || !customer_name || !phone) {
       return NextResponse.json({
         success: false,
         requires_selection: true,
-        message: "To cancel your order, please provide your **Order ID**, the **Name**, and the **Phone Number** associated with the order all in one message so I can securely verify and delete your record."
+        message: "To cancel your order, please provide your **Order ID**, the **Name**, and the **Phone Number** associated with the order all in one message so I can securely verify your record."
       });
     }
 
@@ -78,19 +78,21 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // 4. EXECUTE CANCELLATION DELETION
-    const { error: deleteError } = await supabase
+    // 4. FIX: EXECUTE CANCELLATION UPDATE INSTEAD OF DELETING
+    const { error: updateError } = await supabase
       .from("orders")
-      .delete()
+      .update({
+        order_status: "Canceled" // This will reflect instantly on your client dashboard
+      })
       .eq("id", order.id);
 
-    if (deleteError) {
-      return NextResponse.json({ success: false, message: deleteError.message }, { status: 500 });
+    if (updateError) {
+      return NextResponse.json({ success: false, message: updateError.message }, { status: 500 });
     }
 
     return NextResponse.json({
       success: true,
-      message: `Verification Successful! Your order #${order.id} has been completely removed from our records.`
+      message: `Verification Successful! Your order #${order.id} has been marked as Canceled.`
     });
 
   } catch (err: any) {
