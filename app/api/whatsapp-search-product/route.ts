@@ -146,7 +146,7 @@ export async function GET(request: Request) {
         metaFilterObject = { and: textConditions };
       }
 
-      const metaUrl = `https://graph.facebook.com/v20.0/${metaCatalogId}/products?fields=id,name,retailer_id,price,image_url,color,description&filter=${encodeURIComponent(JSON.stringify(metaFilterObject))}&access_token=${metaAccessToken}`;
+      const metaUrl = `https://graph.facebook.com/v20.0/${metaCatalogId}/products?fields=id,name,retailer_id,price,image_url,color,description,url&filter=${encodeURIComponent(JSON.stringify(metaFilterObject))}&access_token=${metaAccessToken}`;
 
       const metaResponse = await fetch(metaUrl);
       const metaData = await metaResponse.json();
@@ -189,6 +189,7 @@ export async function GET(request: Request) {
       const topProduct = products[0];
 
       // Formulate Native WhatsApp Cloud API Interactive Message Response directly
+      // Formulate Native WhatsApp Payload AND include raw debug data for n8n/Thunder Client
       return NextResponse.json({
         messaging_product: "whatsapp",
         recipient_type: "individual",
@@ -205,6 +206,16 @@ export async function GET(request: Request) {
             catalog_id: metaCatalogId,
             product_retailer_id: topProduct.retailer_id
           }
+        },
+        // ADDED FOR DEBUGGING VISIBILITY:
+        debug_product_details: {
+          id: topProduct.id,
+          name: topProduct.name,
+          price: topProduct.price,
+          description: topProduct.description,
+          image_url: topProduct.image_url,
+          product_url: topProduct.url,
+          color: topProduct.color
         }
       });
     }
