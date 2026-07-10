@@ -180,10 +180,13 @@ export async function GET(request: Request) {
         });
       }
 
+      // Unified Success Response payload containing backward-compatible property structures
       return NextResponse.json({
-        data: products,
         success: true,
-        message: "Here is what we found:"
+        data: products,
+        products: products[0] || {}, // Handles standalone object configurations
+        message: "Here is what we found:",
+        custom_text: "Here is what we found:"
       });
     }
 

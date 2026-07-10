@@ -22,7 +22,7 @@ export default function Header() {
           .from("partners")
           .select("id")
           .eq("user_id", authUser.id)
-          .single();
+          .maybeSingle();
         
         if (partnerData) {
           setIsPartner(true);
