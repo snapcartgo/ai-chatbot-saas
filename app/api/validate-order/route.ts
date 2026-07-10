@@ -6,161 +6,174 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-type IncomingItem = {
-  product_name: string;
-  quantity: number;
-  selected_attributes?: Record<string, any>;
-};
-
-function safeJsonParse(value: any, fallback: any) {
-  if (!value) return fallback;
-
-  if (typeof value === "object") return value;
-
-  if (typeof value === "string") {
-    try {
-      return JSON.parse(value);
-    } catch {
-      return fallback;
-    }
-  }
-
-  return fallback;
-}
-
-function normalizeSearchTerm(input: string) {
-  let search = String(input || "").trim().toLowerCase();
-
-  if (search === "tshirt" || search === "t shirt" || search === "shirt") {
-    search = "t-shirt";
-  }
-
-  return search;
-}
-
-function normalizeAttributes(attributes: Record<string, any>) {
-  return Object.fromEntries(
-    Object.entries(attributes || {}).map(([key, value]) => [
-      String(key).toLowerCase().trim(),
-      typeof value === "string" ? value.toLowerCase().trim() : value,
-    ])
-  );
-}
-
-function matchesVariant(
-  selectedAttributes: Record<string, any>,
-  availableOptions: Record<string, any>
-) {
-  for (const [key, selectedValue] of Object.entries(selectedAttributes)) {
-    const optionValue = availableOptions?.[key];
-
-    if (Array.isArray(optionValue)) {
-      const normalizedOptions = optionValue.map((v) =>
-        String(v).toLowerCase().trim()
-      );
-
-      if (!normalizedOptions.includes(String(selectedValue).toLowerCase().trim())) {
-        return false;
-      }
-    } else if (
-      optionValue !== undefined &&
-      optionValue !== null &&
-      String(optionValue).trim() !== ""
-    ) {
-      if (
-        String(optionValue).toLowerCase().trim() !==
-        String(selectedValue).toLowerCase().trim()
-      ) {
-        return false;
-      }
-    }
-  }
-
-  return true;
-}
-
 export async function POST(req: NextRequest) {
+  console.log("===== VALIDATE ORDER API V8 PRODUCTION =====");
   try {
     const body = await req.json();
-
-    const user_id = body.user_id;
-    const items: IncomingItem[] = Array.isArray(body.items) ? body.items : [];
+    const sessionId = body.session_id;
+    const items = body.items;
+    const user_id = body.user_id; 
 
     if (!user_id) {
-      return NextResponse.json(
-        { success: false, message: "Missing user_id." },
-        { status: 400 }
-      );
+      return NextResponse.json({ success: false, message: "Missing user_id context." }, { status: 400 });
     }
 
-    if (!items.length) {
-      return NextResponse.json(
-        { success: false, message: "No items provided." },
-        { status: 400 }
-      );
+    if (!Array.isArray(items) || items.length === 0) {
+      return NextResponse.json({ success: false, message: "No products provided." }, { status: 400 });
     }
 
-    const validatedItems: any[] = [];
-    const missingProducts: any[] = [];
+    const validatedItems = [];
     let grandSubtotal = 0;
     let grandShipping = 0;
 
+    const missingProducts: any[] = [];
+
+    // Loop through ALL items submitted concurrently
     for (const item of items) {
-      const requestedQuantity = Number(item.quantity || 1);
-      const selectedAttributes = normalizeAttributes(item.selected_attributes || {});
-      const productName = String(item.product_name || "").trim();
+      const { product_name, quantity, selected_attributes = {} } = item;
+      const mergedAttributes = selected_attributes || {};
+      const requestedQuantity = Number(quantity);
 
-      if (!productName) {
-        continue;
+      if (!product_name || Number.isNaN(requestedQuantity) || requestedQuantity <= 0) {
+        return NextResponse.json({ success: false, message: `Invalid quantity for ${product_name || "product"}.` }, { status: 400 });
       }
 
-      const search = normalizeSearchTerm(productName);
+      // Clean the incoming search text
+      let search = product_name.trim().toLowerCase();
 
-// Split the search phrase into individual words (e.g., ["blue", "jeans"])
-const words = search.split(/\s+/).filter(Boolean);
-
-let query = supabase
-  .from("products")
-  .select("*")
-  .eq("user_id", user_id);
-
-// Dynamically chain filters so ALL words must match somewhere in name, category, or description
-for (const word of words) {
-  query = query.or(`name.ilike.%${word}%,category.ilike.%${word}%,description.ilike.%${word}%`);
-}
-
-const { data: products, error: productError } = await query;
-
-      if (productError) {
-        console.error("Product search error:", productError);
-        return NextResponse.json(
-          { success: false, message: "Product search failed." },
-          { status: 500 }
-        );
+      // 💡 GLOBAL NORMALIZATION LAYER: Intercept variation strings immediately
+      if (search === "tshirt" || search === "t shirt" || search === "shirt") {
+        search = "t-shirt";
       }
 
-      if (!products || products.length === 0) {
+      // 1. Primary Fuzzy Search (Strictly scoped to user_id using isolated logical grouping)
+      let { data: products, error: productError } = await supabase
+        .from("products")
+        .select("*")
+        .eq("user_id", user_id) 
+        .or(`name.ilike.%${search}%,category.ilike.%${search}%,description.ilike.%${search}%`);
+
+      // 2. Fallback Split-Phrase Search (If first lookup came up completely empty)
+      if ((!products || products.length === 0) && search.includes(" ")) {
+        const words = search.split(" ").filter(Boolean);
+        let genericTerm = words[words.length - 1]; 
+        
+        if (genericTerm === "tshirt" || genericTerm === "shirt") {
+          genericTerm = "t-shirt";
+        }
+        
+        const { data: fallbackProducts } = await supabase
+          .from("products")
+          .select("*")
+          .eq("user_id", user_id) 
+          .or(`name.ilike.%${genericTerm}%,category.ilike.%${genericTerm}%`);
+          
+        if (fallbackProducts && fallbackProducts.length > 0) {
+          products = fallbackProducts;
+          if (search.includes("white") && !mergedAttributes.color) {
+            mergedAttributes.color = "White";
+          }
+        }
+      }
+
+      // If item still completely missing from database catalog, track it and continue
+      if (productError || !products || products.length === 0) {
         missingProducts.push({
-          product_name: productName,
-          error_type: "not_found",
+          product_name: product_name,
+          error_type: "not_found"
+        });
+        continue; 
+      }
+
+      let product = null;
+      let variantMatched = false;
+
+      // ⚡ EXACT VARIANT MATCHING LOOKUP LAYER (CASE-INSENSITIVE FIX)
+      if (Object.keys(mergedAttributes).length > 0) {
+        const matchedProduct = products.find((p: any) => {
+          return Object.entries(mergedAttributes).every(([key, value]) => {
+            // Read what key value is inside this database row variant
+            const dbValue1 = p.attributes?.[key];
+            const dbValue2 = p.attributes?.[key === "color" ? "size" : "color"]; // Check cross-over columns
+
+            const targetVal = String(value).toLowerCase().trim();
+
+            if (!dbValue1) return false;
+
+            // Check primary matching path safely
+            const isMatchPrimary = Array.isArray(dbValue1)
+              ? dbValue1.map(v => String(v).toLowerCase().trim()).includes(targetVal)
+              : String(dbValue1).toLowerCase().trim() === targetVal;
+
+            // Check swapped matching path safely to account for mixed database columns
+            const isMatchSwapped = dbValue2 && (Array.isArray(dbValue2)
+              ? dbValue2.map(v => String(v).toLowerCase().trim()).includes(targetVal)
+              : String(dbValue2).toLowerCase().trim() === targetVal);
+
+            return isMatchPrimary || isMatchSwapped;
+          });
+        });
+
+        if (matchedProduct) {
+          product = matchedProduct;
+          variantMatched = true;
+        }
+      }
+
+      // ⚡ VALIDATION CHECK: Case-Insensitive fallback grouping options collector
+      if (!variantMatched && Object.keys(mergedAttributes).length > 0) {
+        const totalAvailableOptions: Record<string, string[]> = { color: [], size: [] };
+        
+        products.forEach((p: any) => {
+          if (p.attributes) {
+            Object.entries(p.attributes).forEach(([key, val]) => {
+              const strVal = String(val).trim();
+              if (!strVal || strVal.toLowerCase() === "null") return;
+
+              // Smarter normalized detection to prevent label swapping bugs
+              const cleanVal = strVal.toLowerCase();
+              const isStandardSizeWord = /^(m|l|xl|s|xs|xxl|30|32|34|36|38|40|42)$/i.test(cleanVal);
+              const isStandardColorWord = /^(black|white|blue|red|green|yellow|pink|grey|cream|beige|maroon|navy)$/i.test(cleanVal);
+
+              if (isStandardSizeWord || key.toLowerCase() === "size" || cleanVal === "l" || cleanVal === "m") {
+                if (!totalAvailableOptions.size.includes(strVal)) {
+                  totalAvailableOptions.size.push(strVal);
+                }
+              } else if (isStandardColorWord || key.toLowerCase() === "color" || cleanVal === "white" || cleanVal === "black") {
+                if (!totalAvailableOptions.color.includes(strVal)) {
+                  totalAvailableOptions.color.push(strVal);
+                }
+              } else {
+                if (!totalAvailableOptions[key]) totalAvailableOptions[key] = [];
+                if (!totalAvailableOptions[key].includes(strVal)) {
+                  totalAvailableOptions[key].push(strVal);
+                }
+              }
+            });
+          }
+        });
+
+        missingProducts.push({
+          product_name: products[0].name,
+          error_type: "invalid_variant",
+          requested_attributes: mergedAttributes,
+          available_options: totalAvailableOptions
         });
         continue;
       }
 
-      let product = products[0];
+      // Fallback baseline assignment pointer if no attributes were requested yet
+      if (!product) {
+        product = products[0];
+      }
 
-      const requiredFields: string[] = safeJsonParse(product.required_fields, []);
-      const availableOptions = safeJsonParse(
-        product.allowed_options || product.attributes,
-        {}
-      );
-
+      const requiredFields = product.required_fields || [];
+      const availableOptions = product.allowed_options || product.attributes || {};
       const missingFields: string[] = [];
 
       for (const field of requiredFields) {
-        const normalizedField = String(field).toLowerCase().trim();
-        if (!selectedAttributes[normalizedField]) {
-          missingFields.push(normalizedField);
+        if (!mergedAttributes[field]) {
+          missingFields.push(field);
         }
       }
 
@@ -173,39 +186,45 @@ const { data: products, error: productError } = await query;
         continue;
       }
 
-      const variantMatched = matchesVariant(selectedAttributes, availableOptions);
-
-      if (!variantMatched) {
-        missingProducts.push({
-          product_name: product.name,
-          error_type: "invalid_variant",
-          requested_attributes: selectedAttributes,
-          available_options: availableOptions,
-        });
-        continue;
-      }
-
-      const unitPrice = Number(product.price || 0);
-      const productStock = Number(product.stock || 0);
-
-      if (requestedQuantity > productStock) {
-        return NextResponse.json({
-          success: false,
-          message: `Only ${productStock} left for ${product.name}.`,
-        });
+      // Stock Check
+      const unitPrice = Number(product.price);
+      if (requestedQuantity > Number(product.stock)) {
+        return NextResponse.json({ success: false, message: `Only ${product.stock} left for ${product.name}.` });
       }
 
       const subtotal = unitPrice * requestedQuantity;
       const shipping = subtotal >= 999 ? 0 : 1;
-
+      
       grandSubtotal += subtotal;
       grandShipping += shipping;
 
+      // Sync Validated Items to Database State Table
+      const { error: upsertError } = await supabase
+        .from("cart_sessions")
+        .upsert(
+          {
+            session_id: sessionId,
+            product_id: product.id,
+            product_name: product.name,
+            quantity: requestedQuantity,
+            selected_attributes: mergedAttributes,
+            current_flow: "ecommerce",
+            current_step: "collecting_attributes",
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'session_id' }
+        );
+
+      if (upsertError) {
+        return NextResponse.json({ success: false, message: "Database update failed." }, { status: 500 });
+      }
+ 
       validatedItems.push({
         product_id: product.id,
         product_name: product.name,
         quantity: requestedQuantity,
-        selected_attributes: selectedAttributes,
+        selected_attributes: mergedAttributes,
+        unit_price: unitPrice,
         subtotal,
       });
     }
@@ -214,61 +233,45 @@ const { data: products, error: productError } = await query;
     // 5. EVALUATE TARGET MISSING/INVALID SELECTION PAYLOADS
     // =========================================================================
     if (missingProducts.length > 0) {
-      const completelyNotFound = missingProducts.filter(
-        (p) => p.error_type === "not_found"
-      );
-      const invalidVariants = missingProducts.filter(
-        (p) => p.error_type === "invalid_variant"
-      );
+      const completelyNotFound = missingProducts.filter(p => p.error_type === "not_found");
+      const invalidVariants = missingProducts.filter(p => p.error_type === "invalid_variant");
 
       if (completelyNotFound.length > 0) {
-        const { data: storeAlternatives } = await supabase
-          .from("products")
-          .select("name")
-          .eq("user_id", user_id)
-          .limit(3);
-
-        const suggestionsList = storeAlternatives?.length
-          ? storeAlternatives.map((p) => p.name).join(", ")
-          : "";
-
-        const failedNames = completelyNotFound
-          .map((p) => `"${p.product_name}"`)
-          .join(" and ");
+        const { data: storeAlternatives } = await supabase.from('products').select('name').eq('user_id', user_id).limit(3);
+        const suggestionsList = storeAlternatives ? storeAlternatives.map(p => p.name).join(", ") : "";
+        const failedNames = completelyNotFound.map(p => `"${p.product_name}"`).join(" and ");
 
         return NextResponse.json({
           success: false,
           requires_selection: true,
-          message: `The item ${failedNames} is currently not matching our store catalog format. Try: ${suggestionsList}`,
+          message: `The item ${failedNames} is currently not matching our store catalog format. Try: ${suggestionsList}`
         });
       }
 
+      // Scenario B: INVALID VARIANT SELECTION (Clean layout formatting with universal newlines)
       if (invalidVariants.length > 0) {
         const item = invalidVariants[0];
-        const allowedColors = Array.isArray(item.available_options?.color)
-          ? item.available_options.color.join(" or ")
-          : "";
-        const allowedSizes = Array.isArray(item.available_options?.size)
-          ? item.available_options.size.join(", ")
-          : "";
-
+        const allowedColors = item.available_options?.color?.length ? item.available_options.color.join(" or ") : "";
+        const allowedSizes = item.available_options?.size?.length ? item.available_options.size.join(", ") : "";
+        
         let customErrorMessage = `Sorry, that specific combination is not available for ${item.product_name}.`;
-
+        
         if (allowedColors || allowedSizes) {
-          customErrorMessage += " We currently have this item available in:";
-          if (allowedColors) customErrorMessage += `\n• Colors: ${allowedColors}`;
-          if (allowedSizes) customErrorMessage += `\n• Sizes: ${allowedSizes}`;
+          customErrorMessage += " We currently have this item available in:\n"; // ✨ Changed to \n
+          if (allowedColors) customErrorMessage += `\n• Colors: ${allowedColors}`; // ✨ Changed to \n
+          if (allowedSizes) customErrorMessage += `\n• Sizes: ${allowedSizes}`;   // ✨ Changed to \n
         }
-
+        
         return NextResponse.json({
           success: false,
           requires_selection: true,
           missing_products: missingProducts,
-          message: customErrorMessage,
+          message: customErrorMessage
         });
       }
 
-      // Scenario C: show missing fields + available options for single and multiple products
+      // Scenario C: Normal item attribute selection flow handler (with universal newline \n formatting)
+            // Scenario C: Normal item attribute selection flow handler (with full available options for single and multiple products)
       let userFriendlyMessage = "";
 
       const buildOptionsText = (item: any) => {
@@ -289,7 +292,9 @@ const { data: products, error: productError } = await query;
           }
         });
 
-        if (optionsStringArray.length === 0) return "";
+        if (optionsStringArray.length === 0) {
+          return "";
+        }
 
         return `\nAvailable Choices:${optionsStringArray.join("")}`;
       };
@@ -301,8 +306,11 @@ const { data: products, error: productError } = await query;
         userFriendlyMessage = `Please select options (${missingFieldsList}) for ${item.product_name}.`;
         userFriendlyMessage += `\n${buildOptionsText(item)}`;
       } else {
-        userFriendlyMessage =
-          "Please select required options for the following products:\n\n";
+        const introList = missingProducts.map(
+          (item) => `${item.product_name} (${item.missing_fields.join(", ")})`
+        );
+
+        userFriendlyMessage = `Please select required options for the following products:\n\n`;
 
         missingProducts.forEach((item, index) => {
           const missingFieldsList = item.missing_fields.join(" and ");
@@ -325,7 +333,7 @@ const { data: products, error: productError } = await query;
         success: false,
         requires_selection: true,
         missing_products: missingProducts,
-        message: userFriendlyMessage,
+        message: userFriendlyMessage
       });
     }
 
@@ -336,14 +344,10 @@ const { data: products, error: productError } = await query;
       subtotal: grandSubtotal,
       shipping: grandShipping,
       total: grandSubtotal + grandShipping,
-      message:
-        "All products are available. Kindly share your Name, Email and Phone Number.",
+      message: "All products are available. Kindly share your Name, Email and Phone Number.",
     });
+
   } catch (err: any) {
-    console.error("validate-order error:", err);
-    return NextResponse.json(
-      { success: false, message: err?.message || "Error." },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, message: err?.message || "Error." }, { status: 500 });
   }
 }
