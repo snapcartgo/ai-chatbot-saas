@@ -116,11 +116,20 @@ export async function POST(req: NextRequest) {
 
       const search = normalizeSearchTerm(productName);
 
-      const { data: products, error: productError } = await supabase
-        .from("products")
-        .select("*")
-        .eq("user_id", user_id)
-        .or(`name.ilike.%${search}%,category.ilike.%${search}%,description.ilike.%${search}%`);
+// Split the search phrase into individual words (e.g., ["blue", "jeans"])
+const words = search.split(/\s+/).filter(Boolean);
+
+let query = supabase
+  .from("products")
+  .select("*")
+  .eq("user_id", user_id);
+
+// Dynamically chain filters so ALL words must match somewhere in name, category, or description
+for (const word of words) {
+  query = query.or(`name.ilike.%${word}%,category.ilike.%${word}%,description.ilike.%${word}%`);
+}
+
+const { data: products, error: productError } = await query;
 
       if (productError) {
         console.error("Product search error:", productError);
