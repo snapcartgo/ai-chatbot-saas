@@ -187,12 +187,16 @@ export async function GET(request: Request) {
 
       // Extract top matched item details
       const topProduct = products[0];
+      
+      // Extract the phone number passed from n8n query parameters
+      const userPhone = searchParams.get('phone') || '';
 
       // Formulate Native WhatsApp Cloud API Interactive Message Response directly
       // Formulate Native WhatsApp Payload AND include raw debug data for n8n/Thunder Client
       return NextResponse.json({
         messaging_product: "whatsapp",
         recipient_type: "individual",
+        to: userPhone, // CRUCIAL FIELD: Tells Meta exactly who to deliver the card to
         type: "interactive",
         interactive: {
           type: "product",
