@@ -23,8 +23,14 @@ export async function GET(request: Request) {
     if (metaCatalogId && metaAccessToken) {
       let queryText = (q || '').trim().toLowerCase();
       
+      // If no text keyword provided, return a clean message-compliant fallback
       if (!queryText) {
-        return NextResponse.json({ success: false, message: 'No search keyword provided for Meta Catalog search.' }, { status: 400 });
+        return NextResponse.json({
+          messaging_product: "whatsapp",
+          recipient_type: "individual",
+          type: "text",
+          text: { body: "What product can I help you find today?" }
+        });
       }
 
       // Step A1: Unify and isolate price statements from query string
@@ -77,6 +83,7 @@ export async function GET(request: Request) {
 
       itemWords = itemWords.map(word => {
         if (word === "shirts" || word === "tshirt" || word === "tshirts") return "t-shirt";
+        if (word === "jeans" || word === "jean") return "jeans";
         if (word === "chairs") return "chair";
         if (word === "tables") return "table";
         if (word === "beds") return "bed";
@@ -150,20 +157,14 @@ export async function GET(request: Request) {
 
       let products = metaData.data || [];
 
-      // =======================================================================
-      // CRUCIAL FIX STEP: POST-PROCESSING FILTER FOR STRING CURRENCIES
-      // Processes values like "₹550.00" -> 550 dynamically to clear leaks
-      // =======================================================================
+      // Post-Processing validation filter for currency string mismatches
       if (products.length > 0 && (maxPriceFilter !== null || exactPriceFilter !== null || minPriceFilter !== null)) {
         products = products.filter((item: any) => {
           if (!item.price) return true;
-          
-          // Strip currency symbols and parse raw decimal string to absolute float number
           const cleanNumStr = item.price.replace(/[^0-9.]/g, '');
           const numericalPrice = parseFloat(cleanNumStr);
           
           if (isNaN(numericalPrice)) return true;
-
           if (exactPriceFilter !== null && numericalPrice !== exactPriceFilter) return false;
           if (maxPriceFilter !== null && numericalPrice > maxPriceFilter) return false;
           if (minPriceFilter !== null && numericalPrice < minPriceFilter) return false;
@@ -172,21 +173,39 @@ export async function GET(request: Request) {
         });
       }
 
+      // If no product matches, return a WhatsApp textual context block
       if (products.length === 0) {
         return NextResponse.json({
-          data: [],
-          success: false,
-          message: `We couldn't find any items matching "${(q || '').trim()}" within that budget range inside our catalog right now.`
+          messaging_product: "whatsapp",
+          recipient_type: "individual",
+          type: "text",
+          text: {
+            body: `We couldn't find any items matching "${(q || '').trim()}" within that budget range inside our catalog right now.`
+          }
         });
       }
 
-      // Unified Success Response payload containing backward-compatible property structures
+      // Extract top matched item details
+      const topProduct = products[0];
+
+      // Formulate Native WhatsApp Cloud API Interactive Message Response directly
       return NextResponse.json({
-        success: true,
-        data: products,
-        products: products[0] || {}, // Handles standalone object configurations
-        message: "Here is what we found:",
-        custom_text: "Here is what we found:"
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        type: "interactive",
+        interactive: {
+          type: "product",
+          body: {
+            text: "Here is what we found matching your request:"
+          },
+          footer: {
+            text: "Tap View below for full catalog details"
+          },
+          action: {
+            catalog_id: metaCatalogId,
+            product_retailer_id: topProduct.retailer_id
+          }
+        }
       });
     }
 
