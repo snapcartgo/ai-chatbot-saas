@@ -78,11 +78,11 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // 4. FIX: EXECUTE CANCELLATION UPDATE INSTEAD OF DELETING
+    // 4. EXECUTE CANCELLATION UPDATE INSTEAD OF DELETING
     const { error: updateError } = await supabase
       .from("orders")
       .update({
-        order_status: "Canceled" // This will reflect instantly on your client dashboard
+        order_status: "Canceled" 
       })
       .eq("id", order.id);
 
@@ -90,9 +90,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, message: updateError.message }, { status: 500 });
     }
 
+    // 🌟 ADDED HERE: Pass a control payload back to the chatbot interface to force-wipe memory slots
     return NextResponse.json({
       success: true,
-      message: `Verification Successful! Your order #${order.id} has been marked as Canceled.`
+      message: `Verification Successful! Your order #${order.id} has been marked as Canceled.`,
+      clear_context: true,
+      variables_to_reset: {
+        order_id: null,
+        product_name: null,
+        price: null,
+        selected_attributes: null
+      }
     });
 
   } catch (err: any) {
