@@ -1,6 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
 
-
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -42,7 +41,7 @@ export async function POST(req: Request) {
     const message = value.messages[0];
     const messageId = message?.id;
 
-console.log("Message ID:", messageId);
+    console.log("Message ID:", messageId);
     const customerPhone = message.from;
 
     const userMessage =
@@ -52,8 +51,6 @@ console.log("Message ID:", messageId);
       "Unsupported message";
 
     const phoneNumberId = value.metadata?.phone_number_id;
-
-    
 
     if (!customerPhone || !userMessage || !phoneNumberId) {
       return new Response("EVENT_RECEIVED", { status: 200 });
@@ -78,57 +75,58 @@ console.log("Message ID:", messageId);
     const cleanPhone = normalizePhone(customerPhone);
     const conversationId = `conv_${cleanPhone}`;
 
+    // ==========================================
+    // 1. SAVE USER MESSAGE TO SUPABASE
+    // ==========================================
+    const { error: userMsgErr } = await supabase.from("messages").insert([
+      {
+        conversation_id: conversationId,
+        role: "user",
+        content: userMessage,
+        channel: "whatsapp",
+        phone_number: cleanPhone,
+        bot_id: config.chatbot_id,
+        whatsapp_message_id: messageId,
+        user_id: config.user_id
+      },
+    ]);
+    if (userMsgErr) console.error("Error saving user message:", userMsgErr);
+
     const N8N_WEBHOOK = process.env.N8N_WHATSAPP_WEBHOOK_URL || "";
 
     let aiResponse = "";
-let n8nData: any = null;
+    let n8nData: any = null;
 
-if (N8N_WEBHOOK) {
-  try {
-    const parsedUrl = new URL(N8N_WEBHOOK);
+    if (N8N_WEBHOOK) {
+      try {
+        const parsedUrl = new URL(N8N_WEBHOOK);
 
-    if (parsedUrl.protocol === "https:") {
-      console.log("Calling n8n for:", message.id);
-      const response = await fetch(N8N_WEBHOOK, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-bot-secret": process.env.N8N_BOT_SECRET || "",
-        },
-        body: JSON.stringify({
-          message: userMessage,
-          phone: customerPhone,
-          conversation_id: conversationId,
-          chatbot_id: config.chatbot_id,
-          user_id: config.user_id,
-          profile_name: value.contacts?.[0]?.profile?.name || "Customer",
-          role: "user",
-        }),
-      });
+        if (parsedUrl.protocol === "https:") {
+          console.log("Calling n8n for:", message.id);
+          const response = await fetch(N8N_WEBHOOK, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-bot-secret": process.env.N8N_BOT_SECRET || "",
+            },
+            body: JSON.stringify({
+              message: userMessage,
+              phone: customerPhone,
+              conversation_id: conversationId,
+              chatbot_id: config.chatbot_id,
+              user_id: config.user_id,
+              profile_name: value.contacts?.[0]?.profile?.name || "Customer",
+              role: "user",
+            }),
+          });
 
-      n8nData = await response.json();
-      console.log("Is Array:", Array.isArray(n8nData));
-      console.log("Length:", n8nData?.length);
-      console.log("N8N DATA:", JSON.stringify(n8nData, null, 2));
-      console.log("N8N DATA:", JSON.stringify(n8nData, null, 2));
-console.log("AI RESPONSE:", n8nData.reply);
-      
-
-      console.log("n8nData:", JSON.stringify(n8nData));
-
-      
-
-aiResponse =
-  n8nData?.reply ||
-  n8nData?.[0]?.reply ||
-  "";
-
-      console.log("n8n status:", response.status);
+          n8nData = await response.json();
+          aiResponse = n8nData?.reply || n8nData?.[0]?.reply || "";
+        }
+      } catch (err) {
+        console.error("N8N Error:", err);
+      }
     }
-  } catch (err) {
-    console.error("N8N Error:", err);
-  }
-}
 
     const { data: bot } = await supabase
       .from("chatbots")
@@ -143,122 +141,130 @@ aiResponse =
       .single();
 
     const metaAccessToken = String(
-  config.whatsapp_access_token || config.whatsapp_access_token || config.meta_access_token || ""
-).trim();
+      config.whatsapp_access_token || config.meta_access_token || ""
+    ).trim();
 
-console.log("Saved WhatsApp Token:", config.whatsapp_access_token);
-console.log("Phone Number ID:", config.wa_phone_number_id);
-console.log("Chatbot ID:", config.chatbot_id);
+    if (metaAccessToken) {
+      const metaUrl = `https://graph.facebook.com/v20.0/${phoneNumberId}/messages`;
 
-if (metaAccessToken) {
-  const metaUrl = `https://graph.facebook.com/v20.0/${phoneNumberId}/messages`;
+      if (Array.isArray(n8nData) && n8nData.length > 0) {
+        let combinedAssistantContent = "";
 
-  if (Array.isArray(n8nData) && n8nData.length > 0) {
+        for (const product of n8nData) {
+          if (!product.image_url) continue;
 
-  for (const product of n8nData) {
+          const assistantText = `${product.name}\nSKU: ${product.retailer_id || ""}\nPrice: ${product.price}`;
+          combinedAssistantContent += `[Sent Image: ${assistantText}]\n`;
 
-    if (!product.image_url) continue;
+          const payload = {
+            messaging_product: "whatsapp",
+            to: customerPhone,
+            type: "image",
+            image: {
+              link: product.image_url,
+              caption: assistantText,
+            },
+          };
 
-    const payload = {
-      messaging_product: "whatsapp",
-      to: customerPhone,
-      type: "image",
-      image: {
-        link: product.image_url,
-        caption: `${product.name}\nPrice: ${product.price}`,
-      },
-    };
+          const metaRes = await fetch(metaUrl, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${metaAccessToken}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(payload),
+          });
+          console.log("Status product sent:", metaRes.status);
+        }
 
-    const metaRes = await fetch(metaUrl, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${metaAccessToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-    });
+        // ==========================================
+        // 2a. SAVE ASSISTANT MESSAGE (PRODUCT LOOP)
+        // ==========================================
+        if (combinedAssistantContent) {
+          await supabase.from("messages").insert([
+            {
+              conversation_id: conversationId,
+              role: "assistant",
+              content: combinedAssistantContent.trim(),
+              channel: "whatsapp",
+              phone_number: cleanPhone,
+              bot_id: config.chatbot_id,
+              user_id: config.user_id
+            },
+          ]);
+        }
 
-    for (const product of n8nData) {
+      } else if (n8nData?.image_url) {
+        const assistantText = `${n8nData.name}\nPrice: ${n8nData.price}`;
+        const payload = {
+          messaging_product: "whatsapp",
+          to: customerPhone,
+          type: "image",
+          image: {
+            link: n8nData.image_url,
+            caption: assistantText,
+          },
+        };
 
-  if (!product.image_url) continue;
+        await fetch(metaUrl, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${metaAccessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+        });
 
-  console.log("Sending:", product.name);
-  console.log("Retailer:", product.retailer_id);
+        // ==========================================
+        // 2b. SAVE ASSISTANT MESSAGE (SINGLE IMAGE)
+        // ==========================================
+        await supabase.from("messages").insert([
+          {
+            conversation_id: conversationId,
+            role: "assistant",
+            content: `[Sent Image: ${assistantText}]`,
+            channel: "whatsapp",
+            phone_number: cleanPhone,
+            bot_id: config.chatbot_id,
+            user_id: config.user_id
+          },
+        ]);
 
-  const payload = {
-    messaging_product: "whatsapp",
-    to: customerPhone,
-    type: "image",
-    image: {
-      link: product.image_url,
-      caption: `${product.name}
-SKU: ${product.retailer_id}
-Price: ${product.price}`,
-    },
-  };
+      } else if (aiResponse) {
+        const payload = {
+          messaging_product: "whatsapp",
+          to: customerPhone,
+          type: "text",
+          text: {
+            body: aiResponse,
+          },
+        };
 
-  const metaRes = await fetch(metaUrl, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${metaAccessToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  });
+        await fetch(metaUrl, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${metaAccessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+        });
 
-  console.log("Status:", metaRes.status);
-  console.log("Response:", await metaRes.text());
-}
-    console.log(await metaRes.text());
-  }
-
-} else if (n8nData?.image_url) {
-
-  const payload = {
-    messaging_product: "whatsapp",
-    to: customerPhone,
-    type: "image",
-    image: {
-      link: n8nData.image_url,
-      caption: `${n8nData.name}\nPrice: ${n8nData.price}`,
-    },
-  };
-
-  const metaRes = await fetch(metaUrl, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${metaAccessToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  });
-
-  console.log(await metaRes.text());
-
-} else if (aiResponse) {
-
-  const payload = {
-    messaging_product: "whatsapp",
-    to: customerPhone,
-    type: "text",
-    text: {
-      body: aiResponse,
-    },
-  };
-
-  const metaRes = await fetch(metaUrl, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${metaAccessToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  });
-
-  console.log(await metaRes.text());
-}
-}
-  
+        // ==========================================
+        // 2c. SAVE ASSISTANT MESSAGE (TEXT REPLY)
+        // ==========================================
+        await supabase.from("messages").insert([
+          {
+            conversation_id: conversationId,
+            role: "assistant",
+            content: aiResponse,
+            channel: "whatsapp",
+            phone_number: cleanPhone,
+            bot_id: config.chatbot_id,
+            user_id: config.user_id
+          },
+        ]);
+      }
+    }
 
     return new Response("EVENT_RECEIVED", { status: 200 });
 
