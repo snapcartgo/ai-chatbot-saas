@@ -1,5 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 
+
+
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -51,7 +53,8 @@ export function normalizePlan(raw: string | null | undefined) {
 }
 
 export function isWhatsAppPlan(raw: string | null | undefined) {
-  return String(raw || "").toLowerCase().includes("whatsapp");
+  const value = String(raw || "").toLowerCase().trim();
+  return value.includes("whatsapp") || value === "plan_2";
 }
 
 async function getProfileByEmail(email: string) {
@@ -222,6 +225,7 @@ export async function fulfillSaasBilling(params: {
   rawPlan: string;
   amount?: number | null;
 }) {
+  console.log("FULFILL BILLING INPUT:", params);
   const email = normalizeEmail(params.email);
 
   if (!email) {
@@ -229,12 +233,14 @@ export async function fulfillSaasBilling(params: {
   }
 
   const profile = await getProfileByEmail(email);
+  console.log("PROFILE FOUND:", profile);
 
   if (!profile?.id) {
     throw new Error(`Profile not found for ${email}`);
   }
 
   if (isWhatsAppPlan(params.rawPlan)) {
+    console.log("WHATSAPP PLAN BRANCH HIT:", params.rawPlan);
     const finalAmount =
       typeof params.amount === "number" && params.amount > 0
         ? params.amount

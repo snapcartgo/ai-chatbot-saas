@@ -46,13 +46,25 @@ export async function POST(req: Request) {
     const formData = await req.formData();
 
     const status = String(formData.get("status") || "").toLowerCase();
-    const email = String(
+
+const email = String(
   formData.get("email") || formData.get("udf1") || ""
-).toLowerCase().trim();
-    const rawPlan = String(
-      formData.get("udf2") || formData.get("productinfo") || ""
-    );
-    const amountParam = Number(formData.get("amount") || 0);
+)
+  .toLowerCase()
+  .trim();
+
+const rawPlan = String(
+  formData.get("udf2") || formData.get("productinfo") || ""
+).trim();
+
+const amountParam = Number(formData.get("amount") || 0);
+
+console.log("PAYMENT SUCCESS POST VALUES:", {
+  status,
+  email,
+  rawPlan,
+  amountParam,
+});
 
     if (status !== "success") {
       return NextResponse.redirect(`${saasUrl}/dashboard?payment=failed`);
