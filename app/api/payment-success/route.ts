@@ -46,7 +46,9 @@ export async function POST(req: Request) {
     const formData = await req.formData();
 
     const status = String(formData.get("status") || "").toLowerCase();
-    const email = String(formData.get("email") || "").toLowerCase().trim();
+    const email = String(
+  formData.get("email") || formData.get("udf1") || ""
+).toLowerCase().trim();
     const rawPlan = String(
       formData.get("udf2") || formData.get("productinfo") || ""
     );
