@@ -12,22 +12,25 @@ export async function GET(request: Request) {
     const color = searchParams.get('color');
     const price_query = searchParams.get('price_query') || searchParams.get('price'); 
     const user_id = searchParams.get('user_id'); 
+    
+    // Extract the dynamic phone number forwarded from the n8n webhook trigger
+    const userPhone = searchParams.get('phone') || '';
 
     // Dynamic Header Check: Determine if this request is routing through WhatsApp / Meta Catalog
     const metaCatalogId = request.headers.get('x-catalog-id');
     const metaAccessToken = request.headers.get('x-access-token');
 
     // =========================================================================
-    // BRANCH A: WHATSAPP META CATALOG SEARCH ENGINE
+    // BRANCH A: WHATSAPP META CATALOG SEARCH ENGINE (MULTI-PRODUCT READY)
     // =========================================================================
     if (metaCatalogId && metaAccessToken) {
       let queryText = (q || '').trim().toLowerCase();
       
-      // If no text keyword provided, return a clean message-compliant fallback
       if (!queryText) {
         return NextResponse.json({
           messaging_product: "whatsapp",
           recipient_type: "individual",
+          to: userPhone,
           type: "text",
           text: { body: "What product can I help you find today?" }
         });
@@ -146,6 +149,7 @@ export async function GET(request: Request) {
         metaFilterObject = { and: textConditions };
       }
 
+      // Explicitly pull the target catalog web landing 'url' along with default attributes
       const metaUrl = `https://graph.facebook.com/v20.0/${metaCatalogId}/products?fields=id,name,retailer_id,price,image_url,color,description,url&filter=${encodeURIComponent(JSON.stringify(metaFilterObject))}&access_token=${metaAccessToken}`;
 
       const metaResponse = await fetch(metaUrl);
@@ -157,7 +161,7 @@ export async function GET(request: Request) {
 
       let products = metaData.data || [];
 
-      // Post-Processing validation filter for currency string mismatches
+      // Post-Processing validation filter for dynamic price filters
       if (products.length > 0 && (maxPriceFilter !== null || exactPriceFilter !== null || minPriceFilter !== null)) {
         products = products.filter((item: any) => {
           if (!item.price) return true;
@@ -173,11 +177,12 @@ export async function GET(request: Request) {
         });
       }
 
-      // If no product matches, return a WhatsApp textual context block
+      // Fallback fallback text message if no catalog rows matched criteria
       if (products.length === 0) {
         return NextResponse.json({
           messaging_product: "whatsapp",
           recipient_type: "individual",
+          to: userPhone,
           type: "text",
           text: {
             body: `We couldn't find any items matching "${(q || '').trim()}" within that budget range inside our catalog right now.`
@@ -185,42 +190,49 @@ export async function GET(request: Request) {
         });
       }
 
-      // Extract top matched item details
-      const topProduct = products[0];
-      
-      // Extract the phone number passed from n8n query parameters
-      const userPhone = searchParams.get('phone') || '';
+      // Dynamic array transformation grouping up to 30 items for WhatsApp multi-product payload sections
+      const multiProductItemsArray = products.slice(0, 30).map((item: any) => ({
+        product_retailer_id: item.retailer_id
+      }));
 
-      // Formulate Native WhatsApp Cloud API Interactive Message Response directly
-      // Formulate Native WhatsApp Payload AND include raw debug data for n8n/Thunder Client
+      // Return a fully-compliant Native WhatsApp Interactive Multi-Product message schema object
       return NextResponse.json({
         messaging_product: "whatsapp",
         recipient_type: "individual",
-        to: userPhone, // CRUCIAL FIELD: Tells Meta exactly who to deliver the card to
+        to: userPhone,
         type: "interactive",
         interactive: {
-          type: "product",
+          type: "multi_product",
+          header: {
+            type: "text",
+            text: "Our Collection"
+          },
           body: {
-            text: "Here is what we found matching your request:"
+            text: `Here is what we found matching your request for "${(q || '').trim()}":`
           },
           footer: {
-            text: "Tap View below for full catalog details"
+            text: "Tap view options below to see all items"
           },
           action: {
             catalog_id: metaCatalogId,
-            product_retailer_id: topProduct.retailer_id
+            sections: [
+              {
+                title: "Search Results",
+                product_items: multiProductItemsArray
+              }
+            ]
           }
         },
-        // ADDED FOR DEBUGGING VISIBILITY:
-        debug_product_details: {
-          id: topProduct.id,
-          name: topProduct.name,
-          price: topProduct.price,
-          description: topProduct.description,
-          image_url: topProduct.image_url,
-          product_url: topProduct.url,
-          color: topProduct.color
-        }
+        // Kept array format intact inside debug engine so JavaScript19 code nodes can preview every variant clearly
+        debug_product_details: products.map((item: any) => ({
+          id: item.id,
+          name: item.name,
+          price: item.price,
+          description: item.description,
+          image_url: item.image_url,
+          color: item.color,
+          product_url: item.url || "https://woodpetra.in/"
+        }))
       });
     }
 
