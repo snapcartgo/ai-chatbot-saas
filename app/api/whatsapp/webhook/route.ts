@@ -76,21 +76,35 @@ export async function POST(req: Request) {
     const conversationId = `conv_${cleanPhone}`;
 
     // ==========================================
-    // 1. SAVE USER MESSAGE TO SUPABASE
+    // 1. SAFE USER MESSAGE TEST (STRIPPED DOWN)
     // ==========================================
-    const { error: userMsgErr } = await supabase.from("messages").insert([
-      {
+    try {
+      const userPayload: any = {
+        id: crypto.randomUUID(), 
         conversation_id: conversationId,
         role: "user",
-        content: userMessage,
+        content: userMessage || "Unsupported message",
         channel: "whatsapp",
-        phone_number: cleanPhone,
-        bot_id: config.chatbot_id,
-        whatsapp_message_id: messageId,
-        user_id: config.user_id
-      },
-    ]);
-    if (userMsgErr) console.error("Error saving user message:", userMsgErr);
+        // Only include fields we absolutely know are stable from the assistant row:
+        ...(config?.chatbot_id && { bot_id: config.chatbot_id }),
+        ...(config?.user_id && { user_id: config.user_id }),
+      };
+
+      // ⚠️ WE ARE TEMPORARILY EXCLUDING phone_number AND whatsapp_message HERE TO ISOLATE THE ERROR
+      
+      const { error: userMsgErr, data: insertedData } = await supabase
+        .from("messages")
+        .insert([userPayload])
+        .select();
+
+      if (userMsgErr) {
+        console.error("❌ DATABASE CONSTRAINT REJECTION:", JSON.stringify(userMsgErr, null, 2));
+      } else {
+        console.log("✅ USER ROW INSERT SUCCESSFUL:", insertedData);
+      }
+    } catch (dbCatchErr) {
+      console.error("❌ CODE RUNTIME CRASH DURING INSERT:", dbCatchErr);
+    }
 
     const N8N_WEBHOOK = process.env.N8N_WHATSAPP_WEBHOOK_URL || "";
 
