@@ -135,7 +135,16 @@ export async function POST(req: Request) {
           });
 
           n8nData = await response.json();
-          aiResponse = n8nData?.reply || n8nData?.[0]?.reply || "";
+
+// Existing reply format
+aiResponse =
+  n8nData?.reply ||
+  n8nData?.[0]?.reply ||
+
+  // NEW: WhatsApp payload returned by n8n
+  n8nData?.text?.body ||
+
+  "";
         }
       } catch (err) {
         console.error("N8N Error:", err);
@@ -244,40 +253,45 @@ export async function POST(req: Request) {
           },
         ]);
 
-      } else if (aiResponse) {
-        const payload = {
-          messaging_product: "whatsapp",
-          to: customerPhone,
-          type: "text",
-          text: {
-            body: aiResponse,
-          },
-        };
+      } else if (aiResponse || n8nData?.type === "text") {
 
-        await fetch(metaUrl, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${metaAccessToken}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(payload),
-        });
+  const textBody =
+    aiResponse ||
+    n8nData?.text?.body ||
+    "Sorry, we couldn't find any matching products.";
 
-        // ==========================================
-        // 2c. SAVE ASSISTANT MESSAGE (TEXT REPLY)
-        // ==========================================
-        await supabase.from("messages").insert([
-          {
-            conversation_id: conversationId,
-            role: "assistant",
-            content: aiResponse,
-            channel: "whatsapp",
-            phone_number: cleanPhone,
-            bot_id: config.chatbot_id,
-            user_id: config.user_id
-          },
-        ]);
-      }
+  const payload = {
+    messaging_product: "whatsapp",
+    to: customerPhone,
+    type: "text",
+    text: {
+      body: textBody,
+    },
+  };
+
+  const metaRes = await fetch(metaUrl, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${metaAccessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  console.log("Text message status:", metaRes.status);
+
+  await supabase.from("messages").insert([
+    {
+      conversation_id: conversationId,
+      role: "assistant",
+      content: textBody,
+      channel: "whatsapp",
+      phone_number: cleanPhone,
+      bot_id: config.chatbot_id,
+      user_id: config.user_id
+    },
+  ]);
+}
     }
 
     return new Response("EVENT_RECEIVED", { status: 200 });
