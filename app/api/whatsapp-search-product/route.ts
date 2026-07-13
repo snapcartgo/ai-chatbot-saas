@@ -177,15 +177,18 @@ export async function GET(request: Request) {
         });
       }
 
-      // Fallback fallback text message if no catalog rows matched criteria
+      // Fallback text message if no catalog rows matched criteria
       if (products.length === 0) {
+        // Check if a real price query was extracted (if it isn't "null")
+        const hasBudget = priceConditionStr !== "null";
+
         return NextResponse.json({
           messaging_product: "whatsapp",
           recipient_type: "individual",
           to: userPhone,
           type: "text",
           text: {
-            body: `We couldn't find any items matching "${(q || '').trim()}" within that budget range inside our catalog right now.`
+            body: `We couldn't find any items matching "${(q || '').trim()}"${hasBudget ? ' within that budget range' : ''} inside our catalog right now.`
           }
         });
       }
