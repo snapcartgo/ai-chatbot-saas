@@ -31,12 +31,17 @@ export async function POST(req: NextRequest) {
 
     for (const item of items) {
       const { product_name, quantity, selected_attributes = {} } = item;
-      const mergedAttributes = { ...selected_attributes };
       const requestedQuantity = Number(quantity);
 
       if (!product_name || Number.isNaN(requestedQuantity) || requestedQuantity <= 0) {
         return NextResponse.json({ success: false, message: `Invalid quantity for ${product_name || "product"}.` }, { status: 400 });
       }
+
+      // ⚡ FIX: Normalize all incoming attribute keys to lowercase immediately
+      const mergedAttributes = Object.entries(selected_attributes || {}).reduce((acc: any, [k, v]) => {
+        acc[k.toLowerCase().trim()] = v;
+        return acc;
+      }, {});
 
       let search = product_name.trim().toLowerCase();
 
@@ -73,7 +78,6 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // FIXED: Strict optional type handling guard check for compiler validation
       if (productError || !products || products.length === 0) {
         missingProducts.push({
           product_name: product_name,
@@ -85,13 +89,23 @@ export async function POST(req: NextRequest) {
       let product = null;
       let variantMatched = false;
 
+      // Exact Variant Matching
       if (Object.keys(mergedAttributes).length > 0) {
         const matchedProduct = products.find((p: any) => {
-          return Object.entries(mergedAttributes).every(([key, value]) => {
-            const dbValue1 = p.attributes?.[key];
-            const dbValue2 = p.attributes?.[key === "color" ? "size" : "color"];
+          if (!p.attributes) return false;
 
+          const dbAttributesNormalized = Object.entries(p.attributes).reduce((acc: any, [k, v]) => {
+            acc[k.toLowerCase().trim()] = v;
+            return acc;
+          }, {});
+
+          return Object.entries(mergedAttributes).every(([key, value]) => {
+            const cleanKey = key.toLowerCase().trim();
             const targetVal = String(value).toLowerCase().trim();
+
+            const dbValue1 = dbAttributesNormalized[cleanKey];
+            const dbValue2 = dbAttributesNormalized[cleanKey === "color" ? "size" : "color"];
+
             if (!dbValue1) return false;
 
             const isMatchPrimary = Array.isArray(dbValue1)
@@ -128,7 +142,6 @@ export async function POST(req: NextRequest) {
               if (isStandardSizeWord || key.toLowerCase() === "size" || cleanVal === "l" || cleanVal === "m") {
                 if (!totalAvailableOptions.size.includes(strVal)) totalAvailableOptions.size.push(strVal);
               } else if (isStandardColorWord || key.toLowerCase() === "color" || cleanVal === "white" || cleanVal === "black") {
-                // FIXED: Fixed dot-notation double syntax selector mapping type mismatch
                 if (!totalAvailableOptions.color.includes(strVal)) totalAvailableOptions.color.push(strVal);
               } else {
                 if (!totalAvailableOptions[key]) totalAvailableOptions[key] = [];
@@ -155,8 +168,10 @@ export async function POST(req: NextRequest) {
       const availableOptions = product.allowed_options || product.attributes || {};
       const missingFields: string[] = [];
 
+      // ⚡ FIX: Verified with fully lowercase mapping evaluation rules
       for (const field of requiredFields) {
-        if (!mergedAttributes[field]) {
+        const cleanField = field.toLowerCase().trim();
+        if (!mergedAttributes[cleanField]) {
           missingFields.push(field);
         }
       }
@@ -175,17 +190,21 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ success: false, message: `Only *${product.stock} items* left for *${product.name}*.` });
       }
 
+      // ... (Stock Validation block directly above)
       const subtotal = unitPrice * requestedQuantity;
       const shipping = subtotal >= 999 ? 0 : 40; 
       
       grandSubtotal += subtotal;
       grandShipping += shipping;
 
-      const { error: upsertError } = await supabase
+      // ==========================================
+      // ADD THE CODE HERE (Replaces your old upsert)
+      // ==========================================
+      const { error: cartUpsertError } = await supabase
         .from("cart_sessions")
         .upsert(
           {
-            session_id: sessionId,
+            session_id: sessionId, 
             product_id: product.id,
             product_name: product.name,
             quantity: requestedQuantity,
@@ -193,14 +212,15 @@ export async function POST(req: NextRequest) {
             current_flow: "whatsapp_ecommerce",
             current_step: "checkout",
             updated_at: new Date().toISOString(),
-          },
-          { onConflict: 'session_id,product_id' }
+          }
         );
 
-      if (upsertError) {
+      if (cartUpsertError) {
+        console.error("Cart database save error:", cartUpsertError);
         return NextResponse.json({ success: false, message: "Database system error. Please try again." }, { status: 500 });
       }
- 
+      // ==========================================
+
       validatedItems.push({
         product_id: product.id,
         product_name: product.name,
@@ -209,7 +229,7 @@ export async function POST(req: NextRequest) {
         unit_price: unitPrice,
         subtotal,
       });
-    }
+    } // <-- This closes the for loop
 
     if (missingProducts.length > 0) {
       const completelyNotFound = missingProducts.filter(p => p.error_type === "not_found");
