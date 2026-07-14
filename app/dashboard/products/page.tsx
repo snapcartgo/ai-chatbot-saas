@@ -1,3 +1,4 @@
+// app/dashboard/products/page.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -144,17 +145,26 @@ export default function ProductsPage() {
           </p>
         </div>
 
-        <Link href="/dashboard/products/add">
-          <button className="rounded-xl bg-black px-5 py-3 font-bold text-white transition hover:bg-gray-900">
-            Add Product
-          </button>
-          
-        </Link>
-        <Link href="/dashboard/products/upload">
-          <button className="rounded-xl bg-green-600 px-5 py-3 font-bold text-white">
-            Upload CSV
-          </button>
-        </Link>
+        <div className="flex flex-wrap gap-3">
+          <Link href="/dashboard/products/add">
+            <button className="rounded-xl bg-black px-5 py-3 font-bold text-white transition hover:bg-gray-900">
+              Add Product
+            </button>
+          </Link>
+
+          {/* Sync Meta Catalog route link button */}
+          <Link href="/dashboard/products/sync-meta">
+            <button className="rounded-xl bg-blue-600 px-5 py-3 font-bold text-white transition hover:bg-blue-700">
+              Sync Meta Catalog
+            </button>
+          </Link>
+
+          <Link href="/dashboard/products/upload">
+            <button className="rounded-xl bg-green-600 px-5 py-3 font-bold text-white transition hover:bg-green-700">
+              Upload CSV
+            </button>
+          </Link>
+        </div>
       </div>
 
       {loading ? (

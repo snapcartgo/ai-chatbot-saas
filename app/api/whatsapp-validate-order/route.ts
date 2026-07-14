@@ -1,3 +1,4 @@
+// app/api/whatsapp-validate-order/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
@@ -6,271 +7,294 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-// Meta Graph API helper function to reply back to the WhatsApp user
-async function sendWhatsAppMessage(phone_number_id: string, toPhone: string, textBody: string) {
-  const WHATSAPP_TOKEN = process.env.WHATSAPP_ACCESS_TOKEN;
-
-  await fetch(`https://graph.facebook.com/v20.0/${phone_number_id}/messages`, {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${WHATSAPP_TOKEN}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      messaging_product: "whatsapp",
-      recipient_type: "individual",
-      to: toPhone,
-      type: "text",
-      text: { body: textBody },
-    }),
-  });
-}
-
-// Normalized item shape used internally after parsing either payload type
-interface NormalizedItem {
-  quantity: number;
-  selected_attributes: Record<string, any>;
-  // Exactly ONE of these two will be set depending on source
-  catalog_id?: string;   // from WhatsApp catalog (product_retailer_id) -> EXACT match
-  product_name?: string; // from CSV/manual entry -> FUZZY match (old logic)
-}
-
 export async function POST(req: NextRequest) {
-  console.log("===== HYBRID WHATSAPP ORDER VALIDATOR ROUTE (v6 - catalog id fix) =====");
+  console.log("===== WHATSAPP VALIDATE ORDER API PRODUCTION =====");
   try {
     const body = await req.json();
+    const sessionId = body.session_id; 
+    const items = body.items;
+    const user_id = body.user_id; 
 
-    let customerPhone = "";
-    let phone_number_id = "";
-    let itemsToValidate: NormalizedItem[] = [];
-    const request_user_id = body.user_id;
-
-    // Check if payload is a Raw Meta Webhook vs Processed n8n JSON
-    const isRawWebhook = !!body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
-
-    if (isRawWebhook) {
-      const entry = body.entry[0];
-      const change = entry?.changes?.[0]?.value;
-      const message = change?.messages?.[0];
-
-      if (!message || message.type !== "order") {
-        return NextResponse.json({ success: true, message: "Ignored non-order payload type." });
-      }
-
-      customerPhone = message.from;
-      phone_number_id = change?.metadata?.phone_number_id;
-      const rawItems = message.order?.product_items || [];
-
-      // IMPORTANT: product_retailer_id is the exact catalog SKU set in Meta Commerce Manager.
-      // This is NOT free text, so it must NOT go through fuzzy name search.
-      itemsToValidate = rawItems.map((item: any) => ({
-        catalog_id: String(item.product_retailer_id || "").trim(),
-        quantity: Number(item.quantity),
-        selected_attributes: {},
-      }));
-    } else {
-      customerPhone = body.customerPhone || body.from;
-      phone_number_id = body.phone_number_id || body.whatsapp_phone_number_id;
-
-      // CSV / manual / n8n text-entry path keeps the old fuzzy-name behaviour
-      itemsToValidate = (body.items || []).map((item: any) => ({
-        product_name: item.product_name,
-        quantity: Number(item.quantity),
-        selected_attributes: item.selected_attributes || {},
-      }));
+    if (!user_id) {
+      return NextResponse.json({ success: false, message: "Missing user_id context." }, { status: 400 });
     }
 
-    // Static analysis input guardrail to block path-traversal attacks instantly
-    if (!phone_number_id || !/^\d+$/.test(phone_number_id)) {
-      return NextResponse.json({ success: false, message: "Invalid payload format." }, { status: 400 });
+    if (!Array.isArray(items) || items.length === 0) {
+      return NextResponse.json({ success: false, message: "No products provided." }, { status: 400 });
     }
 
-    if (!customerPhone || itemsToValidate.length === 0) {
-      return NextResponse.json({ success: false, message: "Missing required contact metadata or items." }, { status: 400 });
-    }
-
-    // Query the correct table "whatsapp_configs" instead of "merchants"
-    let merchantQuery = supabase.from("whatsapp_configs").select("user_id, wa_phone_number_id");
-
-    if (isRawWebhook) {
-      merchantQuery = merchantQuery.eq("wa_phone_number_id", phone_number_id);
-    } else if (request_user_id) {
-      merchantQuery = merchantQuery.eq("user_id", request_user_id);
-    } else {
-      merchantQuery = merchantQuery.eq("wa_phone_number_id", phone_number_id);
-    }
-
-    const { data: merchant, error: merchantError } = await merchantQuery.single();
-
-    if (merchantError || !merchant?.user_id) {
-      console.error("Merchant mapping error:", merchantError);
-      return NextResponse.json({ success: false, message: "Unknown merchant metadata." }, { status: 400 });
-    }
-
-    // Map the correct trusted ID key
-    const trusted_phone_id = merchant.wa_phone_number_id || phone_number_id;
-    const user_id = merchant.user_id;
-
-    // Define the dynamic shipping threshold constants parsed from the knowledge base profile
-    const baseShippingFee = Number((merchant as any)?.YOUR_EXACT_COLUMN_NAME ?? 40);
-    const freeShippingMin = Number((merchant as any)?.free_shipping_threshold ?? 999);
-
-    const sendSMSFlag = body.send_sms !== undefined ? String(body.send_sms) !== "false" : true;
     const validatedItems = [];
     let grandSubtotal = 0;
     let grandShipping = 0;
+
     const missingProducts: any[] = [];
 
-    for (const item of itemsToValidate) {
-      const requestedQuantity = Number(item.quantity);
+    for (const item of items) {
+      const { product_name, quantity, selected_attributes = {} } = item;
+      const mergedAttributes = { ...selected_attributes };
+      const requestedQuantity = Number(quantity);
 
-      if (Number.isNaN(requestedQuantity) || requestedQuantity <= 0) {
+      if (!product_name || Number.isNaN(requestedQuantity) || requestedQuantity <= 0) {
+        return NextResponse.json({ success: false, message: `Invalid quantity for ${product_name || "product"}.` }, { status: 400 });
+      }
+
+      let search = product_name.trim().toLowerCase();
+
+      search = search.replace(/\bsize\s*([a-z0-9]+)\b/g, '$1');
+      search = search.replace(/\b(tshirt|t shirt|shirt)\b/g, 't-shirt');
+
+      // 1. Primary Fuzzy Search
+      let { data: products, error: productError } = await supabase
+        .from("products")
+        .select("*")
+        .eq("user_id", user_id) 
+        .or(`name.ilike.%${search}%,category.ilike.%${search}%,description.ilike.%${search}%`);
+
+      // 2. Fallback Split-Phrase Search
+      if ((!products || products.length === 0) && search.includes(" ")) {
+        const words = search.split(" ").filter(Boolean);
+        let genericTerm = words[words.length - 1]; 
+        
+        if (genericTerm === "tshirt" || genericTerm === "shirt") {
+          genericTerm = "t-shirt";
+        }
+        
+        const { data: fallbackProducts } = await supabase
+          .from("products")
+          .select("*")
+          .eq("user_id", user_id) 
+          .or(`name.ilike.%${genericTerm}%,category.ilike.%${genericTerm}%`);
+          
+        if (fallbackProducts && fallbackProducts.length > 0) {
+          products = fallbackProducts;
+          if (search.includes("white") && !mergedAttributes.color) {
+            mergedAttributes.color = "White";
+          }
+        }
+      }
+
+      // FIXED: Strict optional type handling guard check for compiler validation
+      if (productError || !products || products.length === 0) {
+        missingProducts.push({
+          product_name: product_name,
+          error_type: "not_found"
+        });
+        continue; 
+      }
+
+      let product = null;
+      let variantMatched = false;
+
+      if (Object.keys(mergedAttributes).length > 0) {
+        const matchedProduct = products.find((p: any) => {
+          return Object.entries(mergedAttributes).every(([key, value]) => {
+            const dbValue1 = p.attributes?.[key];
+            const dbValue2 = p.attributes?.[key === "color" ? "size" : "color"];
+
+            const targetVal = String(value).toLowerCase().trim();
+            if (!dbValue1) return false;
+
+            const isMatchPrimary = Array.isArray(dbValue1)
+              ? dbValue1.map(v => String(v).toLowerCase().trim()).includes(targetVal)
+              : String(dbValue1).toLowerCase().trim() === targetVal;
+
+            const isMatchSwapped = dbValue2 && (Array.isArray(dbValue2)
+              ? dbValue2.map(v => String(v).toLowerCase().trim()).includes(targetVal)
+              : String(dbValue2).toLowerCase().trim() === targetVal);
+
+            return isMatchPrimary || isMatchSwapped;
+          });
+        });
+
+        if (matchedProduct) {
+          product = matchedProduct;
+          variantMatched = true;
+        }
+      }
+
+      if (!variantMatched && Object.keys(mergedAttributes).length > 0) {
+        const totalAvailableOptions: Record<string, string[]> = { color: [], size: [] };
+        
+        products.forEach((p: any) => {
+          if (p.attributes) {
+            Object.entries(p.attributes).forEach(([key, val]) => {
+              const strVal = String(val).trim();
+              if (!strVal || strVal.toLowerCase() === "null") return;
+
+              const cleanVal = strVal.toLowerCase();
+              const isStandardSizeWord = /^(m|l|xl|s|xs|xxl|30|32|34|36|38|40|42)$/i.test(cleanVal);
+              const isStandardColorWord = /^(black|white|blue|red|green|yellow|pink|grey|cream|beige|maroon|navy)$/i.test(cleanVal);
+
+              if (isStandardSizeWord || key.toLowerCase() === "size" || cleanVal === "l" || cleanVal === "m") {
+                if (!totalAvailableOptions.size.includes(strVal)) totalAvailableOptions.size.push(strVal);
+              } else if (isStandardColorWord || key.toLowerCase() === "color" || cleanVal === "white" || cleanVal === "black") {
+                // FIXED: Fixed dot-notation double syntax selector mapping type mismatch
+                if (!totalAvailableOptions.color.includes(strVal)) totalAvailableOptions.color.push(strVal);
+              } else {
+                if (!totalAvailableOptions[key]) totalAvailableOptions[key] = [];
+                if (!totalAvailableOptions[key].includes(strVal)) totalAvailableOptions[key].push(strVal);
+              }
+            });
+          }
+        });
+
+        missingProducts.push({
+          product_name: products[0].name,
+          error_type: "invalid_variant",
+          requested_attributes: mergedAttributes,
+          available_options: totalAvailableOptions
+        });
         continue;
       }
 
-      let products: any[] | null = null;
-      let productError: any = null;
-      let lookupLabel = "";
+      if (!product) {
+        product = products[0];
+      }
 
-      if (item.catalog_id) {
-        // ---- CATALOG PATH: exact match check across both identifier columns ----
-        lookupLabel = item.catalog_id;
-        const result = await supabase
-          .from("products")
-          .select("*")
-          .eq("user_id", user_id)
-          // Look for the exact Meta ID in either the retailer_id or sku column
-          .or(`retailer_id.eq.${item.catalog_id},sku.eq.${item.catalog_id}`) 
-          .limit(1);
-        products = result.data;
-        productError = result.error;
-      // FIXED ARRAY SORTING: Clean symbols/letters out of the price strings before subtracting
-        if (products && products.length > 1) {
-          products.sort((a, b) => {
-            const priceA = parseFloat(String(a.price || '0').replace(/[^0-9.]/g, '')) || 0;
-            const priceB = parseFloat(String(b.price || '0').replace(/[^0-9.]/g, '')) || 0;
-            return priceB - priceA; // Pushes higher numbers to index 0
-          });
+      const requiredFields = product.required_fields || [];
+      const availableOptions = product.allowed_options || product.attributes || {};
+      const missingFields: string[] = [];
+
+      for (const field of requiredFields) {
+        if (!mergedAttributes[field]) {
+          missingFields.push(field);
         }
       }
 
-      // CHANGE HERE: Filter out bad database test rows explicitly stuck at 2 rupees
-      if (products && products.length > 0) {
-        const filtered = products.filter((p: any) => {
-          const numericalPrice = parseFloat(String(p.price || '0').replace(/[^0-9.]/g, '')) || 0;
-          return numericalPrice !== 2;
+      if (missingFields.length > 0) {
+        missingProducts.push({
+          product_name: product.name,
+          missing_fields: missingFields,
+          available_options: availableOptions,
         });
-        if (filtered.length > 0) {
-          products = filtered;
-        }
+        continue;
       }
 
-      if (productError || !products || products.length === 0) {
-        // TEMPORARY TESTING BYPASS: If missing from database, mock the catalog product
-        if (item.catalog_id === "97u9gnwxuj" || (item.product_name && item.product_name.toLowerCase().includes("tshirt"))) {
-          products = [{
-            id: "mock-id-123",
-            name: "Premium Cotton T-Shirt",
-            price: 550,
-            stock: 100,
-            required_fields: []
-          }];
-        } else {
-          missingProducts.push({
-            product_name: lookupLabel,
-            error_type: "not_found",
-          });
-          continue;
-        }
-      }
-      
-      // 1. Grab the matched base product
-      const product = products[0];
       const unitPrice = Number(product.price);
-
-      // 2. Extract variant attributes if they exist
-      const requiredFields: string[] = Array.isArray(product.required_fields) 
-        ? product.required_fields 
-        : typeof product.required_fields === "string" 
-          ? JSON.parse(product.required_fields) 
-          : [];
-
-      // 3. Check if the incoming request already has these selections (Normalized to lowercase keys)
-      const incomingAttributes = item.selected_attributes || {};
-      const normalizedAttributes = Object.fromEntries(
-        Object.entries(incomingAttributes).map(([key, val]) => [key.toLowerCase(), val])
-      );
-
-      const missingAttributes = requiredFields.filter(field => !normalizedAttributes[field.toLowerCase()]);
-
-      // 4. If fields are missing, stop checkout and ask the user for them!
-      if (missingAttributes.length > 0) {
-        const optionsMessage = `👕 *Select Options for ${product.name}*\n\n` +
-          `To proceed with your checkout order, please reply specifying your preferred:\n` +
-          missingAttributes.map(attr => `• *${attr.toUpperCase()}*`).join("\n") + 
-          `\n\n_Example reply: "Tshirt size M color black"_`;
-
-        await sendWhatsAppMessage(trusted_phone_id, customerPhone, optionsMessage);
-        return NextResponse.json({ success: false, message: `Awaiting product attributes: ${missingAttributes.join(", ")}` });
-      }
-
-      // 5. Run the requested warehouse safety margin stock check
       if (requestedQuantity > Number(product.stock)) {
-        await sendWhatsAppMessage(
-          trusted_phone_id,
-          customerPhone,
-          `  Order Alert: Only ${product.stock} units left in stock for "${product.name}". Please adjust your checkout cart count.`
-        );
-        return NextResponse.json({ success: false, message: `Only ${product.stock} units left.` });
+        return NextResponse.json({ success: false, message: `Only *${product.stock} items* left for *${product.name}*.` });
       }
 
       const subtotal = unitPrice * requestedQuantity;
-      const shipping = subtotal >= freeShippingMin ? 0 : baseShippingFee;
-
+      const shipping = subtotal >= 999 ? 0 : 40; 
+      
       grandSubtotal += subtotal;
       grandShipping += shipping;
 
+      const { error: upsertError } = await supabase
+        .from("cart_sessions")
+        .upsert(
+          {
+            session_id: sessionId,
+            product_id: product.id,
+            product_name: product.name,
+            quantity: requestedQuantity,
+            selected_attributes: mergedAttributes,
+            current_flow: "whatsapp_ecommerce",
+            current_step: "checkout",
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'session_id,product_id' }
+        );
+
+      if (upsertError) {
+        return NextResponse.json({ success: false, message: "Database system error. Please try again." }, { status: 500 });
+      }
+ 
       validatedItems.push({
         product_id: product.id,
         product_name: product.name,
         quantity: requestedQuantity,
+        selected_attributes: mergedAttributes,
+        unit_price: unitPrice,
         subtotal,
       });
-    } // Ends the item validation traversal loop cleanly
-
-    if (missingProducts.length > 0) {
-      const failedNames = missingProducts.map((p) => `${p.product_name}`).join(", ");
-      const alertMsg = `  Sorry, the following item(s): ${failedNames} are out of stock or could not be found. Please open the shop catalogs drawer and select an alternative option.`;
-
-      await sendWhatsAppMessage(trusted_phone_id, customerPhone, alertMsg);
-      return NextResponse.json({ success: false, message: alertMsg });
     }
 
-    // Wrap this whole block inside an IF check so it stays silent when n8n runs it
-    // Only send the message to WhatsApp if sendSMSFlag is TRUE
-    if (sendSMSFlag) {
-      const checkoutSummary =
-        `  *Order Confirmation Receipt Summary*\n` +
-        `---------------------------------\n` +
-        validatedItems.map((i) => `• ${i.product_name} (x${i.quantity}) - ₹${i.subtotal}`).join("\n") +
-        `\n---------------------------------\n` +
-        `Subtotal: ₹${grandSubtotal}\n` +
-        `Delivery/Shipping Fee: ₹${grandShipping}\n` +
-        `*Grand Total Amount: ₹${grandSubtotal + grandShipping}*\n\n` +
-        `  Items are locked. Kindly text us back with your *Full Name, Delivery Address, phone number and Email* to finalise dispatch routing details.`;
+    if (missingProducts.length > 0) {
+      const completelyNotFound = missingProducts.filter(p => p.error_type === "not_found");
+      const invalidVariants = missingProducts.filter(p => p.error_type === "invalid_variant");
 
-      await sendWhatsAppMessage(trusted_phone_id, customerPhone, checkoutSummary);
+      if (completelyNotFound.length > 0) {
+        const { data: storeAlternatives } = await supabase.from('products').select('name').eq('user_id', user_id).limit(3);
+        const suggestionsList = storeAlternatives ? storeAlternatives.map(p => p.name).join(", ") : "";
+        const failedNames = completelyNotFound.map(p => `*"${p.product_name}"*`).join(" and ");
+
+        return NextResponse.json({
+          success: false,
+          requires_selection: true,
+          message: `The item ${failedNames} was not found in our WhatsApp catalog.\n\n*Try options like:* _${suggestionsList}_`
+        });
+      }
+
+      if (invalidVariants.length > 0) {
+        const item = invalidVariants[0];
+        const allowedColors = item.available_options?.color?.length ? item.available_options.color.join(" or ") : "";
+        const allowedSizes = item.available_options?.size?.length ? item.available_options.size.join(", ") : "";
+        
+        let customErrorMessage = `Sorry, that specific combination is unavailable for *${item.product_name}*.`;
+        
+        if (allowedColors || allowedSizes) {
+          customErrorMessage += "\n\n*We currently have this available in:*";
+          if (allowedColors) customErrorMessage += `\n• *Colors:* _${allowedColors}_`;
+          if (allowedSizes) customErrorMessage += `\n• *Sizes:* _${allowedSizes}_`;
+        }
+        
+        return NextResponse.json({
+          success: false,
+          requires_selection: true,
+          missing_products: missingProducts,
+          message: customErrorMessage
+        });
+      }
+
+      let userFriendlyMessage = "";
+
+      const buildOptionsText = (item: any) => {
+        const opts = item.available_options || {};
+        const optionsStringArray: string[] = [];
+
+        Object.entries(opts).forEach(([key, values]) => {
+          if (Array.isArray(values) && values.length > 0) {
+            const label = key.charAt(0).toUpperCase() + key.slice(1);
+            optionsStringArray.push(`\n• *${label}s:* _${values.join(" or ")}_`);
+          }
+        });
+        return optionsStringArray.length === 0 ? "" : `\n\n*Available choices:*${optionsStringArray.join("")}`;
+      };
+
+      if (missingProducts.length === 1) {
+        const item = missingProducts[0];
+        const missingFieldsList = item.missing_fields.join(" and ");
+
+        userFriendlyMessage = `Please reply with your preferred *${missingFieldsList}* option for *${item.product_name}*.`;
+        userFriendlyMessage += buildOptionsText(item);
+      } else {
+        userFriendlyMessage = `Please specify required options for the following products:\n`;
+        missingProducts.forEach((item, index) => {
+          const missingFieldsList = item.missing_fields.join(" and ");
+          userFriendlyMessage += `\n*${index + 1}. ${item.product_name}* (Missing: ${missingFieldsList})${buildOptionsText(item)}`;
+        });
+      }
+
+      return NextResponse.json({
+        success: false,
+        requires_selection: true,
+        missing_products: missingProducts,
+        message: userFriendlyMessage
+      });
     }
 
     return NextResponse.json({
       success: true,
-      message: "Order successfully verified.",
+      items: validatedItems,
       subtotal: grandSubtotal,
       shipping: grandShipping,
       total: grandSubtotal + grandShipping,
+      message: `🛍️ *Order Summary verified successfully!* \n\n*Subtotal:* ₹${grandSubtotal}\n*Shipping:* ${grandShipping === 0 ? "_FREE_" : `₹${grandShipping}`}\n*Total:* *₹${grandSubtotal + grandShipping}*\n\nKindly share your *Name, Email and Delivery Address* to complete checkout.`,
     });
+
   } catch (err: any) {
-    console.error("Critical Exception processing WhatsApp pipeline: ", err);
-    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+    return NextResponse.json({ success: false, message: "Oops! An unexpected system error occurred." }, { status: 500 });
   }
 }
