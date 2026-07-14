@@ -10,10 +10,23 @@ const supabase = createClient(
 export async function POST(req: NextRequest) {
   console.log("===== WHATSAPP VALIDATE ORDER API PRODUCTION =====");
   try {
-    const body = await req.json();
+    // 1. Safe parsing wrapper to handle dev tunnel proxy layers safely
+    let body: any;
+    try {
+      body = await req.json();
+    } catch (parseError) {
+      // Fallback if the content-type header gets lost or modified by the tunnel
+      const rawText = await req.text();
+      body = JSON.parse(rawText || '{}');
+    }
+
     const sessionId = body.session_id; 
     const items = body.items;
     const user_id = body.user_id; 
+
+    // Debugging logs to see exactly what arrives in your console terminal
+    console.log("--> Received User ID:", user_id);
+    console.log("--> Received Items array:", JSON.stringify(items));
 
     if (!user_id) {
       return NextResponse.json({ success: false, message: "Missing user_id context." }, { status: 400 });
@@ -143,15 +156,25 @@ export async function POST(req: NextRequest) {
         products.forEach((p: any) => {
           if (p.attributes) {
             Object.entries(p.attributes).forEach(([key, val]) => {
-              const strVal = String(val).trim();
-              if (!strVal || strVal.toLowerCase() === "null") return;
-              const cleanVal = strVal.toLowerCase();
+              if (!val || String(val).toLowerCase() === "null") return;
+              
+              const cleanKey = key.toLowerCase().trim();
+              
+              // Handle both arrays and comma-separated strings safely
+              const valuesArray = Array.isArray(val) 
+                ? val 
+                : String(val).split(",").map(v => v.trim());
 
-              if (key.toLowerCase() === "size" || /^(m|l|xl|s|xs|xxl|30|32|34|36|38|40|42)$/i.test(cleanVal)) {
-                if (!totalAvailableOptions.size.includes(strVal)) totalAvailableOptions.size.push(strVal);
-              } else if (key.toLowerCase() === "color" || /^(black|white|blue|red|green|yellow|pink|grey)$/i.test(cleanVal)) {
-                if (!totalAvailableOptions.color.includes(strVal)) totalAvailableOptions.color.push(strVal);
-              }
+              valuesArray.forEach(strVal => {
+                const cleanVal = String(strVal).toLowerCase().trim();
+                if (!cleanVal) return;
+
+                if (cleanKey === "size" || /^(m|l|xl|s|xs|xxl|30|32|34|36|38|40|42)$/i.test(cleanVal)) {
+                  if (!totalAvailableOptions.size.includes(strVal)) totalAvailableOptions.size.push(strVal);
+                } else if (cleanKey === "color" || /^(black|white|blue|red|green|yellow|pink|grey)$/i.test(cleanVal)) {
+                  if (!totalAvailableOptions.color.includes(strVal)) totalAvailableOptions.color.push(strVal);
+                }
+              });
             });
           }
         });
@@ -264,30 +287,51 @@ export async function POST(req: NextRequest) {
 
       let userFriendlyMessage = "";
 
+      // Refactored helper to safely process arrays or raw strings from attributes mapping
       const buildOptionsText = (item: any) => {
         const opts = item.available_options || {};
         const optionsStringArray: string[] = [];
 
         Object.entries(opts).forEach(([key, values]) => {
-          if (Array.isArray(values) && values.length > 0) {
+          let parsedValues: string[] = [];
+          if (Array.isArray(values)) {
+            parsedValues = values;
+          } else if (typeof values === "string") {
+            parsedValues = values.split(",").map(v => v.trim());
+          }
+
+          if (parsedValues.length > 0) {
             const label = key.charAt(0).toUpperCase() + key.slice(1);
-            optionsStringArray.push(`\n• *${label}s:* _${values.join(" or ")}_`);
+            optionsStringArray.push(`\n• *${label}s:* _${parsedValues.join(" or ")}_`);
           }
         });
-        return optionsStringArray.length === 0 ? "" : `\n\n*Available choices:*${optionsStringArray.join("")}`;
+        return optionsStringArray.join("");
       };
 
       if (missingProducts.length === 1) {
         const item = missingProducts[0];
         const missingFieldsList = item.missing_fields.join(" and ");
+        const choices = buildOptionsText(item);
 
         userFriendlyMessage = `Please reply with your preferred *${missingFieldsList}* option for *${item.product_name}*.`;
-        userFriendlyMessage += buildOptionsText(item);
+        if (choices) {
+          userFriendlyMessage += `\n\n*AVAILABLE CHOICES:*${choices}`;
+        }
       } else {
+        // Multi-product format logic fixed to print clean separate options for each product
         userFriendlyMessage = `Please specify required options for the following products:\n`;
+        
         missingProducts.forEach((item, index) => {
           const missingFieldsList = item.missing_fields.join(" and ");
-          userFriendlyMessage += `\n*${index + 1}. ${item.product_name}* (Missing: ${missingFieldsList})${buildOptionsText(item)}`;
+          userFriendlyMessage += `\n*${index + 1}. ${item.product_name}* (Missing: ${missingFieldsList})`;
+        });
+
+        userFriendlyMessage += `\n\n*AVAILABLE CHOICES:*`;
+        missingProducts.forEach((item) => {
+          const choices = buildOptionsText(item);
+          if (choices) {
+            userFriendlyMessage += `\n\n*For ${item.product_name}:*${choices}`;
+          }
         });
       }
 
@@ -305,7 +349,7 @@ export async function POST(req: NextRequest) {
       subtotal: grandSubtotal,
       shipping: grandShipping,
       total: grandSubtotal + grandShipping,
-      message: `🛍️ *Order Summary verified successfully!* \n\n*Subtotal:* ₹${grandSubtotal}\n*Shipping:* ${grandShipping === 0 ? "_FREE_" : `₹${grandShipping}`}\n*Total:* *₹${grandSubtotal + grandShipping}*\n\nKindly share your *Name, Email and Delivery Address* to complete checkout.`,
+      message: `🛍️ *Order Summary verified successfully!* \n\n*Subtotal:* ₹${grandSubtotal}\n*Shipping:* ${grandShipping === 0 ? "_FREE_" : `₹${grandShipping}`}\n*Total:* *₹${grandSubtotal + grandShipping}*\n\nKindly share your *Name, Email, phone and Delivery Address* to complete checkout.`,
     });
 
   } catch (err: any) {
