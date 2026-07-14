@@ -6,14 +6,17 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-// Meta Graph API helper function to reply back to the WhatsApp user
-async function sendWhatsAppMessage(phone_number_id: string, toPhone: string, textBody: string) {
+async function sendWhatsAppMessage(
+  phone_number_id: string,
+  toPhone: string,
+  textBody: string
+) {
   const WHATSAPP_TOKEN = process.env.WHATSAPP_ACCESS_TOKEN;
 
   await fetch(`https://graph.facebook.com/v20.0/${phone_number_id}/messages`, {
     method: "POST",
     headers: {
-      "Authorization": `Bearer ${WHATSAPP_TOKEN}`,
+      Authorization: `Bearer ${WHATSAPP_TOKEN}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
@@ -26,17 +29,15 @@ async function sendWhatsAppMessage(phone_number_id: string, toPhone: string, tex
   });
 }
 
-// Normalized item shape used internally after parsing either payload type
 interface NormalizedItem {
   quantity: number;
   selected_attributes: Record<string, any>;
-  // Exactly ONE of these two will be set depending on source
-  catalog_id?: string;   // from WhatsApp catalog (product_retailer_id) -> EXACT match
-  product_name?: string; // from CSV/manual entry -> FUZZY match (old logic)
+  catalog_id?: string;   // Meta exact catalog ID match
+  product_name?: string; // Fuzzy name fallback match
 }
 
 export async function POST(req: NextRequest) {
-  console.log("===== HYBRID WHATSAPP ORDER VALIDATOR ROUTE (v6 - catalog id fix) =====");
+  console.log("===== HYBRID WHATSAPP ORDER VALIDATOR ROUTE (Meta Catalog Fix) =====");
   try {
     const body = await req.json();
 
@@ -61,8 +62,6 @@ export async function POST(req: NextRequest) {
       phone_number_id = change?.metadata?.phone_number_id;
       const rawItems = message.order?.product_items || [];
 
-      // IMPORTANT: product_retailer_id is the exact catalog SKU set in Meta Commerce Manager.
-      // This is NOT free text, so it must NOT go through fuzzy name search.
       itemsToValidate = rawItems.map((item: any) => ({
         catalog_id: String(item.product_retailer_id || "").trim(),
         quantity: Number(item.quantity),
@@ -72,7 +71,6 @@ export async function POST(req: NextRequest) {
       customerPhone = body.customerPhone || body.from;
       phone_number_id = body.phone_number_id || body.whatsapp_phone_number_id;
 
-      // CSV / manual / n8n text-entry path keeps the old fuzzy-name behaviour
       itemsToValidate = (body.items || []).map((item: any) => ({
         product_name: item.product_name,
         quantity: Number(item.quantity),
@@ -80,7 +78,6 @@ export async function POST(req: NextRequest) {
       }));
     }
 
-    // Static analysis input guardrail to block path-traversal attacks instantly
     if (!phone_number_id || !/^\d+$/.test(phone_number_id)) {
       return NextResponse.json({ success: false, message: "Invalid payload format." }, { status: 400 });
     }
@@ -89,9 +86,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, message: "Missing required contact metadata or items." }, { status: 400 });
     }
 
-    // Query the correct table "whatsapp_configs" instead of "merchants"
     let merchantQuery = supabase.from("whatsapp_configs").select("user_id, wa_phone_number_id");
-
     if (isRawWebhook) {
       merchantQuery = merchantQuery.eq("wa_phone_number_id", phone_number_id);
     } else if (request_user_id) {
@@ -101,17 +96,14 @@ export async function POST(req: NextRequest) {
     }
 
     const { data: merchant, error: merchantError } = await merchantQuery.single();
-
     if (merchantError || !merchant?.user_id) {
       console.error("Merchant mapping error:", merchantError);
       return NextResponse.json({ success: false, message: "Unknown merchant metadata." }, { status: 400 });
     }
 
-    // Map the correct trusted ID key
     const trusted_phone_id = merchant.wa_phone_number_id || phone_number_id;
     const user_id = merchant.user_id;
 
-    // Define the dynamic shipping threshold constants parsed from the knowledge base profile
     const baseShippingFee = Number((merchant as any)?.YOUR_EXACT_COLUMN_NAME ?? 40);
     const freeShippingMin = Number((merchant as any)?.free_shipping_threshold ?? 999);
 
@@ -123,88 +115,152 @@ export async function POST(req: NextRequest) {
 
     for (const item of itemsToValidate) {
       const requestedQuantity = Number(item.quantity);
-
-      if (Number.isNaN(requestedQuantity) || requestedQuantity <= 0) {
-        continue;
-      }
+      if (Number.isNaN(requestedQuantity) || requestedQuantity <= 0) continue;
 
       let products: any[] | null = null;
       let productError: any = null;
       let lookupLabel = "";
 
+      // ---- STEP 1: ATTEMPT LOCAL DATABASE LOOKUP ----
       if (item.catalog_id) {
-        // ---- CATALOG PATH: exact match check across both identifier columns ----
         lookupLabel = item.catalog_id;
         const result = await supabase
           .from("products")
           .select("*")
           .eq("user_id", user_id)
-          // Look for the exact Meta ID in either the retailer_id or sku column
-          .or(`retailer_id.eq.${item.catalog_id},sku.eq.${item.catalog_id}`) 
+          .or(`retailer_id.eq.${item.catalog_id},sku.eq.${item.catalog_id}`)
           .limit(1);
         products = result.data;
         productError = result.error;
-      // FIXED ARRAY SORTING: Clean symbols/letters out of the price strings before subtracting
-        if (products && products.length > 1) {
-          products.sort((a, b) => {
-            const priceA = parseFloat(String(a.price || '0').replace(/[^0-9.]/g, '')) || 0;
-            const priceB = parseFloat(String(b.price || '0').replace(/[^0-9.]/g, '')) || 0;
-            return priceB - priceA; // Pushes higher numbers to index 0
-          });
+      } else if (item.product_name) {
+        let search = item.product_name.trim().toLowerCase();
+        lookupLabel = item.product_name;
+        if (search === "tshirt" || search === "t shirt" || search === "shirt") {
+          search = "t-shirt";
+        }
+
+        const result = await supabase
+          .from("products")
+          .select("*")
+          .eq("user_id", user_id)
+          .or(`sku.ilike.%${search}%,name.ilike.%${search}%,category.ilike.%${search}%`);
+        
+        products = result.data;
+        productError = result.error;
+      }
+
+      
+      // ---- STEP 2: DYNAMIC META CATALOG FETCH (FIXED PARAMETERS & PARSING) ----
+      if (false && (productError || !products || products.length === 0)) {
+        const WHATSAPP_TOKEN = process.env.WHATSAPP_ACCESS_TOKEN;
+const CATALOG_ID =
+  req.headers.get("x-catalog-id") ||
+  (merchant as any)?.meta_catalog_id ||
+  "4719947504907117";
+
+console.log("========== META DEBUG ==========");
+console.log("Catalog ID:", CATALOG_ID);
+console.log("Token Prefix:", WHATSAPP_TOKEN?.substring(0, 20));
+console.log("Merchant:", merchant);
+
+        if (WHATSAPP_TOKEN) {
+  try {
+
+    console.log("========== Entering Meta catalog lookup ==========");
+
+    const metaUrl =
+  `https://graph.facebook.com/v20.0/${CATALOG_ID}/products` +
+  `?fields=product_id,name,retailer_id,price,image_url,color,description,url,availability` +
+  `&access_token=${WHATSAPP_TOKEN}`;
+
+console.log("Meta URL:", metaUrl);
+console.log("Catalog ID:", CATALOG_ID);
+console.log("Token Prefix:", WHATSAPP_TOKEN?.substring(0, 40));
+console.log("Meta URL:", metaUrl);
+const metaRes = await fetch(metaUrl);
+
+    console.log("Meta Status:", metaRes.status);
+
+    const metaData = await metaRes.json();
+    if (!metaRes.ok) {
+  throw new Error(metaData.error?.message || "Meta Catalog API failed.");
+}
+
+    console.log("Meta Response:", JSON.stringify(metaData, null, 2));
+
+
+            console.log("Meta URL:", metaUrl);
+            console.log("Meta Response:", JSON.stringify(metaData, null, 2));
+            console.log("========== META RESPONSE ==========");
+              console.log(JSON.stringify(metaData, null, 2));
+
+            if (metaData && metaData.data && metaData.data.length > 0) {
+              let matchedMetaItem = null;
+
+              if (item.catalog_id) {
+                matchedMetaItem = metaData.data.find((m: any) => 
+                  String(m.retailer_id).trim().toLowerCase() === String(item.catalog_id).trim().toLowerCase()
+                );
+              } else if (item.product_name) {
+                const searchStr = item.product_name.toLowerCase().trim();
+                matchedMetaItem = metaData.data.find((m: any) => 
+                  m.name.toLowerCase().includes(searchStr)
+                );
+              }
+
+              if (matchedMetaItem) {
+                const isAvailable = matchedMetaItem.availability === "in stock" || matchedMetaItem.availability === "available";
+                
+                // FIXED: Correctly reference matchedMetaItem instead of metaData.data[0]
+                let rawPrice = 0;
+                if (matchedMetaItem.price && typeof matchedMetaItem.price === 'object') {
+                  rawPrice = parseFloat(matchedMetaItem.price.amount || '0') || 0;
+                } else if (matchedMetaItem.price) {
+                  rawPrice = parseFloat(String(matchedMetaItem.price).replace(/[^0-9.]/g, '')) || 0;
+                }
+
+                products = [{
+                  id: matchedMetaItem.id,
+                  name: matchedMetaItem.name,
+                  price: rawPrice,
+                  stock: isAvailable ? 999 : 0,
+                  required_fields: []
+                }];
+              }
+            } else if (metaData.error) {
+              console.error("Meta API Error Details:", metaData.error);
+            }
+          } catch (metaErr) {
+            console.error("===== META FETCH ERROR =====");
+            console.error(metaErr);
+          }
         }
       }
 
-      // CHANGE HERE: Filter out bad database test rows explicitly stuck at 2 rupees
-      if (products && products.length > 0) {
-        const filtered = products.filter((p: any) => {
-          const numericalPrice = parseFloat(String(p.price || '0').replace(/[^0-9.]/g, '')) || 0;
-          return numericalPrice !== 2;
-        });
-        if (filtered.length > 0) {
-          products = filtered;
-        }
-      }
-
-      if (productError || !products || products.length === 0) {
-        // TEMPORARY TESTING BYPASS: If missing from database, mock the catalog product
-        if (item.catalog_id === "97u9gnwxuj" || (item.product_name && item.product_name.toLowerCase().includes("tshirt"))) {
-          products = [{
-            id: "mock-id-123",
-            name: "Premium Cotton T-Shirt",
-            price: 550,
-            stock: 100,
-            required_fields: []
-          }];
-        } else {
-          missingProducts.push({
-            product_name: lookupLabel,
-            error_type: "not_found",
-          });
-          continue;
-        }
+      // ---- STEP 3: RUN VALIDATIONS AND CALCULATE totals ----
+      if (!products || products.length === 0) {
+        missingProducts.push({ product_name: lookupLabel, error_type: "not_found" });
+        continue;
       }
       
-      // 1. Grab the matched base product
       const product = products[0];
       const unitPrice = Number(product.price);
 
-      // 2. Extract variant attributes if they exist
+      // (Keep your existing variant attribute validations down below here intact...)
+
       const requiredFields: string[] = Array.isArray(product.required_fields) 
         ? product.required_fields 
         : typeof product.required_fields === "string" 
           ? JSON.parse(product.required_fields) 
           : [];
 
-      // 3. Check if the incoming request already has these selections (Normalized to lowercase keys)
       const incomingAttributes = item.selected_attributes || {};
       const normalizedAttributes = Object.fromEntries(
         Object.entries(incomingAttributes).map(([key, val]) => [key.toLowerCase(), val])
       );
-
       const missingAttributes = requiredFields.filter(field => !normalizedAttributes[field.toLowerCase()]);
 
-      // 4. If fields are missing, stop checkout and ask the user for them!
-      if (missingAttributes.length > 0) {
+      if (missingAttributes.length > 0 && !isRawWebhook) {
         const optionsMessage = `👕 *Select Options for ${product.name}*\n\n` +
           `To proceed with your checkout order, please reply specifying your preferred:\n` +
           missingAttributes.map(attr => `• *${attr.toUpperCase()}*`).join("\n") + 
@@ -214,12 +270,11 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ success: false, message: `Awaiting product attributes: ${missingAttributes.join(", ")}` });
       }
 
-      // 5. Run the requested warehouse safety margin stock check
       if (requestedQuantity > Number(product.stock)) {
         await sendWhatsAppMessage(
           trusted_phone_id,
           customerPhone,
-          `  Order Alert: Only ${product.stock} units left in stock for "${product.name}". Please adjust your checkout cart count.`
+          `Order Alert: Only ${product.stock} units left in stock for "${product.name}". Please adjust your cart count.`
         );
         return NextResponse.json({ success: false, message: `Only ${product.stock} units left.` });
       }
@@ -236,28 +291,25 @@ export async function POST(req: NextRequest) {
         quantity: requestedQuantity,
         subtotal,
       });
-    } // Ends the item validation traversal loop cleanly
+    }
 
     if (missingProducts.length > 0) {
       const failedNames = missingProducts.map((p) => `${p.product_name}`).join(", ");
-      const alertMsg = `  Sorry, the following item(s): ${failedNames} are out of stock or could not be found. Please open the shop catalogs drawer and select an alternative option.`;
-
+      const alertMsg = `the following item(s): ${failedNames} are out of stock or could not be found. Please open the shop catalogs drawer and select an alternative option.`;
       await sendWhatsAppMessage(trusted_phone_id, customerPhone, alertMsg);
       return NextResponse.json({ success: false, message: alertMsg });
     }
 
-    // Wrap this whole block inside an IF check so it stays silent when n8n runs it
-    // Only send the message to WhatsApp if sendSMSFlag is TRUE
     if (sendSMSFlag) {
       const checkoutSummary =
-        `  *Order Confirmation Receipt Summary*\n` +
+        `*Order Confirmation Receipt Summary*\n` +
         `---------------------------------\n` +
         validatedItems.map((i) => `• ${i.product_name} (x${i.quantity}) - ₹${i.subtotal}`).join("\n") +
         `\n---------------------------------\n` +
         `Subtotal: ₹${grandSubtotal}\n` +
         `Delivery/Shipping Fee: ₹${grandShipping}\n` +
         `*Grand Total Amount: ₹${grandSubtotal + grandShipping}*\n\n` +
-        `  Items are locked. Kindly text us back with your *Full Name, Delivery Address, phone number and Email* to finalise dispatch routing details.`;
+        `Items are locked. Kindly text us back with your *Full Name, Delivery Address, phone number and Email* to finalise dispatch routing details.`;
 
       await sendWhatsAppMessage(trusted_phone_id, customerPhone, checkoutSummary);
     }

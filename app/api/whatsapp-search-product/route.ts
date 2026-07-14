@@ -131,35 +131,56 @@ export async function GET(request: Request) {
       }
 
       // Step A3: Compile filter conditions for Meta Catalog
-      let metaFilterObject: any = {};
+let metaFilterObject: any = {};
 
-      if (matchedRetailerIds.length > 0) {
-        const idConditions = matchedRetailerIds.slice(0, 20).map(id => ({ retailer_id: { i_contains: id } }));
-        metaFilterObject = { or: idConditions };
-      } else {
-        const wordsToSearch = [...itemWords, ...explicitColorsFound].filter(w => !genericWords.includes(w));
-        const textConditions = wordsToSearch.map(word => ({
-          or: [
-            { name: { contains: word } },
-            { description: { contains: word } },
-            { color: { contains: word } }
-          ]
-        }));
-        
-        metaFilterObject = { and: textConditions };
-      }
+if (matchedRetailerIds.length > 0) {
+  const idConditions = matchedRetailerIds
+    .slice(0, 20)
+    .map(id => ({
+      retailer_id: { i_contains: id }
+    }));
 
-      // Explicitly pull the target catalog web landing 'url' along with default attributes
-      const metaUrl = `https://graph.facebook.com/v20.0/${metaCatalogId}/products?fields=id,name,retailer_id,price,image_url,color,description,url&filter=${encodeURIComponent(JSON.stringify(metaFilterObject))}&access_token=${metaAccessToken}`;
+  metaFilterObject = { or: idConditions };
 
-      const metaResponse = await fetch(metaUrl);
-      const metaData = await metaResponse.json();
+} else {
+  const wordsToSearch = [...itemWords, ...explicitColorsFound]
+    .filter(w => !genericWords.includes(w));
 
-      if (!metaResponse.ok) {
-        throw new Error(metaData.error?.message || 'Meta Catalog API failure.');
-      }
+  const textConditions = wordsToSearch.map(word => ({
+    or: [
+      { name: { contains: word } },
+      { description: { contains: word } },
+      { color: { contains: word } }
+    ]
+  }));
 
-      let products = metaData.data || [];
+  metaFilterObject = { and: textConditions };
+}
+
+// Build Meta URL
+const metaUrl =
+  `https://graph.facebook.com/v20.0/${metaCatalogId}/products` +
+  `?fields=id,name,retailer_id,price,image_url,color,description,url` +
+  `&filter=${encodeURIComponent(JSON.stringify(metaFilterObject))}` +
+  `&access_token=${metaAccessToken}`;
+
+console.log("===== SEARCH API DEBUG =====");
+console.log("Meta URL:", metaUrl);
+
+const metaResponse = await fetch(metaUrl);
+
+console.log("Status:", metaResponse.status);
+
+const metaData = await metaResponse.json();
+
+console.log("Response:");
+console.log(JSON.stringify(metaData, null, 2));
+
+if (!metaResponse.ok) {
+  throw new Error(metaData.error?.message || "Meta Catalog API failure.");
+}
+
+let products = metaData.data || [];
 
       // Post-Processing validation filter for dynamic price filters
       if (products.length > 0 && (maxPriceFilter !== null || exactPriceFilter !== null || minPriceFilter !== null)) {
