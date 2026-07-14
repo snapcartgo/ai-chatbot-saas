@@ -37,16 +37,25 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ success: false, message: `Invalid quantity for ${product_name || "product"}.` }, { status: 400 });
       }
 
-      // ⚡ FIX: Normalize all incoming attribute keys to lowercase immediately
-      const mergedAttributes = Object.entries(selected_attributes || {}).reduce((acc: any, [k, v]) => {
-        acc[k.toLowerCase().trim()] = v;
+      // Filter out empty string values from incoming attributes to treat them as unspecified
+      const cleanIncomingAttributes = Object.entries(selected_attributes || {}).reduce((acc: any, [k, v]) => {
+        if (v !== "" && v !== null && v !== undefined) {
+          acc[k.toLowerCase().trim()] = v;
+        }
         return acc;
       }, {});
 
       let search = product_name.trim().toLowerCase();
 
-      search = search.replace(/\bsize\s*([a-z0-9]+)\b/g, '$1');
-      search = search.replace(/\b(tshirt|t shirt|shirt)\b/g, 't-shirt');
+      // Clean conversational plurals and normalizations
+      if (/^(tshirt|t-shirt|t shirt|shirt)s?$/i.test(search)) {
+        search = "t-shirt";
+      } else {
+        search = search
+          .replace(/\bt\s+shirts?\b/g, 't-shirt')
+          .replace(/\btshirts?\b/g, 't-shirt')
+          .replace(/s\b/g, ''); // Generalized singular fallback step for fuzzy tracking
+      }
 
       // 1. Primary Fuzzy Search
       let { data: products, error: productError } = await supabase
@@ -60,7 +69,7 @@ export async function POST(req: NextRequest) {
         const words = search.split(" ").filter(Boolean);
         let genericTerm = words[words.length - 1]; 
         
-        if (genericTerm === "tshirt" || genericTerm === "shirt") {
+        if (/^(tshirt|t-shirt|t shirt|shirt)s?$/i.test(genericTerm)) {
           genericTerm = "t-shirt";
         }
         
@@ -72,9 +81,6 @@ export async function POST(req: NextRequest) {
           
         if (fallbackProducts && fallbackProducts.length > 0) {
           products = fallbackProducts;
-          if (search.includes("white") && !mergedAttributes.color) {
-            mergedAttributes.color = "White";
-          }
         }
       }
 
@@ -90,7 +96,7 @@ export async function POST(req: NextRequest) {
       let variantMatched = false;
 
       // Exact Variant Matching
-      if (Object.keys(mergedAttributes).length > 0) {
+      if (Object.keys(cleanIncomingAttributes).length > 0) {
         const matchedProduct = products.find((p: any) => {
           if (!p.attributes) return false;
 
@@ -99,7 +105,7 @@ export async function POST(req: NextRequest) {
             return acc;
           }, {});
 
-          return Object.entries(mergedAttributes).every(([key, value]) => {
+          return Object.entries(cleanIncomingAttributes).every(([key, value]) => {
             const cleanKey = key.toLowerCase().trim();
             const targetVal = String(value).toLowerCase().trim();
 
@@ -126,7 +132,12 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      if (!variantMatched && Object.keys(mergedAttributes).length > 0) {
+      if (!product) {
+        product = products[0];
+      }
+
+      // Check if variant choices are explicitly required by database rules when none are provided
+      if (!variantMatched && Object.keys(cleanIncomingAttributes).length === 0 && product.required_fields && product.required_fields.length > 0) {
         const totalAvailableOptions: Record<string, string[]> = { color: [], size: [] };
         
         products.forEach((p: any) => {
@@ -134,44 +145,34 @@ export async function POST(req: NextRequest) {
             Object.entries(p.attributes).forEach(([key, val]) => {
               const strVal = String(val).trim();
               if (!strVal || strVal.toLowerCase() === "null") return;
-
               const cleanVal = strVal.toLowerCase();
-              const isStandardSizeWord = /^(m|l|xl|s|xs|xxl|30|32|34|36|38|40|42)$/i.test(cleanVal);
-              const isStandardColorWord = /^(black|white|blue|red|green|yellow|pink|grey|cream|beige|maroon|navy)$/i.test(cleanVal);
 
-              if (isStandardSizeWord || key.toLowerCase() === "size" || cleanVal === "l" || cleanVal === "m") {
+              if (key.toLowerCase() === "size" || /^(m|l|xl|s|xs|xxl|30|32|34|36|38|40|42)$/i.test(cleanVal)) {
                 if (!totalAvailableOptions.size.includes(strVal)) totalAvailableOptions.size.push(strVal);
-              } else if (isStandardColorWord || key.toLowerCase() === "color" || cleanVal === "white" || cleanVal === "black") {
+              } else if (key.toLowerCase() === "color" || /^(black|white|blue|red|green|yellow|pink|grey)$/i.test(cleanVal)) {
                 if (!totalAvailableOptions.color.includes(strVal)) totalAvailableOptions.color.push(strVal);
-              } else {
-                if (!totalAvailableOptions[key]) totalAvailableOptions[key] = [];
-                if (!totalAvailableOptions[key].includes(strVal)) totalAvailableOptions[key].push(strVal);
               }
             });
           }
         });
 
-        missingProducts.push({
-          product_name: products[0].name,
-          error_type: "invalid_variant",
-          requested_attributes: mergedAttributes,
-          available_options: totalAvailableOptions
-        });
-        continue;
-      }
-
-      if (!product) {
-        product = products[0];
+        if (totalAvailableOptions.color.length > 0 || totalAvailableOptions.size.length > 0) {
+          missingProducts.push({
+            product_name: product.name,
+            missing_fields: product.required_fields,
+            available_options: totalAvailableOptions
+          });
+          continue;
+        }
       }
 
       const requiredFields = product.required_fields || [];
       const availableOptions = product.allowed_options || product.attributes || {};
       const missingFields: string[] = [];
 
-      // ⚡ FIX: Verified with fully lowercase mapping evaluation rules
       for (const field of requiredFields) {
         const cleanField = field.toLowerCase().trim();
-        if (!mergedAttributes[cleanField]) {
+        if (!cleanIncomingAttributes[cleanField]) {
           missingFields.push(field);
         }
       }
@@ -190,46 +191,39 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ success: false, message: `Only *${product.stock} items* left for *${product.name}*.` });
       }
 
-      // ... (Stock Validation block directly above)
       const subtotal = unitPrice * requestedQuantity;
       const shipping = subtotal >= 999 ? 0 : 40; 
       
       grandSubtotal += subtotal;
       grandShipping += shipping;
 
-      // ==========================================
-      // ADD THE CODE HERE (Replaces your old upsert)
-      // ==========================================
       const { error: cartUpsertError } = await supabase
         .from("cart_sessions")
-        .upsert(
-          {
-            session_id: sessionId, 
-            product_id: product.id,
-            product_name: product.name,
-            quantity: requestedQuantity,
-            selected_attributes: mergedAttributes,
-            current_flow: "whatsapp_ecommerce",
-            current_step: "checkout",
-            updated_at: new Date().toISOString(),
-          }
-        );
+        .upsert({
+          session_id: sessionId, 
+          product_id: product.id,
+          product_name: product.name,
+          quantity: requestedQuantity,
+          selected_attributes: cleanIncomingAttributes,
+          current_flow: "whatsapp_ecommerce",
+          current_step: "checkout",
+          updated_at: new Date().toISOString(),
+        });
 
       if (cartUpsertError) {
         console.error("Cart database save error:", cartUpsertError);
         return NextResponse.json({ success: false, message: "Database system error. Please try again." }, { status: 500 });
       }
-      // ==========================================
 
       validatedItems.push({
         product_id: product.id,
         product_name: product.name,
         quantity: requestedQuantity,
-        selected_attributes: mergedAttributes,
+        selected_attributes: cleanIncomingAttributes,
         unit_price: unitPrice,
         subtotal,
       });
-    } // <-- This closes the for loop
+    }
 
     if (missingProducts.length > 0) {
       const completelyNotFound = missingProducts.filter(p => p.error_type === "not_found");
