@@ -393,35 +393,29 @@ export async function POST(req: NextRequest) {
       const freshAttributes = buildAttributesFromMeta(metaProduct);
       const freshAllowedOptions = buildAllowedOptionsFromMeta(metaProduct);
 
+      // Find this block inside your for (const metaProduct of allProducts) loop:
       const payload: ProductInsertRow = {
         user_id: userId,
         name: String(metaProduct.name || retailerId).trim(),
         description: metaProduct.description ? String(metaProduct.description).trim() : null,
         price: parsedPrice.amount,
-        
-        // 🟢 FIX: Prioritize parsed structural category data 
         category: parseMetaCategory(metaProduct) || existing?.category || null,
-        
         image_url: metaProduct.image_url ? String(metaProduct.image_url).trim() : null,
         product_url: metaProduct.url ? String(metaProduct.url).trim() : null,
         stock: mapAvailabilityToStock(metaProduct.availability),
         website_url: metaProduct.url ? String(metaProduct.url).trim() : existing?.website_url || null,
         color: colorValue,
-        
-        // 🟢 FIX: Prioritize fresh size update
         size: sizeValue || existing?.size || null,
-        
         currency: parsedPrice.currency,
         payment_link: existing?.payment_link || null,
         sku: retailerId,
-
-        // 🟢 FIX: Dynamic overwrite for arrays and JSON data maps
         required_fields: currentRequiredFields,
         attributes: freshAttributes || (existing?.attributes as Record<string, unknown> | null),
         allowed_options: freshAllowedOptions || (existing?.allowed_options as Record<string, unknown> | null),
         
-        // 🟢 FIX: Save raw category breadcrumb path directly into product_type column too
-        product_type: metaProduct.product_type ? String(metaProduct.product_type).trim() : existing?.product_type || null,
+        // 🟢 CHANGE THIS LINE RIGHT HERE:
+        product_type: "meta", // <-- Hardcode this as 'meta' so all synchronized items label correctly
+        
         retailer_id: retailerId,
       };
 

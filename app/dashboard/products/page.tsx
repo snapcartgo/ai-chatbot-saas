@@ -16,6 +16,7 @@ interface Product {
   website_url?: string | null;
   user_id: string | null;
   created_at?: string;
+  product_type?: string | null; // Keeps track of meta vs website
 }
 
 export default function ProductsPage() {
@@ -23,6 +24,9 @@ export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  
+  // State to manage active filter tab: 'website' or 'meta'
+  const [activeTab, setActiveTab] = useState<"website" | "meta">("website");
 
   useEffect(() => {
     fetchProducts();
@@ -41,6 +45,7 @@ export default function ProductsPage() {
         return;
       }
 
+      // Fetch ALL user products so we can switch views instantly on the frontend
       const { data, error } = await supabase
         .from("products")
         .select("*")
@@ -130,9 +135,15 @@ export default function ProductsPage() {
     }
   };
 
+  // Filter products arrays dynamically based on current selected tab state
+  const displayedProducts = products.filter(
+    (product) => product.product_type === activeTab
+  );
+
   return (
     <div className="p-6">
-      <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      {/* Header Controls */}
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-sm font-semibold uppercase tracking-[0.25em] text-blue-600">
             Product Catalog
@@ -152,7 +163,6 @@ export default function ProductsPage() {
             </button>
           </Link>
 
-          {/* Sync Meta Catalog route link button */}
           <Link href="/dashboard/products/sync-meta">
             <button className="rounded-xl bg-blue-600 px-5 py-3 font-bold text-white transition hover:bg-blue-700">
               Sync Meta Catalog
@@ -167,25 +177,55 @@ export default function ProductsPage() {
         </div>
       </div>
 
+      {/* --- FILTER BUTTONS POSITIONED UNDER THE HEADER DESCRIPTION --- */}
+      <div className="mb-8 flex gap-4 border-b border-gray-200 pb-4">
+        <button
+          onClick={() => setActiveTab("website")}
+          className={`rounded-xl px-6 py-2.5 font-bold transition-all ${
+            activeTab === "website"
+              ? "bg-blue-600 text-white shadow-md shadow-blue-200"
+              : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+          }`}
+        >
+          Website Products
+        </button>
+
+        <button
+          onClick={() => setActiveTab("meta")}
+          className={`rounded-xl px-6 py-2.5 font-bold transition-all ${
+            activeTab === "meta"
+              ? "bg-blue-600 text-white shadow-md shadow-blue-200"
+              : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+          }`}
+        >
+          Meta Products
+        </button>
+      </div>
+
+      {/* Grid Content Wrapper */}
       {loading ? (
         <div className="rounded-2xl border border-gray-200 bg-white p-6 text-gray-500 shadow-sm">
           Loading products...
         </div>
-      ) : products.length === 0 ? (
+      ) : displayedProducts.length === 0 ? (
         <div className="rounded-3xl border border-dashed border-gray-300 bg-white p-10 text-center shadow-sm">
-          <h2 className="text-2xl font-bold text-gray-900">No products yet</h2>
+          <h2 className="text-2xl font-bold text-gray-900">
+            No {activeTab === "website" ? "Website" : "Meta"} products found
+          </h2>
           <p className="mt-2 text-sm text-gray-500">
-            Add your first product to start building your product catalog.
+            There are currently no items under this tab selection.
           </p>
-          <Link href="/dashboard/products/add">
-            <button className="mt-6 rounded-xl bg-blue-600 px-5 py-3 font-bold text-white transition hover:bg-blue-700">
-              Add First Product
-            </button>
-          </Link>
+          {activeTab === "website" && (
+            <Link href="/dashboard/products/add">
+              <button className="mt-6 rounded-xl bg-blue-600 px-5 py-3 font-bold text-white transition hover:bg-blue-700">
+                Add First Product
+              </button>
+            </Link>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
-          {products.map((product) => (
+          {displayedProducts.map((product) => (
             <div
               key={product.id}
               className="overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm transition hover:-translate-y-1 hover:shadow-lg"

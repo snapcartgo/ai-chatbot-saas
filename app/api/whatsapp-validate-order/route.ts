@@ -70,14 +70,15 @@ export async function POST(req: NextRequest) {
           .replace(/s\b/g, ''); // Generalized singular fallback step for fuzzy tracking
       }
 
-      // 1. Primary Fuzzy Search
+      // 1. Primary Fuzzy Search 🟢 (FIX: Constrained to product_type = 'meta')
       let { data: products, error: productError } = await supabase
         .from("products")
         .select("*")
         .eq("user_id", user_id) 
+        .eq("product_type", "meta")
         .or(`name.ilike.%${search}%,category.ilike.%${search}%,description.ilike.%${search}%`);
 
-      // 2. Fallback Split-Phrase Search
+      // 2. Fallback Split-Phrase Search 🟢 (FIX: Constrained to product_type = 'meta')
       if ((!products || products.length === 0) && search.includes(" ")) {
         const words = search.split(" ").filter(Boolean);
         let genericTerm = words[words.length - 1]; 
@@ -90,6 +91,7 @@ export async function POST(req: NextRequest) {
           .from("products")
           .select("*")
           .eq("user_id", user_id) 
+          .eq("product_type", "meta")
           .or(`name.ilike.%${genericTerm}%,category.ilike.%${genericTerm}%`);
           
         if (fallbackProducts && fallbackProducts.length > 0) {
@@ -253,7 +255,14 @@ export async function POST(req: NextRequest) {
       const invalidVariants = missingProducts.filter(p => p.error_type === "invalid_variant");
 
       if (completelyNotFound.length > 0) {
-        const { data: storeAlternatives } = await supabase.from('products').select('name').eq('user_id', user_id).limit(3);
+        // 🟢 FIX: Look for alternative suggestions ONLY from meta catalog products
+        const { data: storeAlternatives } = await supabase
+          .from('products')
+          .select('name')
+          .eq('user_id', user_id)
+          .eq('product_type', 'meta')
+          .limit(3);
+
         const suggestionsList = storeAlternatives ? storeAlternatives.map(p => p.name).join(", ") : "";
         const failedNames = completelyNotFound.map(p => `*"${p.product_name}"*`).join(" and ");
 
