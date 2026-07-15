@@ -15,6 +15,7 @@ export default function Sidebar() {
       href: "https://marketing.woodpetra.in/auth/register/vendor",
       external: true,
     },
+    { name: "WhatsApp Inbox", href: "/dashboard/whatsapp-inbox" },
     { name: "Conversations", href: "/dashboard/conversations" },
     { name: "Leads", href: "/dashboard/leads" },
     { name: "Pipeline", href: "/dashboard/pipeline" },

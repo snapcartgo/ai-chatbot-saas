@@ -172,9 +172,15 @@ aiResponse =
 
       if (Array.isArray(n8nData) && n8nData.length > 0) {
         let combinedAssistantContent = "";
+        let firstProductImageUrl = ""; // 🟢 ADD THIS LINE HERE TO INITIALIZE IT
 
         for (const product of n8nData) {
           if (!product.image_url) continue;
+          
+          // 🟢 ADD THIS block inside your product loop to catch the first URL
+          if (!firstProductImageUrl) {
+            firstProductImageUrl = product.image_url;
+          }
 
           const assistantText = `${product.name}\nSKU: ${product.retailer_id || ""}\nPrice: ${product.price}`;
           combinedAssistantContent += `[Sent Image: ${assistantText}]\n`;
@@ -212,7 +218,8 @@ aiResponse =
               channel: "whatsapp",
               phone_number: cleanPhone,
               bot_id: config.chatbot_id,
-              user_id: config.user_id
+              user_id: config.user_id,
+              image_url: firstProductImageUrl // 🟢 The error will disappear now!
             },
           ]);
         }
@@ -249,7 +256,8 @@ aiResponse =
             channel: "whatsapp",
             phone_number: cleanPhone,
             bot_id: config.chatbot_id,
-            user_id: config.user_id
+            user_id: config.user_id,
+            image_url: n8nData.image_url // 🟢 ADD THIS LINE
           },
         ]);
 
