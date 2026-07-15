@@ -126,6 +126,7 @@ async function activateWebsitePlan(params: {
 }
 
 async function activateWhatsAppPlan(profileId: string) {
+  console.log("ACTIVATE WHATSAPP PLAN FOR:", profileId);
   const { nowIso, endIso } = getOneMonthWindow();
 
   const [{ error: subError }, { error: configError }] = await Promise.all([
@@ -150,7 +151,8 @@ async function activateWhatsAppPlan(profileId: string) {
       { onConflict: "user_id" }
     ),
   ]);
-
+   console.log("WHATSAPP UPSERT COMPLETED");
+   
   if (subError) {
     console.error("WhatsApp subscription upsert error:", subError);
     throw new Error(subError.message);
@@ -225,6 +227,7 @@ export async function fulfillSaasBilling(params: {
   rawPlan: string;
   amount?: number | null;
 }) {
+  
   console.log("FULFILL BILLING INPUT:", params);
   const email = normalizeEmail(params.email);
 

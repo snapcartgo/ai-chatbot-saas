@@ -15,6 +15,12 @@ export async function GET(req: Request) {
     const email = (searchParams.get("email") || "").toLowerCase().trim();
     const rawPlan = searchParams.get("plan") || "";
     const amountParam = Number(searchParams.get("amount") || 0);
+    console.log("PAYMENT SUCCESS GET HIT");
+    console.log("PAYMENT SUCCESS GET VALUES:", {
+  email,
+  rawPlan,
+  amountParam,
+});
 
     if (!email) {
       return NextResponse.redirect(`${saasUrl}/dashboard?error=missing_email`);
@@ -59,6 +65,7 @@ const rawPlan = String(
 
 const amountParam = Number(formData.get("amount") || 0);
 
+console.log("PAYMENT SUCCESS POST HIT");
 console.log("PAYMENT SUCCESS POST VALUES:", {
   status,
   email,
