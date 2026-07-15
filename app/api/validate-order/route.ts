@@ -46,11 +46,12 @@ export async function POST(req: NextRequest) {
         search = "t-shirt";
       }
 
-      // 1. Primary Fuzzy Search (Strictly scoped to user_id using isolated logical grouping)
+      // 1. Primary Fuzzy Search (Strictly scoped to user_id AND product_type = 'website')
       let { data: products, error: productError } = await supabase
         .from("products")
         .select("*")
-        .eq("user_id", user_id) 
+        .eq("user_id", user_id)
+        .eq("product_type", "website") // <-- FILTER ADDED HERE
         .or(`name.ilike.%${search}%,category.ilike.%${search}%,description.ilike.%${search}%`);
 
       // 2. Fallback Split-Phrase Search (If first lookup came up completely empty)
@@ -65,7 +66,8 @@ export async function POST(req: NextRequest) {
         const { data: fallbackProducts } = await supabase
           .from("products")
           .select("*")
-          .eq("user_id", user_id) 
+          .eq("user_id", user_id)
+          .eq("product_type", "website") // <-- FILTER ADDED HERE
           .or(`name.ilike.%${genericTerm}%,category.ilike.%${genericTerm}%`);
           
         if (fallbackProducts && fallbackProducts.length > 0) {
@@ -102,12 +104,12 @@ export async function POST(req: NextRequest) {
 
             // Check primary matching path safely
             const isMatchPrimary = Array.isArray(dbValue1)
-              ? dbValue1.map(v => String(v).toLowerCase().trim()).includes(targetVal)
+              ? dbValue1.map((v: string) => String(v).toLowerCase().trim()).includes(targetVal)
               : String(dbValue1).toLowerCase().trim() === targetVal;
 
             // Check swapped matching path safely to account for mixed database columns
             const isMatchSwapped = dbValue2 && (Array.isArray(dbValue2)
-              ? dbValue2.map(v => String(v).toLowerCase().trim()).includes(targetVal)
+              ? dbValue2.map((v: string) => String(v).toLowerCase().trim()).includes(targetVal)
               : String(dbValue2).toLowerCase().trim() === targetVal);
 
             return isMatchPrimary || isMatchSwapped;
@@ -237,7 +239,12 @@ export async function POST(req: NextRequest) {
       const invalidVariants = missingProducts.filter(p => p.error_type === "invalid_variant");
 
       if (completelyNotFound.length > 0) {
-        const { data: storeAlternatives } = await supabase.from('products').select('name').eq('user_id', user_id).limit(3);
+        const { data: storeAlternatives } = await supabase
+          .from('products')
+          .select('name')
+          .eq('user_id', user_id)
+          .eq('product_type', 'website') // <-- FILTER ADDED HERE
+          .limit(3);
         const suggestionsList = storeAlternatives ? storeAlternatives.map(p => p.name).join(", ") : "";
         const failedNames = completelyNotFound.map(p => `"${p.product_name}"`).join(" and ");
 
@@ -257,9 +264,9 @@ export async function POST(req: NextRequest) {
         let customErrorMessage = `Sorry, that specific combination is not available for ${item.product_name}.`;
         
         if (allowedColors || allowedSizes) {
-          customErrorMessage += " We currently have this item available in:\n"; // ✨ Changed to \n
-          if (allowedColors) customErrorMessage += `\n• Colors: ${allowedColors}`; // ✨ Changed to \n
-          if (allowedSizes) customErrorMessage += `\n• Sizes: ${allowedSizes}`;   // ✨ Changed to \n
+          customErrorMessage += " We currently have this item available in:\n"; 
+          if (allowedColors) customErrorMessage += `\n• Colors: ${allowedColors}`; 
+          if (allowedSizes) customErrorMessage += `\n• Sizes: ${allowedSizes}`;  
         }
         
         return NextResponse.json({
@@ -271,7 +278,6 @@ export async function POST(req: NextRequest) {
       }
 
       // Scenario C: Normal item attribute selection flow handler (with universal newline \n formatting)
-            // Scenario C: Normal item attribute selection flow handler (with full available options for single and multiple products)
       let userFriendlyMessage = "";
 
       const buildOptionsText = (item: any) => {
