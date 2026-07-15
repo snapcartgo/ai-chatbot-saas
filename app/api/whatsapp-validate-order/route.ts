@@ -10,19 +10,27 @@ const supabase = createClient(
 export async function POST(req: NextRequest) {
   console.log("===== WHATSAPP VALIDATE ORDER API PRODUCTION =====");
   try {
-    // 1. Safe parsing wrapper to handle dev tunnel proxy layers safely
-    let body: any;
+    // 1. Fully robust parsing fallback for proxy/tunnel layers
+    let body: any = {};
     try {
       body = await req.json();
     } catch (parseError) {
-      // Fallback if the content-type header gets lost or modified by the tunnel
-      const rawText = await req.text();
-      body = JSON.parse(rawText || '{}');
+      console.log("Standard req.json() failed, trying raw text fallback...");
+      try {
+        const rawText = await req.text();
+        if (rawText && rawText.trim()) {
+          body = JSON.parse(rawText.trim());
+        }
+      } catch (jsonError) {
+        console.error("Failed to parse raw body text:", jsonError);
+        return NextResponse.json({ success: false, message: "Invalid JSON format payload." }, { status: 400 });
+      }
     }
 
+    // Now extract values from the successfully built body object
     const sessionId = body.session_id; 
     const items = body.items;
-    const user_id = body.user_id; 
+    const user_id = body.user_id;
 
     // Debugging logs to see exactly what arrives in your console terminal
     console.log("--> Received User ID:", user_id);
@@ -70,7 +78,7 @@ export async function POST(req: NextRequest) {
           .replace(/s\b/g, ''); // Generalized singular fallback step for fuzzy tracking
       }
 
-      // 1. Primary Fuzzy Search 🟢 (FIX: Constrained to product_type = 'meta')
+      // 1. Primary Fuzzy Search 🟢 (Constrained to product_type = 'meta')
       let { data: products, error: productError } = await supabase
         .from("products")
         .select("*")
@@ -78,7 +86,7 @@ export async function POST(req: NextRequest) {
         .eq("product_type", "meta")
         .or(`name.ilike.%${search}%,category.ilike.%${search}%,description.ilike.%${search}%`);
 
-      // 2. Fallback Split-Phrase Search 🟢 (FIX: Constrained to product_type = 'meta')
+      // 2. Fallback Split-Phrase Search 🟢 (Constrained to product_type = 'meta')
       if ((!products || products.length === 0) && search.includes(" ")) {
         const words = search.split(" ").filter(Boolean);
         let genericTerm = words[words.length - 1]; 
@@ -147,6 +155,39 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      // ⚡ 1. NEW VALIDATION FIX: Catch wrong/invalid choices explicitly passed by user
+      if (!variantMatched && Object.keys(cleanIncomingAttributes).length > 0) {
+        const totalAvailableOptions: Record<string, string[]> = { color: [], size: [] };
+        
+        products.forEach((p: any) => {
+          if (p.attributes) {
+            Object.entries(p.attributes).forEach(([key, val]) => {
+              if (!val || String(val).toLowerCase() === "null") return;
+              const cleanKey = key.toLowerCase().trim();
+              const valuesArray = Array.isArray(val) ? val : String(val).split(",").map(v => v.trim());
+
+              valuesArray.forEach(strVal => {
+                const cleanVal = String(strVal).toLowerCase().trim();
+                if (!cleanVal) return;
+
+                if (cleanKey === "size" || /^(m|l|xl|s|xs|xxl|30|32|34|36|38|40|42)$/i.test(cleanVal)) {
+                  if (!totalAvailableOptions.size.includes(strVal)) totalAvailableOptions.size.push(strVal);
+                } else if (cleanKey === "color" || /^(black|white|blue|red|green|yellow|pink|grey)$/i.test(cleanVal)) {
+                  if (!totalAvailableOptions.color.includes(strVal)) totalAvailableOptions.color.push(strVal);
+                }
+              });
+            });
+          }
+        });
+
+        missingProducts.push({
+          product_name: products[0].name,
+          error_type: "invalid_variant",
+          available_options: totalAvailableOptions
+        });
+        continue; // Instantly halts execution for this item loop
+      }
+
       if (!product) {
         product = products[0];
       }
@@ -161,11 +202,7 @@ export async function POST(req: NextRequest) {
               if (!val || String(val).toLowerCase() === "null") return;
               
               const cleanKey = key.toLowerCase().trim();
-              
-              // Handle both arrays and comma-separated strings safely
-              const valuesArray = Array.isArray(val) 
-                ? val 
-                : String(val).split(",").map(v => v.trim());
+              const valuesArray = Array.isArray(val) ? val : String(val).split(",").map(v => v.trim());
 
               valuesArray.forEach(strVal => {
                 const cleanVal = String(strVal).toLowerCase().trim();
@@ -255,7 +292,6 @@ export async function POST(req: NextRequest) {
       const invalidVariants = missingProducts.filter(p => p.error_type === "invalid_variant");
 
       if (completelyNotFound.length > 0) {
-        // 🟢 FIX: Look for alternative suggestions ONLY from meta catalog products
         const { data: storeAlternatives } = await supabase
           .from('products')
           .select('name')
@@ -273,6 +309,7 @@ export async function POST(req: NextRequest) {
         });
       }
 
+      // ⚡ 2. NEW RESPONSE FIX: Returns structured option strings on invalid_variant matches
       if (invalidVariants.length > 0) {
         const item = invalidVariants[0];
         const allowedColors = item.available_options?.color?.length ? item.available_options.color.join(" or ") : "";
@@ -296,7 +333,6 @@ export async function POST(req: NextRequest) {
 
       let userFriendlyMessage = "";
 
-      // Refactored helper to safely process arrays or raw strings from attributes mapping
       const buildOptionsText = (item: any) => {
         const opts = item.available_options || {};
         const optionsStringArray: string[] = [];
@@ -327,7 +363,6 @@ export async function POST(req: NextRequest) {
           userFriendlyMessage += `\n\n*AVAILABLE CHOICES:*${choices}`;
         }
       } else {
-        // Multi-product format logic fixed to print clean separate options for each product
         userFriendlyMessage = `Please specify required options for the following products:\n`;
         
         missingProducts.forEach((item, index) => {
