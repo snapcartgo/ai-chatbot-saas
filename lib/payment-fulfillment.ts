@@ -1,7 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
 
-
-
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -15,26 +13,10 @@ const PLAN_CONFIG: Record<
     message_limit: number;
   }
 > = {
-  starter: {
-    amount: 999,
-    chatbot_limit: 1,
-    message_limit: 1000,
-  },
-  pro: {
-    amount: 1999,
-    chatbot_limit: 2,
-    message_limit: 3000,
-  },
-  growth: {
-    amount: 4999,
-    chatbot_limit: 5,
-    message_limit: 12000,
-  },
-  enterprise: {
-    amount: 15000,
-    chatbot_limit: 10,
-    message_limit: 20000,
-  },
+  starter: { amount: 999, chatbot_limit: 1, message_limit: 1000 },
+  pro: { amount: 1999, chatbot_limit: 2, message_limit: 3000 },
+  growth: { amount: 4999, chatbot_limit: 5, message_limit: 12000 },
+  enterprise: { amount: 15000, chatbot_limit: 10, message_limit: 20000 },
 };
 
 function normalizeEmail(value: string | null | undefined) {
@@ -43,18 +25,17 @@ function normalizeEmail(value: string | null | undefined) {
 
 export function normalizePlan(raw: string | null | undefined) {
   const value = String(raw || "").toLowerCase().trim();
-
   if (value.includes("starter")) return "starter";
   if (value.includes("enterprise")) return "enterprise";
   if (value.includes("growth")) return "growth";
   if (value.includes("pro")) return "pro";
-
   return null;
 }
 
 export function isWhatsAppPlan(raw: string | null | undefined) {
   const value = String(raw || "").toLowerCase().trim();
-  return value.includes("whatsapp") || value === "plan_2";
+  // Enhanced to catch messy gateway naming variants
+  return value.includes("whatsapp") || value.includes("wa_") || value === "plan_2";
 }
 
 async function getProfileByEmail(email: string) {
@@ -68,7 +49,6 @@ async function getProfileByEmail(email: string) {
     console.error("Profile lookup error:", error);
     return null;
   }
-
   return data;
 }
 
@@ -91,11 +71,7 @@ async function activateWebsitePlan(params: {
   amount?: number | null;
 }) {
   const cfg = PLAN_CONFIG[params.plan];
-  const finalAmount =
-    typeof params.amount === "number" && params.amount > 0
-      ? params.amount
-      : cfg.amount;
-
+  const finalAmount = typeof params.amount === "number" && params.amount > 0 ? params.amount : cfg.amount;
   const { nowIso, endIso, endDate } = getOneMonthWindow();
 
   const payload = {
@@ -121,15 +97,16 @@ async function activateWebsitePlan(params: {
 
   if (error) {
     console.error("Subscription upsert error:", error);
-    throw new Error(error.message);
+    throw new Error(`Website Subscription Failed: ${error.message}`);
   }
 }
 
 async function activateWhatsAppPlan(profileId: string) {
-  console.log("ACTIVATE WHATSAPP PLAN FOR:", profileId);
+  console.log("👉 STARTING WHATSAPP DB ACTIVATION FOR:", profileId);
   const { nowIso, endIso } = getOneMonthWindow();
 
-  const [{ error: subError }, { error: configError }] = await Promise.all([
+  // Executing concurrently; ensure table definitions match exactly lowercase in Postgres
+  const [subResult, configResult] = await Promise.all([
     supabase.from("whatsapp_subscriptions").upsert(
       {
         user_id: profileId,
@@ -151,17 +128,18 @@ async function activateWhatsAppPlan(profileId: string) {
       { onConflict: "user_id" }
     ),
   ]);
-   console.log("WHATSAPP UPSERT COMPLETED");
-   
-  if (subError) {
-    console.error("WhatsApp subscription upsert error:", subError);
-    throw new Error(subError.message);
+
+  if (subResult.error) {
+    console.error("❌ whatsapp_subscriptions upsert error:", subResult.error);
+    throw new Error(`WhatsApp Sub Table Failed: ${subResult.error.message}`);
   }
 
-  if (configError) {
-    console.error("WhatsApp config upsert error:", configError);
-    throw new Error(configError.message);
+  if (configResult.error) {
+    console.error("❌ whatsapp_configs upsert error:", configResult.error);
+    throw new Error(`WhatsApp Config Table Failed: ${configResult.error.message}`);
   }
+
+  console.log("✅ WHATSAPP DB TABLES SUCCESSFULLY UPDATED");
 }
 
 async function updateReferralAfterPayment(params: {
@@ -175,9 +153,7 @@ async function updateReferralAfterPayment(params: {
   const { data: referral, error: referralError } = await supabase
     .from("referrals")
     .select("id, partner_id")
-    .or(
-      `referred_user_id.eq.${params.profileId},referred_email.eq.${normalizedEmail}`
-    )
+    .or(`referred_user_id.eq.${params.profileId},referred_email.eq.${normalizedEmail}`)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -187,7 +163,10 @@ async function updateReferralAfterPayment(params: {
     return;
   }
 
-  if (!referral?.id) return;
+  if (!referral?.id) {
+    console.log("Info: No active referral record found for user. Skipping referral update.");
+    return;
+  }
 
   const { data: partner, error: partnerError } = await supabase
     .from("partners")
@@ -200,9 +179,7 @@ async function updateReferralAfterPayment(params: {
   }
 
   const rate = Number(partner?.commission_rate ?? 20);
-  const commissionAmount = Number(
-    ((Number(params.amount || 0) * rate) / 100).toFixed(2)
-  );
+  const commissionAmount = Number(((Number(params.amount || 0) * rate) / 100).toFixed(2));
 
   const { error: updateError } = await supabase
     .from("referrals")
@@ -227,8 +204,7 @@ export async function fulfillSaasBilling(params: {
   rawPlan: string;
   amount?: number | null;
 }) {
-  
-  console.log("FULFILL BILLING INPUT:", params);
+  console.log("🚀 FULFILL BILLING CALLED WITH:", params);
   const email = normalizeEmail(params.email);
 
   if (!email) {
@@ -236,18 +212,13 @@ export async function fulfillSaasBilling(params: {
   }
 
   const profile = await getProfileByEmail(email);
-  console.log("PROFILE FOUND:", profile);
-
   if (!profile?.id) {
-    throw new Error(`Profile not found for ${email}`);
+    throw new Error(`Profile not found for email: ${email}`);
   }
 
   if (isWhatsAppPlan(params.rawPlan)) {
-    console.log("WHATSAPP PLAN BRANCH HIT:", params.rawPlan);
-    const finalAmount =
-      typeof params.amount === "number" && params.amount > 0
-        ? params.amount
-        : 999;
+    console.log("🎯 HIT WHATSAPP PROCESSING BRANCH");
+    const finalAmount = typeof params.amount === "number" && params.amount > 0 ? params.amount : 999;
 
     await activateWhatsAppPlan(profile.id);
 
@@ -264,16 +235,14 @@ export async function fulfillSaasBilling(params: {
     };
   }
 
+  console.log("🎯 HIT WEBSITE PLAN PROCESSING BRANCH");
   const plan = normalizePlan(params.rawPlan);
 
   if (!plan) {
     throw new Error(`Invalid SaaS plan: ${params.rawPlan}`);
   }
 
-  const finalAmount =
-    typeof params.amount === "number" && params.amount > 0
-      ? params.amount
-      : PLAN_CONFIG[plan].amount;
+  const finalAmount = typeof params.amount === "number" && params.amount > 0 ? params.amount : PLAN_CONFIG[plan].amount;
 
   await activateWebsitePlan({
     profileId: profile.id,
