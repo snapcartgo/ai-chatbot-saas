@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react"; // 🟢 Added useRef here
 import { createClient } from "@/utils/supabase/client";
 
 type MessageRow = {
@@ -11,14 +11,13 @@ type MessageRow = {
   content: string | null;
   created_at: string | null;
   channel?: string | null;
-  image_url?: string | null; // 🟢 Add this line
+  image_url?: string | null;
 };
 
 type ConversationGroups = Record<string, MessageRow[]>;
 
 // 1. Isolated Sub-Component to keep React Hooks in line and prevent hydration/ordering errors
 function ProductMessageBubble({ msg }: { msg: MessageRow; supabase: any }) {
-  // 🟢 Read directly from the column you just added to the table
   const imageUrl = msg.image_url; 
 
   return (
@@ -28,7 +27,7 @@ function ProductMessageBubble({ msg }: { msg: MessageRow; supabase: any }) {
           src={imageUrl}
           alt="Product View"
           className="rounded-md max-w-full h-auto object-cover bg-white p-1 max-h-[200px]"
-          referrerPolicy="no-referrer" // Helps load Meta CDN links cleanly
+          referrerPolicy="no-referrer"
         />
       ) : (
         <div className="w-[180px] h-[150px] bg-gray-700 rounded flex items-center justify-center text-gray-400 text-[10px]">
@@ -41,7 +40,15 @@ function ProductMessageBubble({ msg }: { msg: MessageRow; supabase: any }) {
     </div>
   );
 }
-
+const formatMessageTime = (isoString: string | null) => {
+  if (!isoString) return "";
+  try {
+    const date = new Date(isoString);
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+  } catch (e) {
+    return "";
+  }
+};
 // 2. Main Page Module Container
 export default function WhatsAppInboxPage() {
   const supabase = createClient();
@@ -49,6 +56,9 @@ export default function WhatsAppInboxPage() {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [typedMessage, setTypedMessage] = useState("");
   const [loading, setLoading] = useState(true);
+
+  // 🟢 1. Create the Scroll Anchor DOM Target Reference Hook here
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const loadWhatsAppChats = async () => {
@@ -116,6 +126,26 @@ export default function WhatsAppInboxPage() {
 
     loadWhatsAppChats();
   }, [supabase]);
+
+  const activeChatMessages = activeSessionId ? whatsappGroups[activeSessionId] : [];
+
+  // 🟢 2. Automatically snap scroll window down whenever messages stream data swaps or updates
+  // Automatically snap scroll window down whenever messages stream data swaps or updates
+  useEffect(() => {
+    const scrollToBottom = () => {
+      if (messagesEndRef.current) {
+        messagesEndRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
+      }
+    };
+
+    // 1. Run immediately for instant text transitions
+    scrollToBottom();
+
+    // 2. Run slightly delayed to account for product image loading layout shifts
+    const timer = setTimeout(scrollToBottom, 250);
+
+    return () => clearTimeout(timer);
+  }, [activeChatMessages]);
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -193,8 +223,6 @@ export default function WhatsAppInboxPage() {
     }
   };
 
-  const activeChatMessages = activeSessionId ? whatsappGroups[activeSessionId] : [];
-
   return (
     <div className="flex h-[calc(100vh-64px)] bg-[#0b141a] text-white overflow-hidden rounded-xl border border-gray-800 m-2">
       
@@ -245,29 +273,81 @@ export default function WhatsAppInboxPage() {
             </div>
 
             {/* Message Stream */}
-            <div className="flex-1 p-6 overflow-y-auto space-y-4 flex flex-col bg-[#0b141a]">
-              {activeChatMessages.map((msg) => {
-                const isProductImage = msg.content?.startsWith("[Sent Image:");
+{/* 🟢 CHANGED: Removed space-y-4 from this parent div container */}
+<div className="flex-1 p-6 overflow-y-auto flex flex-col bg-[#0b141a]">
+  {activeChatMessages.map((msg, index) => {
+    const isProductImage = msg.content?.startsWith("[Sent Image:");
+    const formattedTime = formatMessageTime(msg.created_at);
 
-                return (
-                  <div
-                    key={msg.id}
-                    className={`p-2.5 rounded-lg text-xs max-w-[70%] shadow ${
-                      msg.role === "assistant"
-                        ? "bg-[#005c4b] text-white ml-auto self-end"
-                        : "bg-[#202c33] text-white self-start"
-                    }`}
-                  >
-                    {isProductImage ? (
-                      <ProductMessageBubble msg={msg} supabase={supabase} />
-                    ) : (
-                      <p className="whitespace-pre-line">{msg.content || ""}</p>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+    // Dynamic Date Badge Logic
+    let showDateBadge = false;
+    let dateBadgeText = "";
 
+    if (msg.created_at) {
+      const currentMsgDate = new Date(msg.created_at).toLocaleDateString([], {
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+      });
+
+      const prevMsg = index > 0 ? activeChatMessages[index - 1] : null;
+      const prevMsgDate = prevMsg?.created_at
+        ? new Date(prevMsg.created_at).toLocaleDateString([], {
+            day: "numeric",
+            month: "long",
+            year: "numeric",
+          })
+        : null;
+
+      if (currentMsgDate !== prevMsgDate) {
+        showDateBadge = true;
+        const todayStr = new Date().toLocaleDateString([], {
+          day: "numeric",
+          month: "long",
+          year: "numeric",
+        });
+        dateBadgeText = currentMsgDate === todayStr ? "Today" : currentMsgDate;
+      }
+    }
+
+    return (
+      <div key={msg.id} className="contents">
+        {showDateBadge && (
+          <div className="flex justify-center my-4 select-none w-full">
+            <span className="bg-[#182229] text-gray-400 text-[11px] px-2.5 py-1 rounded-md shadow-sm border border-gray-800/40">
+              {dateBadgeText}
+            </span>
+          </div>
+        )}
+
+        {/* 🟢 CHANGED: Added 'mb-4' here to guarantee clean spacing between bubbles */}
+        <div
+          className={`p-2.5 rounded-lg text-xs max-w-[70%] shadow relative flex flex-col gap-1 mb-4 ${
+            msg.role === "assistant"
+              ? "bg-[#005c4b] text-white ml-auto self-end"
+              : "bg-[#202c33] text-white self-start"
+          }`}
+        >
+          {isProductImage ? (
+            <ProductMessageBubble msg={msg} supabase={supabase} />
+          ) : (
+            <p className="whitespace-pre-line pr-10">{msg.content || ""}</p>
+          )}
+          
+          <span 
+            className={`text-[9px] select-none text-right block mt-auto self-end ${
+              msg.role === "assistant" ? "text-gray-300" : "text-gray-400"
+            }`}
+          >
+            {formattedTime}
+          </span>
+        </div>
+      </div>
+    );
+  })}
+
+  <div ref={messagesEndRef} />
+</div>
             {/* Input Action Form */}
             <form 
               onSubmit={handleSendMessage} 

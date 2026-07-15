@@ -10,11 +10,7 @@ export default function Sidebar() {
   const menuItems = [
     { name: "Dashboard", href: "/dashboard" },
     { name: "Chatbots", href: "/dashboard/chatbots" },
-    {
-      name: "WhatsApp Bot",
-      href: "https://marketing.woodpetra.in/auth/register/vendor",
-      external: true,
-    },
+    
     { name: "WhatsApp Inbox", href: "/dashboard/whatsapp-inbox" },
     { name: "Conversations", href: "/dashboard/conversations" },
     { name: "Leads", href: "/dashboard/leads" },
