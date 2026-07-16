@@ -43,11 +43,9 @@ export async function POST(req: Request) {
 
     console.log("Message ID:", messageId);
     const customerPhone = message.from;
-    const messageType = message?.type; // 'text', 'image', 'video', 'audio', etc.
+    const messageType = message?.type; 
 
-    // =======================================================
-    // 1. EXTRACT MEDIA INFORMATION ALONG WITH TEXT & AUDIO
-    // =======================================================
+    // Extract Media Information Along With Text & Audio
     let userMessage = "";
     let mediaId = "";
 
@@ -91,6 +89,11 @@ export async function POST(req: Request) {
       return new Response("EVENT_RECEIVED", { status: 200 });
     }
 
+    // ACCESSIBLE GLOBAL VARIABLE SCOPING FOR BOTH BLOCKS
+    const metaAccessToken = String(
+      config.whatsapp_access_token || config.meta_access_token || ""
+    ).trim();
+
     const cleanPhone = normalizePhone(customerPhone);
     const conversationId = `conv_${cleanPhone}`;
 
@@ -130,6 +133,29 @@ export async function POST(req: Request) {
         const parsedUrl = new URL(N8N_WEBHOOK);
 
         if (parsedUrl.protocol === "https:") {
+          let resolvedMediaUrl = "";
+          
+          // 🟢 CRITICAL SSRF SECURITY FIX FOR CODEQL
+          // Only allow pure numeric/alphanumeric WhatsApp Media IDs
+          const matches = mediaId ? mediaId.match(/^[a-zA-Z0-9]+$/) : null;
+          
+          if (matches && metaAccessToken) {
+            const sanitizedMediaId = matches[0]; // Extracted safe token
+            try {
+              // Build standard URL target structure
+              const metaMediaUrl = new URL("https://graph.facebook.com/v20.0/");
+              metaMediaUrl.pathname = `/v20.0/${sanitizedMediaId}`;
+
+              const metaMediaRes = await fetch(metaMediaUrl.toString(), {
+                headers: { Authorization: `Bearer ${metaAccessToken}` }
+              });
+              const mediaData = await metaMediaRes.json();
+              resolvedMediaUrl = mediaData?.url || "";
+            } catch (mediaErr) {
+              console.error("Error resolving Meta media URL:", mediaErr);
+            }
+          }
+
           console.log("Calling n8n for:", message.id);
           const response = await fetch(N8N_WEBHOOK, {
             method: "POST",
@@ -137,7 +163,6 @@ export async function POST(req: Request) {
               "Content-Type": "application/json",
               "x-bot-secret": process.env.N8N_BOT_SECRET || "",
             },
-            // Forwarding message_type and media_id parameters down to n8n
             body: JSON.stringify({
               message: userMessage,
               phone: customerPhone,
@@ -147,7 +172,8 @@ export async function POST(req: Request) {
               profile_name: value.contacts?.[0]?.profile?.name || "Customer",
               role: "user",
               message_type: messageType,
-              media_id: mediaId
+              media_id: mediaId,
+              media_url: resolvedMediaUrl 
             }),
           });
 
@@ -175,10 +201,6 @@ export async function POST(req: Request) {
       .select("*")
       .eq("phone", cleanPhone)
       .single();
-
-    const metaAccessToken = String(
-      config.whatsapp_access_token || config.meta_access_token || ""
-    ).trim();
 
     if (metaAccessToken) {
       const metaUrl = `https://graph.facebook.com/v20.0/${phoneNumberId}/messages`;
