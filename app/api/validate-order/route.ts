@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
     // Loop through ALL items submitted concurrently
     for (const item of items) {
       const { product_name, quantity, selected_attributes = {} } = item;
-      const mergedAttributes = selected_attributes || {};
+      const mergedAttributes = { ...selected_attributes }; // shallow copy to prevent mutation bugs
       const requestedQuantity = Number(quantity);
 
       if (!product_name || Number.isNaN(requestedQuantity) || requestedQuantity <= 0) {
@@ -46,12 +46,20 @@ export async function POST(req: NextRequest) {
         search = "t-shirt";
       }
 
+      // ✨ FIX 1: Extract implicit color attributes from the product name string if not explicitly sent
+      if (!mergedAttributes.color) {
+        if (search.includes("black")) mergedAttributes.color = "Black";
+        else if (search.includes("white")) mergedAttributes.color = "White";
+        else if (search.includes("blue")) mergedAttributes.color = "Blue";
+        else if (search.includes("red")) mergedAttributes.color = "Red";
+      }
+
       // 1. Primary Fuzzy Search (Strictly scoped to user_id AND product_type = 'website')
       let { data: products, error: productError } = await supabase
         .from("products")
         .select("*")
         .eq("user_id", user_id)
-        .eq("product_type", "website") // <-- FILTER ADDED HERE
+        .eq("product_type", "website")
         .or(`name.ilike.%${search}%,category.ilike.%${search}%,description.ilike.%${search}%`);
 
       // 2. Fallback Split-Phrase Search (If first lookup came up completely empty)
@@ -67,14 +75,11 @@ export async function POST(req: NextRequest) {
           .from("products")
           .select("*")
           .eq("user_id", user_id)
-          .eq("product_type", "website") // <-- FILTER ADDED HERE
+          .eq("product_type", "website")
           .or(`name.ilike.%${genericTerm}%,category.ilike.%${genericTerm}%`);
           
         if (fallbackProducts && fallbackProducts.length > 0) {
           products = fallbackProducts;
-          if (search.includes("white") && !mergedAttributes.color) {
-            mergedAttributes.color = "White";
-          }
         }
       }
 
@@ -94,20 +99,16 @@ export async function POST(req: NextRequest) {
       if (Object.keys(mergedAttributes).length > 0) {
         const matchedProduct = products.find((p: any) => {
           return Object.entries(mergedAttributes).every(([key, value]) => {
-            // Read what key value is inside this database row variant
             const dbValue1 = p.attributes?.[key];
-            const dbValue2 = p.attributes?.[key === "color" ? "size" : "color"]; // Check cross-over columns
+            const dbValue2 = p.attributes?.[key === "color" ? "size" : "color"];
 
             const targetVal = String(value).toLowerCase().trim();
-
             if (!dbValue1) return false;
 
-            // Check primary matching path safely
             const isMatchPrimary = Array.isArray(dbValue1)
               ? dbValue1.map((v: string) => String(v).toLowerCase().trim()).includes(targetVal)
               : String(dbValue1).toLowerCase().trim() === targetVal;
 
-            // Check swapped matching path safely to account for mixed database columns
             const isMatchSwapped = dbValue2 && (Array.isArray(dbValue2)
               ? dbValue2.map((v: string) => String(v).toLowerCase().trim()).includes(targetVal)
               : String(dbValue2).toLowerCase().trim() === targetVal);
@@ -132,7 +133,6 @@ export async function POST(req: NextRequest) {
               const strVal = String(val).trim();
               if (!strVal || strVal.toLowerCase() === "null") return;
 
-              // Smarter normalized detection to prevent label swapping bugs
               const cleanVal = strVal.toLowerCase();
               const isStandardSizeWord = /^(m|l|xl|s|xs|xxl|30|32|34|36|38|40|42)$/i.test(cleanVal);
               const isStandardColorWord = /^(black|white|blue|red|green|yellow|pink|grey|cream|beige|maroon|navy)$/i.test(cleanVal);
@@ -182,6 +182,7 @@ export async function POST(req: NextRequest) {
       if (missingFields.length > 0) {
         missingProducts.push({
           product_name: product.name,
+          error_type: "missing_attributes", // Explicit label
           missing_fields: missingFields,
           available_options: availableOptions,
         });
@@ -237,13 +238,14 @@ export async function POST(req: NextRequest) {
     if (missingProducts.length > 0) {
       const completelyNotFound = missingProducts.filter(p => p.error_type === "not_found");
       const invalidVariants = missingProducts.filter(p => p.error_type === "invalid_variant");
+      const missingAttributes = missingProducts.filter(p => p.error_type === "missing_attributes");
 
       if (completelyNotFound.length > 0) {
         const { data: storeAlternatives } = await supabase
           .from('products')
           .select('name')
           .eq('user_id', user_id)
-          .eq('product_type', 'website') // <-- FILTER ADDED HERE
+          .eq('product_type', 'website')
           .limit(3);
         const suggestionsList = storeAlternatives ? storeAlternatives.map(p => p.name).join(", ") : "";
         const failedNames = completelyNotFound.map(p => `"${p.product_name}"`).join(" and ");
@@ -255,31 +257,30 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      // Scenario B: INVALID VARIANT SELECTION (Clean layout formatting with universal newlines)
+      // ✨ FIX 2: Loop through ALL invalid variants instead of returning just the 1st one
       if (invalidVariants.length > 0) {
-        const item = invalidVariants[0];
-        const allowedColors = item.available_options?.color?.length ? item.available_options.color.join(" or ") : "";
-        const allowedSizes = item.available_options?.size?.length ? item.available_options.size.join(", ") : "";
+        let customErrorMessage = "Sorry, those specific combinations are not available:\n\n";
         
-        let customErrorMessage = `Sorry, that specific combination is not available for ${item.product_name}.`;
-        
-        if (allowedColors || allowedSizes) {
-          customErrorMessage += " We currently have this item available in:\n"; 
-          if (allowedColors) customErrorMessage += `\n• Colors: ${allowedColors}`; 
-          if (allowedSizes) customErrorMessage += `\n• Sizes: ${allowedSizes}`;  
-        }
-        
+        invalidVariants.forEach((item, index) => {
+          const allowedColors = item.available_options?.color?.length ? item.available_options.color.join(" or ") : "";
+          const allowedSizes = item.available_options?.size?.length ? item.available_options.size.join(", ") : "";
+          
+          customErrorMessage += `${index + 1}. ${item.product_name}:\n`;
+          if (allowedColors) customErrorMessage += `   • Colors: ${allowedColors}\n`;
+          if (allowedSizes) customErrorMessage += `   • Sizes: ${allowedSizes}\n`;
+          customErrorMessage += `\n`;
+        });
+
         return NextResponse.json({
           success: false,
           requires_selection: true,
           missing_products: missingProducts,
-          message: customErrorMessage
+          message: customErrorMessage.trim()
         });
       }
 
-      // Scenario C: Normal item attribute selection flow handler (with universal newline \n formatting)
+      // Scenario C: Multi-item Normal attribute selection missing flow handler
       let userFriendlyMessage = "";
-
       const buildOptionsText = (item: any) => {
         const opts = item.available_options || {};
         const optionsStringArray: string[] = [];
@@ -288,50 +289,24 @@ export async function POST(req: NextRequest) {
           if (Array.isArray(values) && values.length > 0) {
             const label = key.charAt(0).toUpperCase() + key.slice(1) + "s";
             optionsStringArray.push(`\n- ${label}: ${values.join(" or ")}`);
-          } else if (
-            typeof values === "string" &&
-            values.trim().toLowerCase() !== "null" &&
-            values.trim() !== ""
-          ) {
+          } else if (typeof values === "string" && values.trim().toLowerCase() !== "null" && values.trim() !== "") {
             const label = key.charAt(0).toUpperCase() + key.slice(1);
             optionsStringArray.push(`\n- ${label}: ${values}`);
           }
         });
-
-        if (optionsStringArray.length === 0) {
-          return "";
-        }
-
-        return `\nAvailable Choices:${optionsStringArray.join("")}`;
+        return optionsStringArray.length === 0 ? "" : `\nAvailable Choices:${optionsStringArray.join("")}`;
       };
 
       if (missingProducts.length === 1) {
         const item = missingProducts[0];
         const missingFieldsList = item.missing_fields.join(" and ");
-
-        userFriendlyMessage = `Please select options (${missingFieldsList}) for ${item.product_name}.`;
-        userFriendlyMessage += `\n${buildOptionsText(item)}`;
+        userFriendlyMessage = `Please select options (${missingFieldsList}) for ${item.product_name}.\n${buildOptionsText(item)}`;
       } else {
-        const introList = missingProducts.map(
-          (item) => `${item.product_name} (${item.missing_fields.join(", ")})`
-        );
-
         userFriendlyMessage = `Please select required options for the following products:\n\n`;
-
         missingProducts.forEach((item, index) => {
           const missingFieldsList = item.missing_fields.join(" and ");
-
-          userFriendlyMessage += `${index + 1}. ${item.product_name}\n`;
-          userFriendlyMessage += `Missing: ${missingFieldsList}\n`;
-
-          const optionsText = buildOptionsText(item);
-          if (optionsText) {
-            userFriendlyMessage += `${optionsText}\n`;
-          }
-
-          userFriendlyMessage += `\n`;
+          userFriendlyMessage += `${index + 1}. ${item.product_name}\nMissing: ${missingFieldsList}\n${buildOptionsText(item)}\n\n`;
         });
-
         userFriendlyMessage = userFriendlyMessage.trim();
       }
 
