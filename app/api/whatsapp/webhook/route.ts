@@ -134,10 +134,18 @@ export async function POST(req: Request) {
 
         if (parsedUrl.protocol === "https:") {
           // Resolve media_id to an official Meta URL link before calling n8n
+          // Resolve media_id to an official Meta URL link before calling n8n
           let resolvedMediaUrl = "";
-          if (mediaId && metaAccessToken) {
+          
+          // 🟢 SSRF FIX: Sanitize and strictly validate mediaId (alphanumeric check only)
+          const isValidMediaId = mediaId && /^[a-zA-Z0-9]+$/.test(mediaId);
+
+          if (isValidMediaId && metaAccessToken) {
             try {
-              const metaMediaRes = await fetch(`https://graph.facebook.com/v20.0/${mediaId}`, {
+              // Construct a safe, absolute target URL structure
+              const metaMediaUrl = new URL(`https://graph.facebook.com/v20.0/${mediaId}`);
+              
+              const metaMediaRes = await fetch(metaMediaUrl.toString(), {
                 headers: { Authorization: `Bearer ${metaAccessToken}` }
               });
               const mediaData = await metaMediaRes.json();
@@ -146,6 +154,7 @@ export async function POST(req: Request) {
               console.error("Error resolving Meta media URL:", mediaErr);
             }
           }
+          
 
           console.log("Calling n8n for:", message.id);
           const response = await fetch(N8N_WEBHOOK, {
