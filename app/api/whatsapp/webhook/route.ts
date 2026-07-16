@@ -43,12 +43,31 @@ export async function POST(req: Request) {
 
     console.log("Message ID:", messageId);
     const customerPhone = message.from;
+    const messageType = message?.type; // 'text', 'image', 'video', 'audio', etc.
 
-    const userMessage =
-      message.text?.body ||
-      message.button?.text ||
-      message.interactive?.button_reply?.title ||
-      "Unsupported message";
+    // =======================================================
+    // 1. EXTRACT MEDIA INFORMATION ALONG WITH TEXT & AUDIO
+    // =======================================================
+    let userMessage = "";
+    let mediaId = "";
+
+    if (messageType === "text") {
+      userMessage = message.text?.body || "";
+    } else if (messageType === "image") {
+      userMessage = message.image?.caption || "User sent an image";
+      mediaId = message.image?.id || "";
+    } else if (messageType === "video") {
+      userMessage = message.video?.caption || "User sent a video";
+      mediaId = message.video?.id || "";
+    } else if (messageType === "audio") {
+      userMessage = "User sent an audio message";
+      mediaId = message.audio?.id || "";
+    } else {
+      userMessage =
+        message.button?.text ||
+        message.interactive?.button_reply?.title ||
+        "Unsupported message";
+    }
 
     const phoneNumberId = value.metadata?.phone_number_id;
 
@@ -75,22 +94,17 @@ export async function POST(req: Request) {
     const cleanPhone = normalizePhone(customerPhone);
     const conversationId = `conv_${cleanPhone}`;
 
-    // ==========================================
-    // 1. SAFE USER MESSAGE TEST (STRIPPED DOWN)
-    // ==========================================
+    // Safe DB Insert Block
     try {
       const userPayload: any = {
         id: crypto.randomUUID(), 
         conversation_id: conversationId,
         role: "user",
-        content: userMessage || "Unsupported message",
+        content: userMessage,
         channel: "whatsapp",
-        // Only include fields we absolutely know are stable from the assistant row:
         ...(config?.chatbot_id && { bot_id: config.chatbot_id }),
         ...(config?.user_id && { user_id: config.user_id }),
       };
-
-      // ⚠️ WE ARE TEMPORARILY EXCLUDING phone_number AND whatsapp_message HERE TO ISOLATE THE ERROR
       
       const { error: userMsgErr, data: insertedData } = await supabase
         .from("messages")
@@ -123,6 +137,7 @@ export async function POST(req: Request) {
               "Content-Type": "application/json",
               "x-bot-secret": process.env.N8N_BOT_SECRET || "",
             },
+            // Forwarding message_type and media_id parameters down to n8n
             body: JSON.stringify({
               message: userMessage,
               phone: customerPhone,
@@ -131,20 +146,18 @@ export async function POST(req: Request) {
               user_id: config.user_id,
               profile_name: value.contacts?.[0]?.profile?.name || "Customer",
               role: "user",
+              message_type: messageType,
+              media_id: mediaId
             }),
           });
 
           n8nData = await response.json();
 
-// Existing reply format
-aiResponse =
-  n8nData?.reply ||
-  n8nData?.[0]?.reply ||
-
-  // NEW: WhatsApp payload returned by n8n
-  n8nData?.text?.body ||
-
-  "";
+          aiResponse =
+            n8nData?.reply ||
+            n8nData?.[0]?.reply ||
+            n8nData?.text?.body ||
+            "";
         }
       } catch (err) {
         console.error("N8N Error:", err);
@@ -172,12 +185,11 @@ aiResponse =
 
       if (Array.isArray(n8nData) && n8nData.length > 0) {
         let combinedAssistantContent = "";
-        let firstProductImageUrl = ""; // 🟢 ADD THIS LINE HERE TO INITIALIZE IT
+        let firstProductImageUrl = ""; 
 
         for (const product of n8nData) {
           if (!product.image_url) continue;
           
-          // 🟢 ADD THIS block inside your product loop to catch the first URL
           if (!firstProductImageUrl) {
             firstProductImageUrl = product.image_url;
           }
@@ -206,9 +218,6 @@ aiResponse =
           console.log("Status product sent:", metaRes.status);
         }
 
-        // ==========================================
-        // 2a. SAVE ASSISTANT MESSAGE (PRODUCT LOOP)
-        // ==========================================
         if (combinedAssistantContent) {
           await supabase.from("messages").insert([
             {
@@ -219,7 +228,7 @@ aiResponse =
               phone_number: cleanPhone,
               bot_id: config.chatbot_id,
               user_id: config.user_id,
-              image_url: firstProductImageUrl // 🟢 The error will disappear now!
+              image_url: firstProductImageUrl 
             },
           ]);
         }
@@ -245,9 +254,6 @@ aiResponse =
           body: JSON.stringify(payload),
         });
 
-        // ==========================================
-        // 2b. SAVE ASSISTANT MESSAGE (SINGLE IMAGE)
-        // ==========================================
         await supabase.from("messages").insert([
           {
             conversation_id: conversationId,
@@ -257,49 +263,49 @@ aiResponse =
             phone_number: cleanPhone,
             bot_id: config.chatbot_id,
             user_id: config.user_id,
-            image_url: n8nData.image_url // 🟢 ADD THIS LINE
+            image_url: n8nData.image_url 
           },
         ]);
 
       } else if (aiResponse || n8nData?.type === "text") {
 
-  const textBody =
-    aiResponse ||
-    n8nData?.text?.body ||
-    "Sorry, we couldn't find any matching products.";
+        const textBody =
+          aiResponse ||
+          n8nData?.text?.body ||
+          "Sorry, we couldn't find any matching products.";
 
-  const payload = {
-    messaging_product: "whatsapp",
-    to: customerPhone,
-    type: "text",
-    text: {
-      body: textBody,
-    },
-  };
+        const payload = {
+          messaging_product: "whatsapp",
+          to: customerPhone,
+          type: "text",
+          text: {
+            body: textBody,
+          },
+        };
 
-  const metaRes = await fetch(metaUrl, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${metaAccessToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  });
+        const metaRes = await fetch(metaUrl, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${metaAccessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+        });
 
-  console.log("Text message status:", metaRes.status);
+        console.log("Text message status:", metaRes.status);
 
-  await supabase.from("messages").insert([
-    {
-      conversation_id: conversationId,
-      role: "assistant",
-      content: textBody,
-      channel: "whatsapp",
-      phone_number: cleanPhone,
-      bot_id: config.chatbot_id,
-      user_id: config.user_id
-    },
-  ]);
-}
+        await supabase.from("messages").insert([
+          {
+            conversation_id: conversationId,
+            role: "assistant",
+            content: textBody,
+            channel: "whatsapp",
+            phone_number: cleanPhone,
+            bot_id: config.chatbot_id,
+            user_id: config.user_id
+          },
+        ]);
+      }
     }
 
     return new Response("EVENT_RECEIVED", { status: 200 });
