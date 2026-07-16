@@ -89,7 +89,7 @@ export async function POST(req: Request) {
       return new Response("EVENT_RECEIVED", { status: 200 });
     }
 
-    // 🟢 ACCESSIBLE GLOBAL VARIABLE SCOPING FOR BOTH BLOCKS
+    // ACCESSIBLE GLOBAL VARIABLE SCOPING FOR BOTH BLOCKS
     const metaAccessToken = String(
       config.whatsapp_access_token || config.meta_access_token || ""
     ).trim();
@@ -133,18 +133,19 @@ export async function POST(req: Request) {
         const parsedUrl = new URL(N8N_WEBHOOK);
 
         if (parsedUrl.protocol === "https:") {
-          // Resolve media_id to an official Meta URL link before calling n8n
-          // Resolve media_id to an official Meta URL link before calling n8n
           let resolvedMediaUrl = "";
           
-          // 🟢 SSRF FIX: Sanitize and strictly validate mediaId (alphanumeric check only)
-          const isValidMediaId = mediaId && /^[a-zA-Z0-9]+$/.test(mediaId);
-
-          if (isValidMediaId && metaAccessToken) {
+          // 🟢 CRITICAL SSRF SECURITY FIX FOR CODEQL
+          // Only allow pure numeric/alphanumeric WhatsApp Media IDs
+          const matches = mediaId ? mediaId.match(/^[a-zA-Z0-9]+$/) : null;
+          
+          if (matches && metaAccessToken) {
+            const sanitizedMediaId = matches[0]; // Extracted safe token
             try {
-              // Construct a safe, absolute target URL structure
-              const metaMediaUrl = new URL(`https://graph.facebook.com/v20.0/${mediaId}`);
-              
+              // Build standard URL target structure
+              const metaMediaUrl = new URL("https://graph.facebook.com/v20.0/");
+              metaMediaUrl.pathname = `/v20.0/${sanitizedMediaId}`;
+
               const metaMediaRes = await fetch(metaMediaUrl.toString(), {
                 headers: { Authorization: `Bearer ${metaAccessToken}` }
               });
@@ -154,7 +155,6 @@ export async function POST(req: Request) {
               console.error("Error resolving Meta media URL:", mediaErr);
             }
           }
-          
 
           console.log("Calling n8n for:", message.id);
           const response = await fetch(N8N_WEBHOOK, {
