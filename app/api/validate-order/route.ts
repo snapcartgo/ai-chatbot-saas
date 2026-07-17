@@ -7,118 +7,63 @@ const supabase = createClient(
 );
 
 export async function POST(req: NextRequest) {
-  console.log("===== VALIDATE ORDER API V15 PRODUCTION =====");
+  console.log("===== VALIDATE ORDER API V8 PRODUCTION =====");
   try {
     const body = await req.json();
     const sessionId = body.session_id;
-    const incomingItems = body.items;
+    const items = body.items;
     const user_id = body.user_id; 
 
     if (!user_id) {
       return NextResponse.json({ success: false, message: "Missing user_id context." }, { status: 400 });
     }
 
-    if (!Array.isArray(incomingItems) || incomingItems.length === 0) {
+    if (!Array.isArray(items) || items.length === 0) {
       return NextResponse.json({ success: false, message: "No products provided." }, { status: 400 });
     }
 
-    // 🕒 1. LOOKUP THE EXISTING SINGLE ROW FOR THIS SESSION
+    // 🕒 LOOKUP PRIOR SESSION STATE
+    // We check how many items were stored under this session in previous turns
     const { data: existingCartRows } = await supabase
       .from("cart_sessions")
-      .select("*")
+      .select("product_id")
       .eq("session_id", sessionId);
 
-    const existingRow = existingCartRows && existingCartRows.length > 0 ? existingCartRows[0] : null;
+    const isMultiProductSession = items.length > 1 || (existingCartRows && existingCartRows.length > 1);
 
-    // Build a clean tracking map
-    let completeItemsMap: Record<string, any> = {};
-
-    // 🔄 Recover memory history safely from the single primary row container
-    if (existingRow) {
-      const storedAttributes = existingRow.selected_attributes || {};
-      
-      if (storedAttributes.__multi_items_cart) {
-        Object.entries(storedAttributes.__multi_items_cart).forEach(([key, item]: [string, any]) => {
-          completeItemsMap[key] = item;
-        });
-      } else if (existingRow.product_name) {
-        const oldKey = existingRow.product_name.trim().toLowerCase();
-        completeItemsMap[oldKey] = {
-          product_name: existingRow.product_name,
-          quantity: existingRow.quantity || 1,
-          selected_attributes: storedAttributes
-        };
-      }
-    }
-
-    // Merge/Overwrite with the items coming in right now from the client request
-    incomingItems.forEach((item: any) => {
-      let key = item.product_name.trim().toLowerCase();
-      
-      // Smart recovery structure: find a matching word group to replace, instead of appending
-      let targetKey = key;
-      const structuralMatch = Object.keys(completeItemsMap).find(existingKey => {
-        return (existingKey.includes("jeans") && key.includes("jeans")) ||
-               (existingKey.includes("t-shirt") && key.includes("tshirt")) ||
-               (existingKey.includes("shirt") && key.includes("shirt"));
-      });
-
-      if (structuralMatch) {
-        // Remove the outdated fuzzy reference name key entirely to prevent duplicate iteration tracking loops
-        const oldData = completeItemsMap[structuralMatch];
-        delete completeItemsMap[structuralMatch];
-        
-        completeItemsMap[key] = {
-          product_name: item.product_name,
-          quantity: item.quantity || oldData.quantity,
-          selected_attributes: {
-            ...oldData.selected_attributes,
-            ...item.selected_attributes
-          }
-        };
-      } else {
-        completeItemsMap[key] = item;
-      }
-    });
-
-    // ✨ FIX: Explicit type structure assignment removes ts(7005) compilation bugs instantly
-    const finalItemsToValidate = Object.values(completeItemsMap);
-    const isMultiProductSession = finalItemsToValidate.length > 1;
-
-    const validatedItems: any[] = [];
+    const validatedItems = [];
     let grandSubtotal = 0;
     let grandShipping = 0;
+
     const missingProducts: any[] = [];
 
-    // Loop through the complete combined items list
-    for (const item of finalItemsToValidate) {
-      const { product_name, quantity, selected_attributes = {} } = item as any;
-      const mergedAttributes = { ...selected_attributes }; 
+    // Loop through ALL items submitted concurrently
+    for (const item of items) {
+      const { product_name, quantity, selected_attributes = {} } = item;
+      const mergedAttributes = { ...selected_attributes }; // shallow copy to prevent mutation bugs
       const requestedQuantity = Number(quantity);
 
       if (!product_name || Number.isNaN(requestedQuantity) || requestedQuantity <= 0) {
         return NextResponse.json({ success: false, message: `Invalid quantity for ${product_name || "product"}.` }, { status: 400 });
       }
 
+      // Clean the incoming search text
       let search = product_name.trim().toLowerCase();
 
+      // 💡 GLOBAL NORMALIZATION LAYER: Intercept variation strings immediately
       if (search === "tshirt" || search === "t shirt" || search === "shirt") {
         search = "t-shirt";
       }
 
-      // Extract implicit color attributes from the product name string if not explicitly sent
-      if (!mergedAttributes.color || mergedAttributes.color === "") {
+      // ✨ FIX 1: Extract implicit color attributes from the product name string if not explicitly sent
+      if (!mergedAttributes.color) {
         if (search.includes("black")) mergedAttributes.color = "Black";
         else if (search.includes("white")) mergedAttributes.color = "White";
         else if (search.includes("blue")) mergedAttributes.color = "Blue";
         else if (search.includes("red")) mergedAttributes.color = "Red";
       }
 
-      // Strip blank input text tags out of validation metrics completely
-      Object.keys(mergedAttributes).forEach(k => {
-        if (mergedAttributes[k] === "") delete mergedAttributes[k];
-      });
-
+      // 1. Primary Fuzzy Search (Strictly scoped to user_id AND product_type = 'website')
       let { data: products, error: productError } = await supabase
         .from("products")
         .select("*")
@@ -126,10 +71,14 @@ export async function POST(req: NextRequest) {
         .eq("product_type", "website")
         .or(`name.ilike.%${search}%,category.ilike.%${search}%,description.ilike.%${search}%`);
 
+      // 2. Fallback Split-Phrase Search (If first lookup came up completely empty)
       if ((!products || products.length === 0) && search.includes(" ")) {
         const words = search.split(" ").filter(Boolean);
         let genericTerm = words[words.length - 1]; 
-        if (genericTerm === "tshirt" || genericTerm === "shirt") genericTerm = "t-shirt";
+        
+        if (genericTerm === "tshirt" || genericTerm === "shirt") {
+          genericTerm = "t-shirt";
+        }
         
         const { data: fallbackProducts } = await supabase
           .from("products")
@@ -143,14 +92,19 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      // If item still completely missing from database catalog, track it and continue
       if (productError || !products || products.length === 0) {
-        missingProducts.push({ product_name: product_name, error_type: "not_found" });
+        missingProducts.push({
+          product_name: product_name,
+          error_type: "not_found"
+        });
         continue; 
       }
 
       let product = null;
       let variantMatched = false;
 
+      // ⚡ EXACT VARIANT MATCHING LOOKUP LAYER (CASE-INSENSITIVE FIX)
       if (Object.keys(mergedAttributes).length > 0) {
         const matchedProduct = products.find((p: any) => {
           return Object.entries(mergedAttributes).every(([key, value]) => {
@@ -178,6 +132,7 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      // ⚡ VALIDATION CHECK: Case-Insensitive fallback grouping options collector
       if (!variantMatched && Object.keys(mergedAttributes).length > 0) {
         const totalAvailableOptions: Record<string, string[]> = { color: [], size: [] };
         
@@ -192,9 +147,18 @@ export async function POST(req: NextRequest) {
               const isStandardColorWord = /^(black|white|blue|red|green|yellow|pink|grey|cream|beige|maroon|navy)$/i.test(cleanVal);
 
               if (isStandardSizeWord || key.toLowerCase() === "size" || cleanVal === "l" || cleanVal === "m") {
-                if (!totalAvailableOptions.size.includes(strVal)) totalAvailableOptions.size.push(strVal);
+                if (!totalAvailableOptions.size.includes(strVal)) {
+                  totalAvailableOptions.size.push(strVal);
+                }
               } else if (isStandardColorWord || key.toLowerCase() === "color" || cleanVal === "white" || cleanVal === "black") {
-                if (!totalAvailableOptions.color.includes(strVal)) totalAvailableOptions.color.push(strVal);
+                if (!totalAvailableOptions.color.includes(strVal)) {
+                  totalAvailableOptions.color.push(strVal);
+                }
+              } else {
+                if (!totalAvailableOptions[key]) totalAvailableOptions[key] = [];
+                if (!totalAvailableOptions[key].includes(strVal)) {
+                  totalAvailableOptions[key].push(strVal);
+                }
               }
             });
           }
@@ -209,14 +173,19 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      if (!product) product = products[0];
+      // Fallback baseline assignment pointer if no attributes were requested yet
+      if (!product) {
+        product = products[0];
+      }
 
       const requiredFields = product.required_fields || [];
       const availableOptions = product.allowed_options || product.attributes || {};
       const missingFields: string[] = [];
 
       for (const field of requiredFields) {
-        if (!mergedAttributes[field]) missingFields.push(field);
+        if (!mergedAttributes[field]) {
+          missingFields.push(field);
+        }
       }
 
       if (missingFields.length > 0) {
@@ -240,6 +209,27 @@ export async function POST(req: NextRequest) {
       
       grandSubtotal += subtotal;
       grandShipping += shipping;
+
+      // Sync Validated Items to Database State Table
+      const { error: upsertError } = await supabase
+        .from("cart_sessions")
+        .upsert(
+          {
+            session_id: sessionId,
+            product_id: product.id,
+            product_name: product.name,
+            quantity: requestedQuantity,
+            selected_attributes: mergedAttributes,
+            current_flow: "ecommerce",
+            current_step: "collecting_attributes",
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'session_id' }
+        );
+
+      if (upsertError) {
+        return NextResponse.json({ success: false, message: "Database update failed." }, { status: 500 });
+      }
  
       validatedItems.push({
         product_id: product.id,
@@ -251,83 +241,106 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // =========================================================================
+    // 5. EVALUATE TARGET MISSING/INVALID SELECTION PAYLOADS
+    // =========================================================================
     if (missingProducts.length > 0) {
+      const completelyNotFound = missingProducts.filter(p => p.error_type === "not_found");
       const invalidVariants = missingProducts.filter(p => p.error_type === "invalid_variant");
+      const missingAttributes = missingProducts.filter(p => p.error_type === "missing_attributes");
+
+      if (completelyNotFound.length > 0) {
+        const { data: storeAlternatives } = await supabase
+          .from('products')
+          .select('name')
+          .eq('user_id', user_id)
+          .eq('product_type', 'website')
+          .limit(3);
+        const suggestionsList = storeAlternatives ? storeAlternatives.map(p => p.name).join(", ") : "";
+        const failedNames = completelyNotFound.map(p => `"${p.product_name}"`).join(" and ");
+
+        return NextResponse.json({
+          success: false,
+          requires_selection: true,
+          message: `The item ${failedNames} is currently not matching our store catalog format. Try: ${suggestionsList}`
+        });
+      }
+
       if (invalidVariants.length > 0) {
         let customErrorMessage = "Sorry, those specific combinations are not available:\n\n";
+        
         invalidVariants.forEach((item, index) => {
           const allowedColors = item.available_options?.color?.length ? item.available_options.color.join(" or ") : "";
           const allowedSizes = item.available_options?.size?.length ? item.available_options.size.join(", ") : "";
+          
           customErrorMessage += `${index + 1}. ${item.product_name}:\n`;
           if (allowedColors) customErrorMessage += `   • Colors: ${allowedColors}\n`;
           if (allowedSizes) customErrorMessage += `   • Sizes: ${allowedSizes}\n`;
           customErrorMessage += `\n`;
         });
-        return NextResponse.json({ success: false, requires_selection: true, message: customErrorMessage.trim() });
+
+        return NextResponse.json({
+          success: false,
+          requires_selection: true,
+          missing_products: missingProducts,
+          message: customErrorMessage.trim()
+        });
       }
 
-      let userFriendlyMessage = "Please select required options for the following products:\n\n";
-      missingProducts.forEach((item, index) => {
-        const missingFieldsList = item.missing_fields.join(" and ");
-        userFriendlyMessage += `${index + 1}. ${item.product_name}\nMissing: ${missingFieldsList}\n\n`;
-      });
-      return NextResponse.json({ success: false, requires_selection: true, message: userFriendlyMessage.trim() });
-    }
+      let userFriendlyMessage = "";
+      const buildOptionsText = (item: any) => {
+        const opts = item.available_options || {};
+        const optionsStringArray: string[] = [];
 
-    // =========================================================================
-    // 💾 SECURE JSONB CART CONTAINER UPSERT
-    // =========================================================================
-    const primaryProduct = validatedItems[0];
-    
-    const nestedCartData: Record<string, any> = {};
-    Object.entries(completeItemsMap).forEach(([k, v]: [string, any]) => {
-      const matchedValid = validatedItems.find(vi => 
-        vi.product_name.toLowerCase().trim() === k.toLowerCase().trim() || 
-        k.includes(vi.product_name.toLowerCase().trim()) || 
-        vi.product_name.toLowerCase().trim().includes(k)
-      );
-      const finalKey = matchedValid ? matchedValid.product_name.toLowerCase().trim() : k;
-      nestedCartData[finalKey] = {
-        product_name: matchedValid ? matchedValid.product_name : v.product_name,
-        quantity: matchedValid ? matchedValid.quantity : v.quantity,
-        selected_attributes: matchedValid ? matchedValid.selected_attributes : v.selected_attributes
+        Object.entries(opts).forEach(([key, values]) => {
+          if (Array.isArray(values) && values.length > 0) {
+            const label = key.charAt(0).toUpperCase() + key.slice(1) + "s";
+            optionsStringArray.push(`\n- ${label}: ${values.join(" or ")}`);
+          } else if (typeof values === "string" && values.trim().toLowerCase() !== "null" && values.trim() !== "") {
+            const label = key.charAt(0).toUpperCase() + key.slice(1);
+            optionsStringArray.push(`\n- ${label}: ${values}`);
+          }
+        });
+        return optionsStringArray.length === 0 ? "" : `\nAvailable Choices:${optionsStringArray.join("")}`;
       };
-    });
 
-    const payload = {
-      session_id: sessionId,
-      product_id: primaryProduct.product_id,
-      product_name: isMultiProductSession ? "Multiple Items Package" : primaryProduct.product_name,
-      quantity: isMultiProductSession ? finalItemsToValidate.length : primaryProduct.quantity,
-      selected_attributes: {
-        ...primaryProduct.selected_attributes,
-        __multi_items_cart: nestedCartData 
-      }, 
-      current_flow: "ecommerce",
-      current_step: "collecting_attributes",
-      updated_at: new Date().toISOString(),
-    };
+      if (missingProducts.length === 1) {
+        const item = missingProducts[0];
+        const missingFieldsList = item.missing_fields.join(" and ");
+        userFriendlyMessage = `Please select options (${missingFieldsList}) for ${item.product_name}.\n${buildOptionsText(item)}`;
+      } else {
+        userFriendlyMessage = `Please select required options for the following products:\n\n`;
+        missingProducts.forEach((item, index) => {
+          const missingFieldsList = item.missing_fields.join(" and ");
+          userFriendlyMessage += `${index + 1}. ${item.product_name}\nMissing: ${missingFieldsList}\n${buildOptionsText(item)}\n\n`;
+        });
+        userFriendlyMessage = userFriendlyMessage.trim();
+      }
 
-    const { error: upsertError } = await supabase
-      .from("cart_sessions")
-      .upsert(payload, { onConflict: "session_id" });
-
-    if (upsertError) {
-      console.error("Upsert Error:", upsertError);
-      return NextResponse.json({ success: false, message: "Database update failed." }, { status: 500 });
+      return NextResponse.json({
+        success: false,
+        requires_selection: true,
+        missing_products: missingProducts,
+        message: userFriendlyMessage
+      });
     }
 
+    // =========================================================================
+    // 🔀 SUCCESS INTERCEPTION FOR MULTI-ITEM ORDERS
+    // =========================================================================
     if (isMultiProductSession) {
       const itemsSummary = validatedItems
         .map(i => {
-          const attrs = Object.entries(i.selected_attributes).map(([k, v]) => `${k}: ${v}`).join(", ");
+          const attrs = Object.entries(i.selected_attributes)
+            .map(([k, v]) => `${k}: ${v}`)
+            .join(", ");
           return `• ${i.product_name}${attrs ? ` (${attrs})` : ""}`;
         })
         .join("\n");
 
       return NextResponse.json({
         success: true,
-        requires_confirmation: true, 
+        requires_confirmation: true, // 👈 Flag your chatbot workflow/prompt can read
         items: validatedItems,
         subtotal: grandSubtotal,
         shipping: grandShipping,
@@ -336,6 +349,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // Default single item direct validation message
     return NextResponse.json({
       success: true,
       items: validatedItems,
