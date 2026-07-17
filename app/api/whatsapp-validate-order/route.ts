@@ -44,6 +44,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, message: "No products provided." }, { status: 400 });
     }
 
+    // 🕒 LOOKUP PRIOR SESSION STATE (To track multi-item history context)
+    const { data: existingCartRows } = await supabase
+      .from("cart_sessions")
+      .select("product_id")
+      .eq("session_id", sessionId);
+
+    const isMultiProductSession = items.length > 1 || (existingCartRows && existingCartRows.length > 1);
+
     const validatedItems = [];
     let grandSubtotal = 0;
     let grandShipping = 0;
@@ -76,6 +84,14 @@ export async function POST(req: NextRequest) {
           .replace(/\bt\s+shirts?\b/g, 't-shirt')
           .replace(/\btshirts?\b/g, 't-shirt')
           .replace(/s\b/g, ''); // Generalized singular fallback step for fuzzy tracking
+      }
+
+      // ✨ FIX 1: Extract implicit color attributes from the product name text string if missing
+      if (!cleanIncomingAttributes.color) {
+        if (search.includes("black")) cleanIncomingAttributes.color = "black";
+        else if (search.includes("white")) cleanIncomingAttributes.color = "white";
+        else if (search.includes("blue")) cleanIncomingAttributes.color = "blue";
+        else if (search.includes("red")) cleanIncomingAttributes.color = "red";
       }
 
       // 1. Primary Fuzzy Search 🟢 (Constrained to product_type = 'meta')
@@ -155,7 +171,7 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // ⚡ 1. NEW VALIDATION FIX: Catch wrong/invalid choices explicitly passed by user
+      // ⚡ VALIDATION CHECK: Catch wrong/invalid choices explicitly passed by user
       if (!variantMatched && Object.keys(cleanIncomingAttributes).length > 0) {
         const totalAvailableOptions: Record<string, string[]> = { color: [], size: [] };
         
@@ -185,7 +201,7 @@ export async function POST(req: NextRequest) {
           error_type: "invalid_variant",
           available_options: totalAvailableOptions
         });
-        continue; // Instantly halts execution for this item loop
+        continue; 
       }
 
       if (!product) {
@@ -221,6 +237,7 @@ export async function POST(req: NextRequest) {
         if (totalAvailableOptions.color.length > 0 || totalAvailableOptions.size.length > 0) {
           missingProducts.push({
             product_name: product.name,
+            error_type: "missing_attributes",
             missing_fields: product.required_fields,
             available_options: totalAvailableOptions
           });
@@ -242,6 +259,7 @@ export async function POST(req: NextRequest) {
       if (missingFields.length > 0) {
         missingProducts.push({
           product_name: product.name,
+          error_type: "missing_attributes",
           missing_fields: missingFields,
           available_options: availableOptions,
         });
@@ -309,25 +327,25 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      // ⚡ 2. NEW RESPONSE FIX: Returns structured option strings on invalid_variant matches
+      // ✨ FIX 2: Dynamic list formatting loops through ALL invalid variations concurrently
       if (invalidVariants.length > 0) {
-        const item = invalidVariants[0];
-        const allowedColors = item.available_options?.color?.length ? item.available_options.color.join(" or ") : "";
-        const allowedSizes = item.available_options?.size?.length ? item.available_options.size.join(", ") : "";
+        let customErrorMessage = "Sorry, those specific combinations are unavailable:\n";
         
-        let customErrorMessage = `Sorry, that specific combination is unavailable for *${item.product_name}*.`;
-        
-        if (allowedColors || allowedSizes) {
-          customErrorMessage += "\n\n*We currently have this available in:*";
-          if (allowedColors) customErrorMessage += `\n• *Colors:* _${allowedColors}_`;
-          if (allowedSizes) customErrorMessage += `\n• *Sizes:* _${allowedSizes}_`;
-        }
+        invalidVariants.forEach((item, index) => {
+          const allowedColors = item.available_options?.color?.length ? item.available_options.color.join(" or ") : "";
+          const allowedSizes = item.available_options?.size?.length ? item.available_options.size.join(", ") : "";
+          
+          customErrorMessage += `\n*${index + 1}. ${item.product_name}:*`;
+          if (allowedColors) customErrorMessage += `\n   • *Colors:* _${allowedColors}_`;
+          if (allowedSizes) customErrorMessage += `\n   • *Sizes:* _${allowedSizes}_`;
+          customErrorMessage += `\n`;
+        });
         
         return NextResponse.json({
           success: false,
           requires_selection: true,
           missing_products: missingProducts,
-          message: customErrorMessage
+          message: customErrorMessage.trim()
         });
       }
 
@@ -387,6 +405,31 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // =========================================================================
+    // ✨ FIX 3: SUCCESS INTERCEPTION FOR WHATSAPP MULTI-ITEM ORDERS
+    // =========================================================================
+    if (isMultiProductSession) {
+      const itemsSummary = validatedItems
+        .map(i => {
+          const attrs = Object.entries(i.selected_attributes)
+            .map(([k, v]) => `*${k}:* _${v}_`)
+            .join(", ");
+          return `• *${i.product_name}* ${attrs ? `(${attrs})` : ""}`;
+        })
+        .join("\n");
+
+      return NextResponse.json({
+        success: true,
+        requires_confirmation: true, 
+        items: validatedItems,
+        subtotal: grandSubtotal,
+        shipping: grandShipping,
+        total: grandSubtotal + grandShipping,
+        message: `Great! I've confirmed everything is in stock:\n\n${itemsSummary}\n\n*Subtotal:* ₹${grandSubtotal}\n*Shipping:* ${grandShipping === 0 ? "_FREE_" : `₹${grandShipping}`}\n*Total:* *₹${grandSubtotal + grandShipping}*\n\nAre you interested to buy these products? Kindly confirm. Yes.`,
+      });
+    }
+
+    // Default single item direct validation message structure
     return NextResponse.json({
       success: true,
       items: validatedItems,
