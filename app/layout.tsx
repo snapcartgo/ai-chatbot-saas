@@ -17,7 +17,7 @@ export default function RootLayout({
   const isChatWidgetRoute = pathname.startsWith("/chat");
 
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body
         style={{
           margin: 0,
