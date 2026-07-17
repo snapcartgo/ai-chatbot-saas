@@ -7,40 +7,68 @@ const supabase = createClient(
 );
 
 export async function POST(req: NextRequest) {
-  console.log("===== VALIDATE ORDER API V8 PRODUCTION =====");
+  console.log("===== VALIDATE ORDER API V9 PRODUCTION =====");
   try {
     const body = await req.json();
     const sessionId = body.session_id;
-    const items = body.items;
+    const incomingItems = body.items;
     const user_id = body.user_id; 
 
     if (!user_id) {
       return NextResponse.json({ success: false, message: "Missing user_id context." }, { status: 400 });
     }
 
-    if (!Array.isArray(items) || items.length === 0) {
+    if (!Array.isArray(incomingItems) || incomingItems.length === 0) {
       return NextResponse.json({ success: false, message: "No products provided." }, { status: 400 });
     }
 
-    // 🕒 LOOKUP PRIOR SESSION STATE
-    // We check how many items were stored under this session in previous turns
+    // 🕒 1. LOOKUP ALL ITEMS EVER STORED IN THIS CART SESSION
     const { data: existingCartRows } = await supabase
       .from("cart_sessions")
-      .select("product_id")
+      .select("*")
       .eq("session_id", sessionId);
 
-    const isMultiProductSession = items.length > 1 || (existingCartRows && existingCartRows.length > 1);
+    // Build a map of items to ensure we track EVERYTHING globally
+    const completeItemsMap: Record<string, any> = {};
+
+    // Load what was previously saved in the database state table
+    if (existingCartRows && existingCartRows.length > 0) {
+      existingCartRows.forEach((row: any) => {
+        completeItemsMap[row.product_name.trim().toLowerCase()] = {
+          product_name: row.product_name,
+          quantity: row.quantity,
+          selected_attributes: row.selected_attributes || {}
+        };
+      });
+    }
+
+    // Overwrite/merge with whatever the user just sent right now
+    incomingItems.forEach((item: any) => {
+      const key = item.product_name.trim().toLowerCase();
+      if (completeItemsMap[key]) {
+        // Merge attributes if they are sending specific choices now
+        completeItemsMap[key].selected_attributes = {
+          ...completeItemsMap[key].selected_attributes,
+          ...item.selected_attributes
+        };
+        if (item.quantity) completeItemsMap[key].quantity = item.quantity;
+      } else {
+        completeItemsMap[key] = item;
+      }
+    });
+
+    const finalItemsToValidate = Object.values(completeItemsMap);
+    const isMultiProductSession = finalItemsToValidate.length > 1;
 
     const validatedItems = [];
     let grandSubtotal = 0;
     let grandShipping = 0;
-
     const missingProducts: any[] = [];
 
-    // Loop through ALL items submitted concurrently
-    for (const item of items) {
-      const { product_name, quantity, selected_attributes = {} } = item;
-      const mergedAttributes = { ...selected_attributes }; // shallow copy to prevent mutation bugs
+    // Loop through the complete combined items list
+    for (const item of finalItemsToValidate) {
+      const { product_name, quantity, selected_attributes = {} } = item as any;
+      const mergedAttributes = { ...selected_attributes }; 
       const requestedQuantity = Number(quantity);
 
       if (!product_name || Number.isNaN(requestedQuantity) || requestedQuantity <= 0) {
@@ -50,12 +78,12 @@ export async function POST(req: NextRequest) {
       // Clean the incoming search text
       let search = product_name.trim().toLowerCase();
 
-      // 💡 GLOBAL NORMALIZATION LAYER: Intercept variation strings immediately
+      // GLOBAL NORMALIZATION LAYER: Intercept variation strings immediately
       if (search === "tshirt" || search === "t shirt" || search === "shirt") {
         search = "t-shirt";
       }
 
-      // ✨ FIX 1: Extract implicit color attributes from the product name string if not explicitly sent
+      // Extract implicit color attributes from the product name string if not explicitly sent
       if (!mergedAttributes.color) {
         if (search.includes("black")) mergedAttributes.color = "Black";
         else if (search.includes("white")) mergedAttributes.color = "White";
@@ -75,10 +103,7 @@ export async function POST(req: NextRequest) {
       if ((!products || products.length === 0) && search.includes(" ")) {
         const words = search.split(" ").filter(Boolean);
         let genericTerm = words[words.length - 1]; 
-        
-        if (genericTerm === "tshirt" || genericTerm === "shirt") {
-          genericTerm = "t-shirt";
-        }
+        if (genericTerm === "tshirt" || genericTerm === "shirt") genericTerm = "t-shirt";
         
         const { data: fallbackProducts } = await supabase
           .from("products")
@@ -104,7 +129,7 @@ export async function POST(req: NextRequest) {
       let product = null;
       let variantMatched = false;
 
-      // ⚡ EXACT VARIANT MATCHING LOOKUP LAYER (CASE-INSENSITIVE FIX)
+      // EXACT VARIANT MATCHING LOOKUP LAYER (CASE-INSENSITIVE FIX)
       if (Object.keys(mergedAttributes).length > 0) {
         const matchedProduct = products.find((p: any) => {
           return Object.entries(mergedAttributes).every(([key, value]) => {
@@ -132,7 +157,7 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // ⚡ VALIDATION CHECK: Case-Insensitive fallback grouping options collector
+      // VALIDATION CHECK: Case-Insensitive fallback grouping options collector
       if (!variantMatched && Object.keys(mergedAttributes).length > 0) {
         const totalAvailableOptions: Record<string, string[]> = { color: [], size: [] };
         
@@ -224,7 +249,7 @@ export async function POST(req: NextRequest) {
             current_step: "collecting_attributes",
             updated_at: new Date().toISOString(),
           },
-          { onConflict: 'session_id' }
+          { onConflict: "session_id,product_id" } // ✨ Critical fix to track multiple items without overwriting
         );
 
       if (upsertError) {
@@ -247,7 +272,6 @@ export async function POST(req: NextRequest) {
     if (missingProducts.length > 0) {
       const completelyNotFound = missingProducts.filter(p => p.error_type === "not_found");
       const invalidVariants = missingProducts.filter(p => p.error_type === "invalid_variant");
-      const missingAttributes = missingProducts.filter(p => p.error_type === "missing_attributes");
 
       if (completelyNotFound.length > 0) {
         const { data: storeAlternatives } = await supabase
@@ -340,7 +364,7 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json({
         success: true,
-        requires_confirmation: true, // 👈 Flag your chatbot workflow/prompt can read
+        requires_confirmation: true, 
         items: validatedItems,
         subtotal: grandSubtotal,
         shipping: grandShipping,
