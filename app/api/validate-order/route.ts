@@ -7,7 +7,7 @@ const supabase = createClient(
 );
 
 export async function POST(req: NextRequest) {
-  console.log("===== VALIDATE ORDER API V9 PRODUCTION =====");
+  console.log("===== VALIDATE ORDER API V10 PRODUCTION =====");
   try {
     const body = await req.json();
     const sessionId = body.session_id;
@@ -75,15 +75,12 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ success: false, message: `Invalid quantity for ${product_name || "product"}.` }, { status: 400 });
       }
 
-      // Clean the incoming search text
       let search = product_name.trim().toLowerCase();
 
-      // GLOBAL NORMALIZATION LAYER: Intercept variation strings immediately
       if (search === "tshirt" || search === "t shirt" || search === "shirt") {
         search = "t-shirt";
       }
 
-      // Extract implicit color attributes from the product name string if not explicitly sent
       if (!mergedAttributes.color) {
         if (search.includes("black")) mergedAttributes.color = "Black";
         else if (search.includes("white")) mergedAttributes.color = "White";
@@ -91,7 +88,6 @@ export async function POST(req: NextRequest) {
         else if (search.includes("red")) mergedAttributes.color = "Red";
       }
 
-      // 1. Primary Fuzzy Search (Strictly scoped to user_id AND product_type = 'website')
       let { data: products, error: productError } = await supabase
         .from("products")
         .select("*")
@@ -99,7 +95,6 @@ export async function POST(req: NextRequest) {
         .eq("product_type", "website")
         .or(`name.ilike.%${search}%,category.ilike.%${search}%,description.ilike.%${search}%`);
 
-      // 2. Fallback Split-Phrase Search (If first lookup came up completely empty)
       if ((!products || products.length === 0) && search.includes(" ")) {
         const words = search.split(" ").filter(Boolean);
         let genericTerm = words[words.length - 1]; 
@@ -117,7 +112,6 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // If item still completely missing from database catalog, track it and continue
       if (productError || !products || products.length === 0) {
         missingProducts.push({
           product_name: product_name,
@@ -129,7 +123,6 @@ export async function POST(req: NextRequest) {
       let product = null;
       let variantMatched = false;
 
-      // EXACT VARIANT MATCHING LOOKUP LAYER (CASE-INSENSITIVE FIX)
       if (Object.keys(mergedAttributes).length > 0) {
         const matchedProduct = products.find((p: any) => {
           return Object.entries(mergedAttributes).every(([key, value]) => {
@@ -157,7 +150,6 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // VALIDATION CHECK: Case-Insensitive fallback grouping options collector
       if (!variantMatched && Object.keys(mergedAttributes).length > 0) {
         const totalAvailableOptions: Record<string, string[]> = { color: [], size: [] };
         
@@ -172,18 +164,9 @@ export async function POST(req: NextRequest) {
               const isStandardColorWord = /^(black|white|blue|red|green|yellow|pink|grey|cream|beige|maroon|navy)$/i.test(cleanVal);
 
               if (isStandardSizeWord || key.toLowerCase() === "size" || cleanVal === "l" || cleanVal === "m") {
-                if (!totalAvailableOptions.size.includes(strVal)) {
-                  totalAvailableOptions.size.push(strVal);
-                }
+                if (!totalAvailableOptions.size.includes(strVal)) totalAvailableOptions.size.push(strVal);
               } else if (isStandardColorWord || key.toLowerCase() === "color" || cleanVal === "white" || cleanVal === "black") {
-                if (!totalAvailableOptions.color.includes(strVal)) {
-                  totalAvailableOptions.color.push(strVal);
-                }
-              } else {
-                if (!totalAvailableOptions[key]) totalAvailableOptions[key] = [];
-                if (!totalAvailableOptions[key].includes(strVal)) {
-                  totalAvailableOptions[key].push(strVal);
-                }
+                if (!totalAvailableOptions.color.includes(strVal)) totalAvailableOptions.color.push(strVal);
               }
             });
           }
@@ -198,19 +181,14 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      // Fallback baseline assignment pointer if no attributes were requested yet
-      if (!product) {
-        product = products[0];
-      }
+      if (!product) product = products[0];
 
       const requiredFields = product.required_fields || [];
       const availableOptions = product.allowed_options || product.attributes || {};
       const missingFields: string[] = [];
 
       for (const field of requiredFields) {
-        if (!mergedAttributes[field]) {
-          missingFields.push(field);
-        }
+        if (!mergedAttributes[field]) missingFields.push(field);
       }
 
       if (missingFields.length > 0) {
@@ -235,11 +213,31 @@ export async function POST(req: NextRequest) {
       grandSubtotal += subtotal;
       grandShipping += shipping;
 
-      // Sync Validated Items to Database State Table
-      const { error: upsertError } = await supabase
-        .from("cart_sessions")
-        .upsert(
-          {
+      // ✨ MANUALLY SAFE DATABASE SAVE LAYER (Bypasses rigid DB constraint requirements)
+      const existingRow = existingCartRows?.find(
+        (row: any) => row.product_id === product.id || row.product_name.toLowerCase().trim() === product.name.toLowerCase().trim()
+      );
+
+      let dbError = null;
+
+      if (existingRow) {
+        // Safe Update
+        const { error } = await supabase
+          .from("cart_sessions")
+          .update({
+            quantity: requestedQuantity,
+            selected_attributes: mergedAttributes,
+            current_flow: "ecommerce",
+            current_step: "collecting_attributes",
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", existingRow.id);
+        dbError = error;
+      } else {
+        // Safe Insert
+        const { error } = await supabase
+          .from("cart_sessions")
+          .insert({
             session_id: sessionId,
             product_id: product.id,
             product_name: product.name,
@@ -248,11 +246,12 @@ export async function POST(req: NextRequest) {
             current_flow: "ecommerce",
             current_step: "collecting_attributes",
             updated_at: new Date().toISOString(),
-          },
-          { onConflict: "session_id,product_id" } // ✨ Critical fix to track multiple items without overwriting
-        );
+          });
+        dbError = error;
+      }
 
-      if (upsertError) {
+      if (dbError) {
+        console.error("Database Save Error Details:", dbError);
         return NextResponse.json({ success: false, message: "Database update failed." }, { status: 500 });
       }
  
@@ -373,7 +372,6 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Default single item direct validation message
     return NextResponse.json({
       success: true,
       items: validatedItems,
