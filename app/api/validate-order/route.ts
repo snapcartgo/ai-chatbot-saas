@@ -7,7 +7,7 @@ const supabase = createClient(
 );
 
 export async function POST(req: NextRequest) {
-  console.log("===== VALIDATE ORDER API V10 PRODUCTION =====");
+  console.log("===== VALIDATE ORDER API V15 PRODUCTION =====");
   try {
     const body = await req.json();
     const sessionId = body.session_id;
@@ -22,45 +22,70 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, message: "No products provided." }, { status: 400 });
     }
 
-    // 🕒 1. LOOKUP ALL ITEMS EVER STORED IN THIS CART SESSION
+    // 🕒 1. LOOKUP THE EXISTING SINGLE ROW FOR THIS SESSION
     const { data: existingCartRows } = await supabase
       .from("cart_sessions")
       .select("*")
       .eq("session_id", sessionId);
 
-    // Build a map of items to ensure we track EVERYTHING globally
-    const completeItemsMap: Record<string, any> = {};
+    const existingRow = existingCartRows && existingCartRows.length > 0 ? existingCartRows[0] : null;
 
-    // Load what was previously saved in the database state table
-    if (existingCartRows && existingCartRows.length > 0) {
-      existingCartRows.forEach((row: any) => {
-        completeItemsMap[row.product_name.trim().toLowerCase()] = {
-          product_name: row.product_name,
-          quantity: row.quantity,
-          selected_attributes: row.selected_attributes || {}
+    // Build a clean tracking map
+    let completeItemsMap: Record<string, any> = {};
+
+    // 🔄 Recover memory history safely from the single primary row container
+    if (existingRow) {
+      const storedAttributes = existingRow.selected_attributes || {};
+      
+      if (storedAttributes.__multi_items_cart) {
+        Object.entries(storedAttributes.__multi_items_cart).forEach(([key, item]: [string, any]) => {
+          completeItemsMap[key] = item;
+        });
+      } else if (existingRow.product_name) {
+        const oldKey = existingRow.product_name.trim().toLowerCase();
+        completeItemsMap[oldKey] = {
+          product_name: existingRow.product_name,
+          quantity: existingRow.quantity || 1,
+          selected_attributes: storedAttributes
         };
-      });
+      }
     }
 
-    // Overwrite/merge with whatever the user just sent right now
+    // Merge/Overwrite with the items coming in right now from the client request
     incomingItems.forEach((item: any) => {
-      const key = item.product_name.trim().toLowerCase();
-      if (completeItemsMap[key]) {
-        // Merge attributes if they are sending specific choices now
-        completeItemsMap[key].selected_attributes = {
-          ...completeItemsMap[key].selected_attributes,
-          ...item.selected_attributes
+      let key = item.product_name.trim().toLowerCase();
+      
+      // Smart recovery structure: find a matching word group to replace, instead of appending
+      let targetKey = key;
+      const structuralMatch = Object.keys(completeItemsMap).find(existingKey => {
+        return (existingKey.includes("jeans") && key.includes("jeans")) ||
+               (existingKey.includes("t-shirt") && key.includes("tshirt")) ||
+               (existingKey.includes("shirt") && key.includes("shirt"));
+      });
+
+      if (structuralMatch) {
+        // Remove the outdated fuzzy reference name key entirely to prevent duplicate iteration tracking loops
+        const oldData = completeItemsMap[structuralMatch];
+        delete completeItemsMap[structuralMatch];
+        
+        completeItemsMap[key] = {
+          product_name: item.product_name,
+          quantity: item.quantity || oldData.quantity,
+          selected_attributes: {
+            ...oldData.selected_attributes,
+            ...item.selected_attributes
+          }
         };
-        if (item.quantity) completeItemsMap[key].quantity = item.quantity;
       } else {
         completeItemsMap[key] = item;
       }
     });
 
+    // ✨ FIX: Explicit type structure assignment removes ts(7005) compilation bugs instantly
     const finalItemsToValidate = Object.values(completeItemsMap);
     const isMultiProductSession = finalItemsToValidate.length > 1;
 
-    const validatedItems = [];
+    const validatedItems: any[] = [];
     let grandSubtotal = 0;
     let grandShipping = 0;
     const missingProducts: any[] = [];
@@ -81,12 +106,18 @@ export async function POST(req: NextRequest) {
         search = "t-shirt";
       }
 
-      if (!mergedAttributes.color) {
+      // Extract implicit color attributes from the product name string if not explicitly sent
+      if (!mergedAttributes.color || mergedAttributes.color === "") {
         if (search.includes("black")) mergedAttributes.color = "Black";
         else if (search.includes("white")) mergedAttributes.color = "White";
         else if (search.includes("blue")) mergedAttributes.color = "Blue";
         else if (search.includes("red")) mergedAttributes.color = "Red";
       }
+
+      // Strip blank input text tags out of validation metrics completely
+      Object.keys(mergedAttributes).forEach(k => {
+        if (mergedAttributes[k] === "") delete mergedAttributes[k];
+      });
 
       let { data: products, error: productError } = await supabase
         .from("products")
@@ -113,10 +144,7 @@ export async function POST(req: NextRequest) {
       }
 
       if (productError || !products || products.length === 0) {
-        missingProducts.push({
-          product_name: product_name,
-          error_type: "not_found"
-        });
+        missingProducts.push({ product_name: product_name, error_type: "not_found" });
         continue; 
       }
 
@@ -212,48 +240,6 @@ export async function POST(req: NextRequest) {
       
       grandSubtotal += subtotal;
       grandShipping += shipping;
-
-      // ✨ MANUALLY SAFE DATABASE SAVE LAYER (Bypasses rigid DB constraint requirements)
-      const existingRow = existingCartRows?.find(
-        (row: any) => row.product_id === product.id || row.product_name.toLowerCase().trim() === product.name.toLowerCase().trim()
-      );
-
-      let dbError = null;
-
-      if (existingRow) {
-        // Safe Update
-        const { error } = await supabase
-          .from("cart_sessions")
-          .update({
-            quantity: requestedQuantity,
-            selected_attributes: mergedAttributes,
-            current_flow: "ecommerce",
-            current_step: "collecting_attributes",
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", existingRow.id);
-        dbError = error;
-      } else {
-        // Safe Insert
-        const { error } = await supabase
-          .from("cart_sessions")
-          .insert({
-            session_id: sessionId,
-            product_id: product.id,
-            product_name: product.name,
-            quantity: requestedQuantity,
-            selected_attributes: mergedAttributes,
-            current_flow: "ecommerce",
-            current_step: "collecting_attributes",
-            updated_at: new Date().toISOString(),
-          });
-        dbError = error;
-      }
-
-      if (dbError) {
-        console.error("Database Save Error Details:", dbError);
-        return NextResponse.json({ success: false, message: "Database update failed." }, { status: 500 });
-      }
  
       validatedItems.push({
         product_id: product.id,
@@ -265,98 +251,76 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // =========================================================================
-    // 5. EVALUATE TARGET MISSING/INVALID SELECTION PAYLOADS
-    // =========================================================================
     if (missingProducts.length > 0) {
-      const completelyNotFound = missingProducts.filter(p => p.error_type === "not_found");
       const invalidVariants = missingProducts.filter(p => p.error_type === "invalid_variant");
-
-      if (completelyNotFound.length > 0) {
-        const { data: storeAlternatives } = await supabase
-          .from('products')
-          .select('name')
-          .eq('user_id', user_id)
-          .eq('product_type', 'website')
-          .limit(3);
-        const suggestionsList = storeAlternatives ? storeAlternatives.map(p => p.name).join(", ") : "";
-        const failedNames = completelyNotFound.map(p => `"${p.product_name}"`).join(" and ");
-
-        return NextResponse.json({
-          success: false,
-          requires_selection: true,
-          message: `The item ${failedNames} is currently not matching our store catalog format. Try: ${suggestionsList}`
-        });
-      }
-
       if (invalidVariants.length > 0) {
         let customErrorMessage = "Sorry, those specific combinations are not available:\n\n";
-        
         invalidVariants.forEach((item, index) => {
           const allowedColors = item.available_options?.color?.length ? item.available_options.color.join(" or ") : "";
           const allowedSizes = item.available_options?.size?.length ? item.available_options.size.join(", ") : "";
-          
           customErrorMessage += `${index + 1}. ${item.product_name}:\n`;
           if (allowedColors) customErrorMessage += `   • Colors: ${allowedColors}\n`;
           if (allowedSizes) customErrorMessage += `   • Sizes: ${allowedSizes}\n`;
           customErrorMessage += `\n`;
         });
-
-        return NextResponse.json({
-          success: false,
-          requires_selection: true,
-          missing_products: missingProducts,
-          message: customErrorMessage.trim()
-        });
+        return NextResponse.json({ success: false, requires_selection: true, message: customErrorMessage.trim() });
       }
 
-      let userFriendlyMessage = "";
-      const buildOptionsText = (item: any) => {
-        const opts = item.available_options || {};
-        const optionsStringArray: string[] = [];
-
-        Object.entries(opts).forEach(([key, values]) => {
-          if (Array.isArray(values) && values.length > 0) {
-            const label = key.charAt(0).toUpperCase() + key.slice(1) + "s";
-            optionsStringArray.push(`\n- ${label}: ${values.join(" or ")}`);
-          } else if (typeof values === "string" && values.trim().toLowerCase() !== "null" && values.trim() !== "") {
-            const label = key.charAt(0).toUpperCase() + key.slice(1);
-            optionsStringArray.push(`\n- ${label}: ${values}`);
-          }
-        });
-        return optionsStringArray.length === 0 ? "" : `\nAvailable Choices:${optionsStringArray.join("")}`;
-      };
-
-      if (missingProducts.length === 1) {
-        const item = missingProducts[0];
+      let userFriendlyMessage = "Please select required options for the following products:\n\n";
+      missingProducts.forEach((item, index) => {
         const missingFieldsList = item.missing_fields.join(" and ");
-        userFriendlyMessage = `Please select options (${missingFieldsList}) for ${item.product_name}.\n${buildOptionsText(item)}`;
-      } else {
-        userFriendlyMessage = `Please select required options for the following products:\n\n`;
-        missingProducts.forEach((item, index) => {
-          const missingFieldsList = item.missing_fields.join(" and ");
-          userFriendlyMessage += `${index + 1}. ${item.product_name}\nMissing: ${missingFieldsList}\n${buildOptionsText(item)}\n\n`;
-        });
-        userFriendlyMessage = userFriendlyMessage.trim();
-      }
-
-      return NextResponse.json({
-        success: false,
-        requires_selection: true,
-        missing_products: missingProducts,
-        message: userFriendlyMessage
+        userFriendlyMessage += `${index + 1}. ${item.product_name}\nMissing: ${missingFieldsList}\n\n`;
       });
+      return NextResponse.json({ success: false, requires_selection: true, message: userFriendlyMessage.trim() });
     }
 
     // =========================================================================
-    // 🔀 SUCCESS INTERCEPTION FOR MULTI-ITEM ORDERS
+    // 💾 SECURE JSONB CART CONTAINER UPSERT
     // =========================================================================
+    const primaryProduct = validatedItems[0];
+    
+    const nestedCartData: Record<string, any> = {};
+    Object.entries(completeItemsMap).forEach(([k, v]: [string, any]) => {
+      const matchedValid = validatedItems.find(vi => 
+        vi.product_name.toLowerCase().trim() === k.toLowerCase().trim() || 
+        k.includes(vi.product_name.toLowerCase().trim()) || 
+        vi.product_name.toLowerCase().trim().includes(k)
+      );
+      const finalKey = matchedValid ? matchedValid.product_name.toLowerCase().trim() : k;
+      nestedCartData[finalKey] = {
+        product_name: matchedValid ? matchedValid.product_name : v.product_name,
+        quantity: matchedValid ? matchedValid.quantity : v.quantity,
+        selected_attributes: matchedValid ? matchedValid.selected_attributes : v.selected_attributes
+      };
+    });
+
+    const payload = {
+      session_id: sessionId,
+      product_id: primaryProduct.product_id,
+      product_name: isMultiProductSession ? "Multiple Items Package" : primaryProduct.product_name,
+      quantity: isMultiProductSession ? finalItemsToValidate.length : primaryProduct.quantity,
+      selected_attributes: {
+        ...primaryProduct.selected_attributes,
+        __multi_items_cart: nestedCartData 
+      }, 
+      current_flow: "ecommerce",
+      current_step: "collecting_attributes",
+      updated_at: new Date().toISOString(),
+    };
+
+    const { error: upsertError } = await supabase
+      .from("cart_sessions")
+      .upsert(payload, { onConflict: "session_id" });
+
+    if (upsertError) {
+      console.error("Upsert Error:", upsertError);
+      return NextResponse.json({ success: false, message: "Database update failed." }, { status: 500 });
+    }
+
     if (isMultiProductSession) {
       const itemsSummary = validatedItems
         .map(i => {
-          const attrs = Object.entries(i.selected_attributes)
-            .map(([k, v]) => `${k}: ${v}`)
-            .join(", ");
+          const attrs = Object.entries(i.selected_attributes).map(([k, v]) => `${k}: ${v}`).join(", ");
           return `• ${i.product_name}${attrs ? ` (${attrs})` : ""}`;
         })
         .join("\n");
