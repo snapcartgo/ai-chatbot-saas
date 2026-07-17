@@ -22,15 +22,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, message: "No products provided." }, { status: 400 });
     }
 
-    // 🕒 LOOKUP PRIOR SESSION STATE
-    // We check how many items were stored under this session in previous turns
-    const { data: existingCartRows } = await supabase
-      .from("cart_sessions")
-      .select("product_id")
-      .eq("session_id", sessionId);
-
-    const isMultiProductSession = items.length > 1 || (existingCartRows && existingCartRows.length > 1);
-
     const validatedItems = [];
     let grandSubtotal = 0;
     let grandShipping = 0;
@@ -191,7 +182,7 @@ export async function POST(req: NextRequest) {
       if (missingFields.length > 0) {
         missingProducts.push({
           product_name: product.name,
-          error_type: "missing_attributes", 
+          error_type: "missing_attributes", // Explicit label
           missing_fields: missingFields,
           available_options: availableOptions,
         });
@@ -266,6 +257,7 @@ export async function POST(req: NextRequest) {
         });
       }
 
+      // ✨ FIX 2: Loop through ALL invalid variants instead of returning just the 1st one
       if (invalidVariants.length > 0) {
         let customErrorMessage = "Sorry, those specific combinations are not available:\n\n";
         
@@ -287,6 +279,7 @@ export async function POST(req: NextRequest) {
         });
       }
 
+      // Scenario C: Multi-item Normal attribute selection missing flow handler
       let userFriendlyMessage = "";
       const buildOptionsText = (item: any) => {
         const opts = item.available_options || {};
@@ -325,31 +318,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // =========================================================================
-    // 🔀 SUCCESS INTERCEPTION FOR MULTI-ITEM ORDERS
-    // =========================================================================
-    if (isMultiProductSession) {
-      const itemsSummary = validatedItems
-        .map(i => {
-          const attrs = Object.entries(i.selected_attributes)
-            .map(([k, v]) => `${k}: ${v}`)
-            .join(", ");
-          return `• ${i.product_name}${attrs ? ` (${attrs})` : ""}`;
-        })
-        .join("\n");
-
-      return NextResponse.json({
-        success: true,
-        requires_confirmation: true, // 👈 Flag your chatbot workflow/prompt can read
-        items: validatedItems,
-        subtotal: grandSubtotal,
-        shipping: grandShipping,
-        total: grandSubtotal + grandShipping,
-        message: `Great! I've confirmed everything is in stock:\n\n${itemsSummary}\n\nAre you interested to buy these products? Kindly confirm. Yes.`,
-      });
-    }
-
-    // Default single item direct validation message
+    // Success! All items verified cleanly
     return NextResponse.json({
       success: true,
       items: validatedItems,
