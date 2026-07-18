@@ -20,6 +20,12 @@ export async function GET(request: Request) {
     const metaCatalogId = request.headers.get('x-catalog-id');
     const metaAccessToken = request.headers.get('x-access-token');
 
+    // Generic word list to capture "any product", "available products", etc.
+    const genericWords = [
+      "product", "products", "item", "items", "thing", "things", 
+      "all", "list", "any", "any product", "available products", "available product"
+    ];
+
     // =========================================================================
     // BRANCH A: WHATSAPP META CATALOG SEARCH ENGINE (MULTI-PRODUCT READY)
     // =========================================================================
@@ -35,6 +41,9 @@ export async function GET(request: Request) {
           text: { body: "What product can I help you find today?" }
         });
       }
+
+      // Check if the query itself is a broad request
+      const isMetaGenericSearch = genericWords.includes(queryText);
 
       // Step A1: Unify and isolate price statements from query string
       let cleanQuery = queryText;
@@ -67,7 +76,7 @@ export async function GET(request: Request) {
         } else if (priceConditionStr.startsWith('exact')) {
           exactPriceFilter = parseFloat(priceConditionStr.replace('exact', '').trim());
         } else if (priceConditionStr.startsWith('between')) {
-          const parts = priceConditionStr.replace('between', '').split(/to|and/).map(n => parseFloat(n.trim()));
+          const parts = priceConditionStr.replace('between', '').split(/to|and/).map((n: string) => parseFloat(n.trim()));
           if (!isNaN(parts[0]) && !isNaN(parts[1])) {
             minPriceFilter = parts[0];
             maxPriceFilter = parts[1];
@@ -77,14 +86,13 @@ export async function GET(request: Request) {
 
       // Strip structural noise words and color tags
       const colorAdjectives = ["white", "black", "blue", "red", "green", "grey", "gray", "yellow"];
-      const genericWords = ["product", "products", "item", "items", "thing", "things", "all", "list"];
       
-      let queryWords = cleanQuery.split(/\s+/).filter(word => word.length > 0);
+      let queryWords = cleanQuery.split(/\s+/).filter((word: string) => word.length > 0);
       
-      const explicitColorsFound = queryWords.filter(word => colorAdjectives.includes(word));
-      let itemWords = queryWords.filter(word => !colorAdjectives.includes(word) && !genericWords.includes(word));
+      const explicitColorsFound = queryWords.filter((word: string) => colorAdjectives.includes(word));
+      let itemWords = queryWords.filter((word: string) => !colorAdjectives.includes(word) && !genericWords.includes(word));
 
-      itemWords = itemWords.map(word => {
+      itemWords = itemWords.map((word: string) => {
         if (word === "shirts" || word === "tshirt" || word === "tshirts") return "t-shirt";
         if (word === "jeans" || word === "jean") return "jeans";
         if (word === "chairs") return "chair";
@@ -103,7 +111,7 @@ export async function GET(request: Request) {
           const supabase = await createSupabaseServerClient();
           let localQuery = supabase.from('products').select('retailer_id').eq('user_id', user_id);
           
-          if (finalSearchTerm.length > 0) {
+          if (finalSearchTerm.length > 0 && !isMetaGenericSearch) {
             localQuery = localQuery.or(`name.ilike.%${finalSearchTerm}%,description.ilike.%${finalSearchTerm}%,category.ilike.%${finalSearchTerm}%`);
           }
 
@@ -123,7 +131,7 @@ export async function GET(request: Request) {
 
           const { data: localProducts } = await localQuery;
           if (localProducts && localProducts.length > 0) {
-            matchedRetailerIds = localProducts.map(p => p.retailer_id).filter(id => !!id);
+            matchedRetailerIds = localProducts.map((p: any) => p.retailer_id).filter((id: string) => !!id);
           }
         } catch (dbErr) {
           console.error("Database bypass active:", dbErr);
@@ -131,56 +139,56 @@ export async function GET(request: Request) {
       }
 
       // Step A3: Compile filter conditions for Meta Catalog
-let metaFilterObject: any = {};
+      let metaFilterObject: any = {};
 
-if (matchedRetailerIds.length > 0) {
-  const idConditions = matchedRetailerIds
-    .slice(0, 20)
-    .map(id => ({
-      retailer_id: { i_contains: id }
-    }));
+      // If it is an explicit fallback or general request, wipe filters to pull the base catalog
+      if (isMetaGenericSearch) {
+        metaFilterObject = {}; 
+      } else if (matchedRetailerIds.length > 0) {
+        const idConditions = matchedRetailerIds
+          .slice(0, 20)
+          .map((id: string) => ({
+            retailer_id: { i_contains: id }
+          }));
 
-  metaFilterObject = { or: idConditions };
+        metaFilterObject = { or: idConditions };
+      } else {
+        const wordsToSearch = [...itemWords, ...explicitColorsFound]
+          .filter((w: string) => !genericWords.includes(w));
 
-} else {
-  const wordsToSearch = [...itemWords, ...explicitColorsFound]
-    .filter(w => !genericWords.includes(w));
+        if (wordsToSearch.length > 0) {
+          const textConditions = wordsToSearch.map((word: string) => ({
+            or: [
+              { name: { contains: word } },
+              { description: { contains: word } },
+              { color: { contains: word } }
+            ]
+          }));
+          metaFilterObject = { and: textConditions };
+        } else {
+          metaFilterObject = {};
+        }
+      }
 
-  const textConditions = wordsToSearch.map(word => ({
-    or: [
-      { name: { contains: word } },
-      { description: { contains: word } },
-      { color: { contains: word } }
-    ]
-  }));
+      // Build Meta URL
+      let metaUrl =
+        `https://graph.facebook.com/v20.0/${metaCatalogId}/products` +
+        `?fields=id,name,retailer_id,price,image_url,color,description,url` +
+        `&access_token=${metaAccessToken}`;
 
-  metaFilterObject = { and: textConditions };
-}
+      // Only pin filter strings onto the request parameters if conditions actually exist
+      if (Object.keys(metaFilterObject).length > 0) {
+        metaUrl += `&filter=${encodeURIComponent(JSON.stringify(metaFilterObject))}`;
+      }
 
-// Build Meta URL
-const metaUrl =
-  `https://graph.facebook.com/v20.0/${metaCatalogId}/products` +
-  `?fields=id,name,retailer_id,price,image_url,color,description,url` +
-  `&filter=${encodeURIComponent(JSON.stringify(metaFilterObject))}` +
-  `&access_token=${metaAccessToken}`;
+      const metaResponse = await fetch(metaUrl);
+      const metaData = await metaResponse.json();
 
-console.log("===== SEARCH API DEBUG =====");
-console.log("Meta URL:", metaUrl);
+      if (!metaResponse.ok) {
+        throw new Error(metaData.error?.message || "Meta Catalog API failure.");
+      }
 
-const metaResponse = await fetch(metaUrl);
-
-console.log("Status:", metaResponse.status);
-
-const metaData = await metaResponse.json();
-
-console.log("Response:");
-console.log(JSON.stringify(metaData, null, 2));
-
-if (!metaResponse.ok) {
-  throw new Error(metaData.error?.message || "Meta Catalog API failure.");
-}
-
-let products = metaData.data || [];
+      let products = metaData.data || [];
 
       // Post-Processing validation filter for dynamic price filters
       if (products.length > 0 && (maxPriceFilter !== null || exactPriceFilter !== null || minPriceFilter !== null)) {
@@ -198,28 +206,35 @@ let products = metaData.data || [];
         });
       }
 
-      // Fallback text message if no catalog rows matched criteria
+      // Fallback response: if no products found, fire a broad query to deliver active recommendations instead of an empty payload
       if (products.length === 0) {
-        // Check if a real price query was extracted (if it isn't "null")
-        const hasBudget = priceConditionStr !== "null";
+        const fallbackUrl = `https://graph.facebook.com/v20.0/${metaCatalogId}/products?fields=id,name,retailer_id,price,image_url,color,description,url&access_token=${metaAccessToken}`;
+        const fallbackResponse = await fetch(fallbackUrl);
+        const fallbackData = await fallbackResponse.json();
+        products = fallbackData.data || [];
+      }
 
+      // If absolutely nothing is left in the catalog inventory system at all
+      if (products.length === 0) {
         return NextResponse.json({
           messaging_product: "whatsapp",
           recipient_type: "individual",
           to: userPhone,
           type: "text",
           text: {
-            body: `We couldn't find any items matching "${(q || '').trim()}"${hasBudget ? ' within that budget range' : ''} inside our catalog right now.`
+            body: `We couldn't find any items matching "${(q || '').trim()}" inside our catalog right now.`
           }
         });
       }
 
-      // Dynamic array transformation grouping up to 30 items for WhatsApp multi-product payload sections
       const multiProductItemsArray = products.slice(0, 30).map((item: any) => ({
         product_retailer_id: item.retailer_id
       }));
 
-      // Return a fully-compliant Native WhatsApp Interactive Multi-Product message schema object
+      const bodyText = isMetaGenericSearch
+        ? "Here are the items currently available in our store:"
+        : `Here is what we found matching your request for "${(q || '').trim()}":`;
+
       return NextResponse.json({
         messaging_product: "whatsapp",
         recipient_type: "individual",
@@ -232,7 +247,7 @@ let products = metaData.data || [];
             text: "Our Collection"
           },
           body: {
-            text: `Here is what we found matching your request for "${(q || '').trim()}":`
+            text: bodyText
           },
           footer: {
             text: "Tap view options below to see all items"
@@ -241,13 +256,12 @@ let products = metaData.data || [];
             catalog_id: metaCatalogId,
             sections: [
               {
-                title: "Search Results",
+                title: "Products Available",
                 product_items: multiProductItemsArray
               }
             ]
           }
         },
-        // Kept array format intact inside debug engine so JavaScript19 code nodes can preview every variant clearly
         debug_product_details: products.map((item: any) => ({
           id: item.id,
           name: item.name,
@@ -285,7 +299,7 @@ let products = metaData.data || [];
         if (!isNaN(exactPrice)) query = query.eq('price', exactPrice);
       } 
       else if (cleanPriceQuery.startsWith('between')) {
-        const numericParts = cleanPriceQuery.replace('between', '').split('to').map(num => parseFloat(num.trim()));
+        const numericParts = cleanPriceQuery.replace('between', '').split('to').map((num: string) => parseFloat(num.trim()));
         if (!isNaN(numericParts[0]) && !isNaN(numericParts[1])) {
           query = query.gte('price', numericParts[0]).lte('price', numericParts[1]);
         }
@@ -296,15 +310,14 @@ let products = metaData.data || [];
 
     if (q) {
       let cleanQuery = q.trim().toLowerCase();
-      const genericWords = ["product", "products", "item", "items", "thing", "things", "all", "list"];
       
       if (genericWords.includes(cleanQuery)) {
         isGenericSearch = true;
       } else {
         const colorAdjectives = ["white", "black", "blue", "red", "green", "grey", "gray", "yellow"];
-        let queryWords = cleanQuery.split(/\s+/).filter(word => !colorAdjectives.includes(word));
+        let queryWords = cleanQuery.split(/\s+/).filter((word: string) => !colorAdjectives.includes(word));
         
-        queryWords = queryWords.map(word => {
+        queryWords = queryWords.map((word: string) => {
           if (word === "shirts" || word === "tshirt" || word === "tshirts") return "t-shirt";
           if (word === "chairs") return "chair";
           if (word === "tables") return "table";
@@ -329,7 +342,7 @@ let products = metaData.data || [];
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    if (!data || data.length === 0) {
+    if (!data || data.length === 0 || isGenericSearch) {
       let altQuery = supabase.from('products').select('*').eq('user_id', user_id);
       let hasPriceFilter = false;
       let priceLabel = "";
@@ -351,7 +364,7 @@ let products = metaData.data || [];
             priceLabel = `at exactly Rs. ${exactPrice}`;
           }
         } else if (cleanPriceQuery.startsWith('between')) {
-          const numericParts = cleanPriceQuery.replace('between', '').split('to').map(num => parseFloat(num.trim()));
+          const numericParts = cleanPriceQuery.replace('between', '').split('to').map((num: string) => parseFloat(num.trim()));
           if (!isNaN(numericParts[0]) && !isNaN(numericParts[1])) {
             altQuery = altQuery.gte('price', numericParts[0]).lte('price', numericParts[1]);
             hasPriceFilter = true;
@@ -371,7 +384,7 @@ let products = metaData.data || [];
         } else if (hasPriceFilter) {
           responseMessage = `Here are the options available in our collection ${priceLabel}:`;
         } else {
-          responseMessage = `I'm sorry, we don't have ${searchItemName} in our store at the moment. However, you might love these popular pieces from our collection:`;
+          responseMessage = `Here are some popular pieces from our collection:`;
         }
 
         return NextResponse.json({ data: alternatives, success: true, message: responseMessage });
