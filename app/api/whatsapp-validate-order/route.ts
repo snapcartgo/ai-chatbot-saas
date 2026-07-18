@@ -302,7 +302,15 @@ export async function POST(req: NextRequest) {
       const unitPrice = Number(product.price);
       const subtotal = unitPrice * requestedQuantity;
 
-      // ✅ IMMEDIATELY SAVE VALIDATED ITEM SO THE STATE PERSISTS
+      // 🛑 PERMANENT FIX: Clear out any existing database items with the same name structure 
+      // but different IDs for this session to prevent old variant "ghosts"
+      await supabase
+        .from("cart_sessions")
+        .delete()
+        .eq("session_id", sessionId)
+        .ilike("product_name", product.name.trim());
+
+      // ✅ NOW SAVE THE LATEST VALID VARIANT STATE
       const { error: cartUpsertError } = await supabase
         .from("cart_sessions")
         .upsert({
