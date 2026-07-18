@@ -191,6 +191,7 @@ export async function GET(request: Request) {
       let products = metaData.data || [];
 
       // Post-Processing validation filter for dynamic price filters
+      // Post-Processing validation filter for dynamic price filters
       if (products.length > 0 && (maxPriceFilter !== null || exactPriceFilter !== null || minPriceFilter !== null)) {
         products = products.filter((item: any) => {
           if (!item.price) return true;
@@ -208,7 +209,7 @@ export async function GET(request: Request) {
 
       // Fallback response: if no products found, fire a broad query to deliver active recommendations instead of an empty payload
       if (products.length === 0) {
-        const fallbackUrl = `https://graph.facebook.com/v20.0/${metaCatalogId}/products?fields=id,name,retailer_id,price,image_url,color,description,url&access_token=${metaAccessToken}`;
+        const fallbackUrl = `https://graph.facebook.com/v20.0/${metaCatalogId}/products?fields=id,name,retailer_id,price,image_url,color,description,url,category&access_token=${metaAccessToken}`;
         const fallbackResponse = await fetch(fallbackUrl);
         const fallbackData = await fallbackResponse.json();
         products = fallbackData.data || [];
@@ -227,13 +228,53 @@ export async function GET(request: Request) {
         });
       }
 
-      const multiProductItemsArray = products.slice(0, 30).map((item: any) => ({
+      // ✨ UPDATED LOGIC: Only show ONE single product total, and skip earbuds/t-shirts
+      // ✨ FIX: Robust category grouping (Max 8 unique categories, 1 product each)
+      let processedProducts: any[] = [];
+      if (isMetaGenericSearch) {
+        const uniqueCategories = new Set<string>();
+        
+        for (const item of products) {
+          // Normalize the category text. If missing, try to figure it out from the product name (e.g., "Jeans", "T-Shirt")
+          let itemCategory = (item.category || '').trim().toLowerCase();
+          
+          if (!itemCategory) {
+            const itemName = (item.name || '').toLowerCase();
+            if (itemName.includes('jean') || itemName.includes('pant')) itemCategory = 'jeans';
+            else if (itemName.includes('shirt') || itemName.includes('top')) itemCategory = 'clothing';
+            else if (itemName.includes('earbud') || itemName.includes('headphone')) itemCategory = 'electronics';
+            else if (itemName.includes('chair') || itemName.includes('table') || itemName.includes('bed')) itemCategory = 'furniture';
+            else itemCategory = 'general_' + item.retailer_id; // Unique fallback group per item if completely unknown
+          }
+          
+          // Only add the item if we haven't already included a product from this category group
+          if (!uniqueCategories.has(itemCategory)) {
+            uniqueCategories.add(itemCategory);
+            processedProducts.push(item);
+          }
+          
+          // Stop strictly when we hit your target maximum limit of 8 categories
+          if (processedProducts.length === 8) {
+            break;
+          }
+        }
+      } else {
+        // Standard user explicit query search lookup path
+        processedProducts = products.slice(0, 30);
+      }
+
+      const multiProductItemsArray = processedProducts.map((item: any) => ({
         product_retailer_id: item.retailer_id
       }));
 
+      // Adjust text message structures and inject the requested 'etc.' layout format
       const bodyText = isMetaGenericSearch
-        ? "Here are the items currently available in our store:"
+        ? "Here are the top categories currently available in our store:"
         : `Here is what we found matching your request for "${(q || '').trim()}":`;
+
+      const footerText = isMetaGenericSearch 
+        ? "Tap view options below to see all items, etc."
+        : "Tap view options below to see all items";
 
       return NextResponse.json({
         messaging_product: "whatsapp",
@@ -250,26 +291,26 @@ export async function GET(request: Request) {
             text: bodyText
           },
           footer: {
-            text: "Tap view options below to see all items"
+            text: footerText
           },
           action: {
             catalog_id: metaCatalogId,
             sections: [
               {
-                title: "Products Available",
+                title: isMetaGenericSearch ? "Explore Categories" : "Search Results",
                 product_items: multiProductItemsArray
               }
             ]
           }
         },
-        debug_product_details: products.map((item: any) => ({
+        debug_product_details: processedProducts.map((item: any) => ({
           id: item.id,
           name: item.name,
           price: item.price,
           description: item.description,
           image_url: item.image_url,
           color: item.color,
-          product_url: item.url || "https://woodpetra.in/"
+          product_url: item.url 
         }))
       });
     }
