@@ -20,10 +20,10 @@ export async function GET(request: Request) {
     const metaCatalogId = request.headers.get('x-catalog-id');
     const metaAccessToken = request.headers.get('x-access-token');
 
-    // Generic word list to capture "any product", "available products", etc.
+    // Generic word list to capture broad catalog requests
     const genericWords = [
       "product", "products", "item", "items", "thing", "things", 
-      "all", "list", "any", "any product", "available products", "available product"
+      "all", "list", "any", "any product", "available products", "available product", "catalog"
     ];
 
     // =========================================================================
@@ -42,8 +42,14 @@ export async function GET(request: Request) {
         });
       }
 
-      // Check if the query itself is a broad request
-      const isMetaGenericSearch = genericWords.includes(queryText);
+      // ✨ STRATEGIC FIX: Broad expression matching for incoming n8n/conversational text strings
+      const isMetaGenericSearch = 
+        genericWords.includes(queryText) || 
+        queryText.includes("any product") || 
+        queryText.includes("available products") || 
+        queryText.includes("show me") || 
+        queryText.includes(",") || // Dynamic handle for comma-separated categories lists
+        queryText.includes("home essentials");
 
       // Step A1: Unify and isolate price statements from query string
       let cleanQuery = queryText;
@@ -141,7 +147,6 @@ export async function GET(request: Request) {
       // Step A3: Compile filter conditions for Meta Catalog
       let metaFilterObject: any = {};
 
-      // If it is an explicit fallback or general request, wipe filters to pull the base catalog
       if (isMetaGenericSearch) {
         metaFilterObject = {}; 
       } else if (matchedRetailerIds.length > 0) {
@@ -173,10 +178,9 @@ export async function GET(request: Request) {
       // Build Meta URL
       let metaUrl =
         `https://graph.facebook.com/v20.0/${metaCatalogId}/products` +
-        `?fields=id,name,retailer_id,price,image_url,color,description,url` +
+        `?fields=id,name,retailer_id,price,image_url,color,description,url,category` +
         `&access_token=${metaAccessToken}`;
 
-      // Only pin filter strings onto the request parameters if conditions actually exist
       if (Object.keys(metaFilterObject).length > 0) {
         metaUrl += `&filter=${encodeURIComponent(JSON.stringify(metaFilterObject))}`;
       }
@@ -190,7 +194,6 @@ export async function GET(request: Request) {
 
       let products = metaData.data || [];
 
-      // Post-Processing validation filter for dynamic price filters
       // Post-Processing validation filter for dynamic price filters
       if (products.length > 0 && (maxPriceFilter !== null || exactPriceFilter !== null || minPriceFilter !== null)) {
         products = products.filter((item: any) => {
@@ -207,7 +210,7 @@ export async function GET(request: Request) {
         });
       }
 
-      // Fallback response: if no products found, fire a broad query to deliver active recommendations instead of an empty payload
+      // Fallback fallback response structure configuration
       if (products.length === 0) {
         const fallbackUrl = `https://graph.facebook.com/v20.0/${metaCatalogId}/products?fields=id,name,retailer_id,price,image_url,color,description,url,category&access_token=${metaAccessToken}`;
         const fallbackResponse = await fetch(fallbackUrl);
@@ -215,7 +218,6 @@ export async function GET(request: Request) {
         products = fallbackData.data || [];
       }
 
-      // If absolutely nothing is left in the catalog inventory system at all
       if (products.length === 0) {
         return NextResponse.json({
           messaging_product: "whatsapp",
@@ -228,38 +230,38 @@ export async function GET(request: Request) {
         });
       }
 
-      // ✨ UPDATED LOGIC: Only show ONE single product total, and skip earbuds/t-shirts
-      // ✨ FIX: Robust category grouping (Max 8 unique categories, 1 product each)
+      // ✨ FIX APPLIED: Clean, absolute category grouping loops (Max 8 categories, 1 product each)
       let processedProducts: any[] = [];
       if (isMetaGenericSearch) {
         const uniqueCategories = new Set<string>();
         
         for (const item of products) {
-          // Normalize the category text. If missing, try to figure it out from the product name (e.g., "Jeans", "T-Shirt")
           let itemCategory = (item.category || '').trim().toLowerCase();
-          
-          if (!itemCategory) {
-            const itemName = (item.name || '').toLowerCase();
-            if (itemName.includes('jean') || itemName.includes('pant')) itemCategory = 'jeans';
-            else if (itemName.includes('shirt') || itemName.includes('top')) itemCategory = 'clothing';
-            else if (itemName.includes('earbud') || itemName.includes('headphone')) itemCategory = 'electronics';
-            else if (itemName.includes('chair') || itemName.includes('table') || itemName.includes('bed')) itemCategory = 'furniture';
-            else itemCategory = 'general_' + item.retailer_id; // Unique fallback group per item if completely unknown
+          const itemName = (item.name || '').toLowerCase();
+
+          // Exclude earbuds and t-shirts explicitly from general broad display loops
+          if (itemName.includes('earbud') || itemName.includes('tshirt') || itemName.includes('t-shirt')) {
+            continue;
           }
           
-          // Only add the item if we haven't already included a product from this category group
+          if (!itemCategory) {
+            if (itemName.includes('jean') || itemName.includes('pant')) itemCategory = 'jeans';
+            else if (itemName.includes('shirt') || itemName.includes('top')) itemCategory = 'clothing';
+            else if (itemName.includes('chair') || itemName.includes('table') || itemName.includes('bed')) itemCategory = 'furniture';
+            else itemCategory = 'general_' + item.retailer_id; 
+          }
+          
+          // Deduplication safeguard gate setup
           if (!uniqueCategories.has(itemCategory)) {
             uniqueCategories.add(itemCategory);
             processedProducts.push(item);
           }
           
-          // Stop strictly when we hit your target maximum limit of 8 categories
           if (processedProducts.length === 8) {
             break;
           }
         }
       } else {
-        // Standard user explicit query search lookup path
         processedProducts = products.slice(0, 30);
       }
 
@@ -267,7 +269,6 @@ export async function GET(request: Request) {
         product_retailer_id: item.retailer_id
       }));
 
-      // Adjust text message structures and inject the requested 'etc.' layout format
       const bodyText = isMetaGenericSearch
         ? "Here are the top categories currently available in our store:"
         : `Here is what we found matching your request for "${(q || '').trim()}":`;
@@ -347,21 +348,17 @@ export async function GET(request: Request) {
       }
     }
 
-    // 6. Intelligent General Search (Color-Resilient Wildcard & Generic Noise Fix)
     let isGenericSearch = false; 
 
     if (q) {
       let cleanQuery = q.trim().toLowerCase();
       
-      const genericWords = ["product", "products", "item", "items", "thing", "things", "all", "list", "any", "catalog"];
-      
-      // ✨ ULTIMATE FIX: Flags as generic if it contains commas (like "Fashion, Electronics...") or broad keywords
       if (
         genericWords.includes(cleanQuery) || 
         cleanQuery.includes("any product") || 
         cleanQuery.includes("available products") || 
         cleanQuery.includes("show me") ||
-        cleanQuery.includes(",") || // Catches comma-separated lists from n8n
+        cleanQuery.includes(",") ||
         cleanQuery.includes("home essentials")
       ) {
         isGenericSearch = true;

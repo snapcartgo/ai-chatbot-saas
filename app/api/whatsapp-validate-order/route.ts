@@ -50,18 +50,24 @@ export async function POST(req: NextRequest) {
       .select("*")
       .eq("session_id", sessionId);
 
-    // 🔄 MERGE INCOMING ITEMS WITH EXISTING DB SESSION ITEMS
-    let finalItemsToProcess = [...items];
+    // 🔄 MERGE INCOMING ITEMS WITH EXISTING DB SESSION ITEMS (Fixed to prevent duplicate variants)
+    let finalItemsToProcess: any[] = [];
 
+    // 1. Add the incoming items first (they have the highest priority/latest corrections)
+    if (Array.isArray(items)) {
+      finalItemsToProcess = [...items];
+    }
+
+    // 2. Safely merge history from database without duplicating or keeping old variations
     if (existingCartRows && existingCartRows.length > 0) {
       existingCartRows.forEach((dbItem: any) => {
-        // Check if this product is already in the incoming payload updates
-        const isBeingUpdated = items.some(
+        // Check if this specific product name is already handled in the incoming payload updates
+        const isBeingUpdated = finalItemsToProcess.some(
           (incomingItem: any) =>
             incomingItem.product_name?.trim().toLowerCase() === dbItem.product_name?.trim().toLowerCase()
         );
 
-        // If it's not being updated by the latest message, keep the stored database version in the array
+        // ONLY pull from history if it's a completely different product missing from the current message
         if (!isBeingUpdated) {
           finalItemsToProcess.push({
             product_name: dbItem.product_name,
