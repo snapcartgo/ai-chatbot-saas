@@ -3,34 +3,42 @@ import { createSupabaseServerClient } from '../../../lib/supabaseServer';
 
 export async function POST(request: Request) {
   try {
-    // 1. Read the JSON payload from the POST body
-    const body = await request.json();
+    // 1. Extract query parameters from the URL first (keeps existing n8n setups working)
+    const { searchParams } = new URL(request.url);
 
-    // Support both direct root properties or nested properties within an items array
+    // 2. Safely catch incoming JSON body data if provided, preventing crashes if it's empty
+    let body: any = {};
+    try {
+      const contentType = request.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        body = await request.json();
+      }
+    } catch (e) {
+      // Body empty or malformed; swallow exception and fallback to URL query strings
+    }
+
     const firstItem = body.items && body.items[0] ? body.items[0] : {};
 
-    const category = body.category || firstItem.category || null;
-    const product_type = body.product_type || firstItem.product_type || null;
-    
-    // Fallback mapping: accept either 'q' or 'product_name'
-    const q = body.q || firstItem.product_name || null; 
-    
-    const color = body.color || firstItem.color || null;
-    const price_query = body.price_query || firstItem.price_query || null; 
-    const user_id = body.user_id || firstItem.user_id || null; 
+    // 3. Unify Extraction: Check URL params first, then check JSON body variants
+    const category = searchParams.get('category') || body.category || firstItem.category || null;
+    const product_type = searchParams.get('product_type') || body.product_type || firstItem.product_type || null;
+    const q = searchParams.get('q') || body.q || firstItem.product_name || null; 
+    const color = searchParams.get('color') || body.color || firstItem.color || null;
+    const price_query = searchParams.get('price_query') || searchParams.get('price') || body.price_query || firstItem.price_query || null; 
+    const user_id = searchParams.get('user_id') || body.user_id || firstItem.user_id || null; 
 
-    // 2. Enforce tenancy boundaries immediately
+    // 4. Enforce tenancy boundaries immediately
     if (!user_id) {
       return NextResponse.json({ error: "Missing tenant user_id authorization context." }, { status: 400 });
     }
 
-    // 3. Initialize Supabase
+    // 5. Initialize Supabase
     const supabase = await createSupabaseServerClient();
 
-    // 4. Build the query and mandate user_id ownership immediately
+    // 6. Build the query and mandate user_id ownership immediately
     let query = supabase.from('products').select('*').eq('user_id', user_id); 
 
-    // 5. Apply conditional filters (with trim and lowercase sanitation)
+    // 7. Apply conditional filters (with trim and lowercase sanitation)
     if (category) query = query.ilike('category', `%${category.trim()}%`);
     if (product_type) query = query.ilike('product_type', `%${product_type.trim()}%`);
     
@@ -68,26 +76,29 @@ export async function POST(request: Request) {
       }
     }
 
-    // 6. Intelligent General Search (Color-Resilient Wildcard & Generic Noise Fix)
+    // 8. Intelligent General Search (Color-Resilient Wildcard & Generic Noise Fix)
     let isGenericSearch = false; 
 
     if (q) {
       let cleanQuery = q.trim().toLowerCase();
-      const genericWords = ["product", "products", "item", "items", "thing", "things", "all", "list", "any", "any product"];
+      const genericWords = [
+        "product", "products", "item", "items", "thing", "things", 
+        "all", "list", "any", "any product", "available products", "available product"
+      ];
       
       if (genericWords.includes(cleanQuery)) {
         isGenericSearch = true;
       } else {
         const colorAdjectives = ["white", "black", "blue", "red", "green", "grey", "gray", "yellow"];
-      let queryWords = cleanQuery.split(/\s+/).filter((word: string) => !colorAdjectives.includes(word));
-      
-      queryWords = queryWords.map((word: string) => {
-        if (word === "shirts" || word === "tshirt" || word === "tshirts") return "t-shirt";
-        if (word === "chairs") return "chair";
-        if (word === "tables") return "table";
-        if (word === "beds") return "bed";
-        return word;
-      });
+        let queryWords = cleanQuery.split(/\s+/).filter((word: string) => !colorAdjectives.includes(word));
+        
+        queryWords = queryWords.map((word: string) => {
+          if (word === "shirts" || word === "tshirt" || word === "tshirts") return "t-shirt";
+          if (word === "chairs") return "chair";
+          if (word === "tables") return "table";
+          if (word === "beds") return "bed";
+          return word;
+        });
 
         const finalSearchTerm = queryWords.join(" ");
 
@@ -99,7 +110,7 @@ export async function POST(request: Request) {
       }
     }
 
-    // 7. Execution and Response
+    // 9. Execution and Response
     let { data, error } = await query;
 
     if (error) {
