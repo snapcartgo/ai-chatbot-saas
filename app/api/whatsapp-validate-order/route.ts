@@ -463,7 +463,7 @@ export async function POST(req: NextRequest) {
         subtotal: grandSubtotal,
         shipping: grandShipping,
         total: grandSubtotal + grandShipping,
-        message: `Great! I've confirmed everything is in stock:\n\n${itemsSummary}\n\n*Subtotal:* ₹${grandSubtotal}\n*Shipping:* ${grandShipping === 0 ? "_FREE_" : `₹${grandShipping}`}\n*Total:* *₹${grandSubtotal + grandShipping}*\n\nAre you interested to buy these products? Kindly confirm. Yes.`,
+        message: `Great! I've confirmed everything is in stock:\n\n${itemsSummary}\n\n*Subtotal:* ₹${grandSubtotal}\n*Shipping:* ${grandShipping === 0 ? "_FREE_" : `₹${grandShipping}`}\n*Total:* *₹${grandSubtotal + grandShipping}*\n\nAre you interested to buy these products? Kindly confirm. Yes. Kindly share your *Name, Email, phone and Delivery Address* to complete checkout.`,
       });
     }
 
