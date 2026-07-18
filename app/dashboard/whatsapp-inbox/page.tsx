@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react"; // 🟢 Added useRef here
+import { useEffect, useState, useRef } from "react";
 import { createClient } from "@/utils/supabase/client";
 
 type MessageRow = {
@@ -14,9 +14,15 @@ type MessageRow = {
   image_url?: string | null;
 };
 
+type Template = {
+  template_name: string;
+  language: string;
+  status: string;
+};
+
 type ConversationGroups = Record<string, MessageRow[]>;
 
-// 1. Isolated Sub-Component to keep React Hooks in line and prevent hydration/ordering errors
+// 1. Isolated Sub-Component to keep React Hooks in line
 function ProductMessageBubble({ msg }: { msg: MessageRow; supabase: any }) {
   const imageUrl = msg.image_url; 
 
@@ -40,6 +46,7 @@ function ProductMessageBubble({ msg }: { msg: MessageRow; supabase: any }) {
     </div>
   );
 }
+
 const formatMessageTime = (isoString: string | null) => {
   if (!isoString) return "";
   try {
@@ -49,6 +56,7 @@ const formatMessageTime = (isoString: string | null) => {
     return "";
   }
 };
+
 // 2. Main Page Module Container
 export default function WhatsAppInboxPage() {
   const supabase = createClient();
@@ -57,9 +65,15 @@ export default function WhatsAppInboxPage() {
   const [typedMessage, setTypedMessage] = useState("");
   const [loading, setLoading] = useState(true);
 
-  // 🟢 1. Create the Scroll Anchor DOM Target Reference Hook here
+  // ⚡ Template Feature State
+  const [templates, setTemplates] = useState<Template[]>([]);
+  const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null);
+  const [sendingTemplate, setSendingTemplate] = useState(false);
+  const [templateMenuOpen, setTemplateMenuOpen] = useState(false);
+
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
+  // Load chats
   useEffect(() => {
     const loadWhatsAppChats = async () => {
       setLoading(true);
@@ -127,34 +141,116 @@ export default function WhatsAppInboxPage() {
     loadWhatsAppChats();
   }, [supabase]);
 
+  // ⚡ Load APPROVED templates for selector dropdown
+  useEffect(() => {
+    const loadTemplates = async () => {
+      console.log("Checking template table records...");
+      
+      // Select everything (*) to avoid column mismatch errors
+      const { data, error } = await supabase
+        .from("whatsapp_templates")
+        .select("*");
+
+      if (error) {
+        console.error("Supabase templates read error:", error.message);
+        return;
+      }
+
+      console.log("Raw table payload received:", data);
+
+      if (data) {
+        // Filter APPROVED templates safely
+        const approvedOnly = data.filter(
+          (t) => t.status?.trim().toUpperCase() === "APPROVED"
+        );
+        
+        // Map data to ensure template_name is populated whether the column is 'name' or 'template_name'
+        const normalizedTemplates = approvedOnly.map((t) => ({
+          template_name: t.name || t.template_name || "Unnamed Template",
+          language: t.language || "en",
+          status: t.status
+        }));
+
+        console.log("Matched dropdown items:", normalizedTemplates);
+        setTemplates(normalizedTemplates);
+      }
+    };
+    loadTemplates();
+  }, [supabase]);
+
   const activeChatMessages = activeSessionId ? whatsappGroups[activeSessionId] : [];
 
-  // 🟢 2. Automatically snap scroll window down whenever messages stream data swaps or updates
-  // Automatically snap scroll window down whenever messages stream data swaps or updates
+  // Auto Scroll Window
   useEffect(() => {
     const scrollToBottom = () => {
       if (messagesEndRef.current) {
         messagesEndRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
       }
     };
-
-    // 1. Run immediately for instant text transitions
     scrollToBottom();
-
-    // 2. Run slightly delayed to account for product image loading layout shifts
     const timer = setTimeout(scrollToBottom, 250);
-
     return () => clearTimeout(timer);
   }, [activeChatMessages]);
 
+  const currentCleanPhone = activeSessionId?.includes("conv_") 
+    ? activeSessionId.replace("conv_", "") 
+    : activeSessionId || "";
+
+  // ⚡ Send Template handler
+  const handleSendTemplate = async () => {
+    if (!selectedTemplate || !activeSessionId) return;
+    setSendingTemplate(true);
+
+    try {
+      const currentChatMessages = whatsappGroups[activeSessionId] || [];
+      const activeBotId = currentChatMessages.find((m) => m.bot_id)?.bot_id || null;
+
+      const res = await fetch("/api/whatsapp/send-template", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          templateName: selectedTemplate.template_name,
+          languageCode: selectedTemplate.language,
+          recipientPhone: currentCleanPhone,
+        }),
+      });
+
+      if (res.ok) {
+        // Insert template message event inside database dynamically to show up immediately in stream
+        const { data: dbInsertedData } = await supabase
+          .from("messages")
+          .insert({
+            conversation_id: activeSessionId,
+            bot_id: activeBotId,
+            role: "assistant", 
+            content: `⚡ Template Sent: ${selectedTemplate.template_name}`,
+            channel: "whatsapp"
+          })
+          .select();
+
+        if (dbInsertedData && dbInsertedData[0]) {
+          setWhatsappGroups((prev) => ({
+            ...prev,
+            [activeSessionId]: [...(prev[activeSessionId] || []), dbInsertedData[0]]
+          }));
+        }
+
+        setTemplateMenuOpen(false);
+        setSelectedTemplate(null);
+      } else {
+        const err = await res.json();
+        alert(`Failed to send template: ${err.error}`);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSendingTemplate(false);
+    }
+  };
+
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    
     if (!typedMessage.trim() || !activeSessionId) return;
-
-    const currentCleanPhone = activeSessionId.includes("conv_") 
-      ? activeSessionId.replace("conv_", "") 
-      : activeSessionId;
 
     const messageText = typedMessage;
     setTypedMessage("");
@@ -204,22 +300,15 @@ export default function WhatsAppInboxPage() {
           })
           .select();
 
-        if (dbError) {
-          console.error("Supabase rejected insertion row details:", dbError.message);
-        } else {
-          if (dbInsertedData && dbInsertedData[0]) {
-            setWhatsappGroups((prev) => ({
-              ...prev,
-              [activeSessionId]: [...(prev[activeSessionId] || []), dbInsertedData[0]]
-            }));
-          }
+        if (!dbError && dbInsertedData && dbInsertedData[0]) {
+          setWhatsappGroups((prev) => ({
+            ...prev,
+            [activeSessionId]: [...(prev[activeSessionId] || []), dbInsertedData[0]]
+          }));
         }
-      } else {
-        const responseData = await response.json().catch(() => ({}));
-        console.error("Backend response error structure payload:", responseData);
       }
     } catch (error) {
-      console.error("Execution error within handleSendMessage runtime context:", error);
+      console.error(error);
     }
   };
 
@@ -268,91 +357,131 @@ export default function WhatsAppInboxPage() {
             {/* Header */}
             <div className="p-4 bg-[#202c33] border-b border-gray-800">
               <h4 className="font-bold text-sm text-white">
-                Chatting with: {activeSessionId.replace("conv_", "")}
+                Chatting with: {currentCleanPhone}
               </h4>
             </div>
 
             {/* Message Stream */}
-{/* 🟢 CHANGED: Removed space-y-4 from this parent div container */}
-<div className="flex-1 p-6 overflow-y-auto flex flex-col bg-[#0b141a]">
-  {activeChatMessages.map((msg, index) => {
-    const isProductImage = msg.content?.startsWith("[Sent Image:");
-    const formattedTime = formatMessageTime(msg.created_at);
+            <div className="flex-1 p-6 overflow-y-auto flex flex-col bg-[#0b141a]">
+              {activeChatMessages.map((msg, index) => {
+                const isProductImage = msg.content?.startsWith("[Sent Image:");
+                const formattedTime = formatMessageTime(msg.created_at);
 
-    // Dynamic Date Badge Logic
-    let showDateBadge = false;
-    let dateBadgeText = "";
+                let showDateBadge = false;
+                let dateBadgeText = "";
 
-    if (msg.created_at) {
-      const currentMsgDate = new Date(msg.created_at).toLocaleDateString([], {
-        day: "numeric",
-        month: "long",
-        year: "numeric",
-      });
+                if (msg.created_at) {
+                  const currentMsgDate = new Date(msg.created_at).toLocaleDateString([], {
+                    day: "numeric",
+                    month: "long",
+                    year: "numeric",
+                  });
 
-      const prevMsg = index > 0 ? activeChatMessages[index - 1] : null;
-      const prevMsgDate = prevMsg?.created_at
-        ? new Date(prevMsg.created_at).toLocaleDateString([], {
-            day: "numeric",
-            month: "long",
-            year: "numeric",
-          })
-        : null;
+                  const prevMsg = index > 0 ? activeChatMessages[index - 1] : null;
+                  const prevMsgDate = prevMsg?.created_at
+                    ? new Date(prevMsg.created_at).toLocaleDateString([], {
+                        day: "numeric",
+                        month: "long",
+                        year: "numeric",
+                      })
+                    : null;
 
-      if (currentMsgDate !== prevMsgDate) {
-        showDateBadge = true;
-        const todayStr = new Date().toLocaleDateString([], {
-          day: "numeric",
-          month: "long",
-          year: "numeric",
-        });
-        dateBadgeText = currentMsgDate === todayStr ? "Today" : currentMsgDate;
-      }
-    }
+                  if (currentMsgDate !== prevMsgDate) {
+                    showDateBadge = true;
+                    const todayStr = new Date().toLocaleDateString([], {
+                      day: "numeric",
+                      month: "long",
+                      year: "numeric",
+                    });
+                    dateBadgeText = currentMsgDate === todayStr ? "Today" : currentMsgDate;
+                  }
+                }
 
-    return (
-      <div key={msg.id} className="contents">
-        {showDateBadge && (
-          <div className="flex justify-center my-4 select-none w-full">
-            <span className="bg-[#182229] text-gray-400 text-[11px] px-2.5 py-1 rounded-md shadow-sm border border-gray-800/40">
-              {dateBadgeText}
-            </span>
-          </div>
-        )}
+                return (
+                  <div key={msg.id} className="contents">
+                    {showDateBadge && (
+                      <div className="flex justify-center my-4 select-none w-full">
+                        <span className="bg-[#182229] text-gray-400 text-[11px] px-2.5 py-1 rounded-md shadow-sm border border-gray-800/40">
+                          {dateBadgeText}
+                        </span>
+                      </div>
+                    )}
 
-        {/* 🟢 CHANGED: Added 'mb-4' here to guarantee clean spacing between bubbles */}
-        <div
-          className={`p-2.5 rounded-lg text-xs max-w-[70%] shadow relative flex flex-col gap-1 mb-4 ${
-            msg.role === "assistant"
-              ? "bg-[#005c4b] text-white ml-auto self-end"
-              : "bg-[#202c33] text-white self-start"
-          }`}
-        >
-          {isProductImage ? (
-            <ProductMessageBubble msg={msg} supabase={supabase} />
-          ) : (
-            <p className="whitespace-pre-line pr-10">{msg.content || ""}</p>
-          )}
-          
-          <span 
-            className={`text-[9px] select-none text-right block mt-auto self-end ${
-              msg.role === "assistant" ? "text-gray-300" : "text-gray-400"
-            }`}
-          >
-            {formattedTime}
-          </span>
-        </div>
-      </div>
-    );
-  })}
+                    <div
+                      className={`p-2.5 rounded-lg text-xs max-w-[70%] shadow relative flex flex-col gap-1 mb-4 ${
+                        msg.role === "assistant"
+                          ? "bg-[#005c4b] text-white ml-auto self-end"
+                          : "bg-[#202c33] text-white self-start"
+                      }`}
+                    >
+                      {isProductImage ? (
+                        <ProductMessageBubble msg={msg} supabase={supabase} />
+                      ) : (
+                        <p className="whitespace-pre-line pr-10">{msg.content || ""}</p>
+                      )}
+                      
+                      <span 
+                        className={`text-[9px] select-none text-right block mt-auto self-end ${
+                          msg.role === "assistant" ? "text-gray-300" : "text-gray-400"
+                        }`}
+                      >
+                        {formattedTime}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+              <div ref={messagesEndRef} />
+            </div>
 
-  <div ref={messagesEndRef} />
-</div>
             {/* Input Action Form */}
             <form 
               onSubmit={handleSendMessage} 
-              className="p-4 bg-[#202c33] flex gap-2 border-t border-gray-800"
+              className="p-4 bg-[#202c33] flex gap-2 border-t border-gray-800 items-center relative"
             >
+              {/* ⚡ TEMPLATE ACTION DROPDOWN WIDGET */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setTemplateMenuOpen(!templateMenuOpen)}
+                  className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-3 py-2.5 rounded-lg transition-colors whitespace-nowrap"
+                >
+                  ⚡ Template
+                </button>
+
+                {templateMenuOpen && (
+                  <div className="absolute bottom-14 left-0 w-64 p-3 bg-[#111b21] border border-gray-700 rounded-lg shadow-2xl z-50 flex flex-col gap-2">
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Approved Meta Templates</p>
+                    <select
+                      className="w-full p-2 bg-[#2a3942] text-xs text-white border border-gray-700 rounded focus:outline-none"
+                      onChange={(e) => {
+                        const selected = templates.find((t) => t.template_name === e.target.value);
+                        setSelectedTemplate(selected || null);
+                      }}
+                      defaultValue=""
+                    >
+                      <option value="" disabled>-- Select Template --</option>
+                      {templates.map((t) => (
+                        <option key={t.template_name} value={t.template_name}>
+                          {t.template_name} ({t.language})
+                        </option>
+                      ))}
+                    </select>
+
+                    {selectedTemplate && (
+                      <button
+                        type="button"
+                        onClick={handleSendTemplate}
+                        disabled={sendingTemplate}
+                        className="w-full bg-[#00a884] hover:bg-[#008f72] disabled:bg-gray-700 text-white text-xs font-semibold py-1.5 rounded transition-colors"
+                      >
+                        {sendingTemplate ? "Sending..." : "Confirm & Send"}
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+
               <input
                 type="text"
                 value={typedMessage}
@@ -360,9 +489,10 @@ export default function WhatsAppInboxPage() {
                 placeholder="Type manual response..."
                 className="flex-1 bg-[#2a3942] rounded-lg p-2.5 text-xs text-white focus:outline-none placeholder-gray-500"
               />
+              
               <button
                 type="submit"
-                className="bg-[#00a884] hover:bg-[#008f72] text-white text-xs font-semibold px-4 py-2 rounded-lg transition-colors"
+                className="bg-[#00a884] hover:bg-[#008f72] text-white text-xs font-semibold px-4 py-2.5 rounded-lg transition-colors"
               >
                 Send
               </button>
