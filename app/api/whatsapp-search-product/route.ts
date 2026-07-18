@@ -347,12 +347,23 @@ export async function GET(request: Request) {
       }
     }
 
+    // 8. Intelligent General Search (Color-Resilient Wildcard & Generic Noise Fix)
     let isGenericSearch = false; 
 
     if (q) {
       let cleanQuery = q.trim().toLowerCase();
       
-      if (genericWords.includes(cleanQuery)) {
+      const genericWords = [
+        "product", "products", "item", "items", "thing", "things", 
+        "all", "list", "any", "any product", "available products", "available product"
+      ];
+      
+      // ✨ FIX: Check if it's explicitly generic or contains the n8n fallback intro string
+      if (
+        genericWords.includes(cleanQuery) || 
+        cleanQuery.includes("available products in") || 
+        cleanQuery.includes("show all")
+      ) {
         isGenericSearch = true;
       } else {
         const colorAdjectives = ["white", "black", "blue", "red", "green", "grey", "gray", "yellow"];
