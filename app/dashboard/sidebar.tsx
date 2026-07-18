@@ -12,6 +12,7 @@ export default function Sidebar() {
     { name: "Chatbots", href: "/dashboard/chatbots" },
     
     { name: "WhatsApp Inbox", href: "/dashboard/whatsapp-inbox" },
+    { name: "Templates", href: "/dashboard/marketing/templates" },
     { name: "Conversations", href: "/dashboard/conversations" },
     { name: "Leads", href: "/dashboard/leads" },
     { name: "Pipeline", href: "/dashboard/pipeline" },
