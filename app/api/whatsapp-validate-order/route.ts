@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Extract values from the successfully built body object
+    // Now extract values from the successfully built body object
     const sessionId = body.session_id; 
     const items = body.items;
     const user_id = body.user_id;
@@ -47,10 +47,32 @@ export async function POST(req: NextRequest) {
     // 🕒 LOOKUP PRIOR SESSION STATE (To track multi-item history context)
     const { data: existingCartRows } = await supabase
       .from("cart_sessions")
-      .select("product_id")
+      .select("*")
       .eq("session_id", sessionId);
 
-    const isMultiProductSession = items.length > 1 || (existingCartRows && existingCartRows.length > 1);
+    // 🔄 MERGE INCOMING ITEMS WITH EXISTING DB SESSION ITEMS
+    let finalItemsToProcess = [...items];
+
+    if (existingCartRows && existingCartRows.length > 0) {
+      existingCartRows.forEach((dbItem: any) => {
+        // Check if this product is already in the incoming payload updates
+        const isBeingUpdated = items.some(
+          (incomingItem: any) =>
+            incomingItem.product_name?.trim().toLowerCase() === dbItem.product_name?.trim().toLowerCase()
+        );
+
+        // If it's not being updated by the latest message, keep the stored database version in the array
+        if (!isBeingUpdated) {
+          finalItemsToProcess.push({
+            product_name: dbItem.product_name,
+            quantity: dbItem.quantity,
+            selected_attributes: dbItem.selected_attributes || {},
+          });
+        }
+      });
+    }
+
+    const isMultiProductSession = finalItemsToProcess.length > 1;
 
     const validatedItems = [];
     let grandSubtotal = 0;
@@ -58,7 +80,8 @@ export async function POST(req: NextRequest) {
 
     const missingProducts: any[] = [];
 
-    for (const item of items) {
+    // Stage 1: Gather and Validate Everything
+    for (const item of finalItemsToProcess) {
       const { product_name, quantity, selected_attributes = {} } = item;
       const requestedQuantity = Number(quantity);
 
@@ -86,7 +109,7 @@ export async function POST(req: NextRequest) {
           .replace(/s\b/g, ''); // Generalized singular fallback step for fuzzy tracking
       }
 
-      // ✨ Extract implicit color attributes from the product name text string if missing
+      // ✨ FIX 1: Extract implicit color attributes from the product name text string if missing
       if (!cleanIncomingAttributes.color) {
         if (search.includes("black")) cleanIncomingAttributes.color = "black";
         else if (search.includes("white")) cleanIncomingAttributes.color = "white";
@@ -266,17 +289,14 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      const unitPrice = Number(product.price);
       if (requestedQuantity > Number(product.stock)) {
         return NextResponse.json({ success: false, message: `Only *${product.stock} items* left for *${product.name}*.` });
       }
 
+      const unitPrice = Number(product.price);
       const subtotal = unitPrice * requestedQuantity;
-      const shipping = subtotal >= 999 ? 0 : 40; 
-      
-      grandSubtotal += subtotal;
-      grandShipping += shipping;
 
+      // ✅ IMMEDIATELY SAVE VALIDATED ITEM SO THE STATE PERSISTS
       const { error: cartUpsertError } = await supabase
         .from("cart_sessions")
         .upsert({
@@ -295,6 +315,8 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ success: false, message: "Database system error. Please try again." }, { status: 500 });
       }
 
+      grandSubtotal += subtotal;
+
       validatedItems.push({
         product_id: product.id,
         product_name: product.name,
@@ -304,6 +326,9 @@ export async function POST(req: NextRequest) {
         subtotal,
       });
     }
+
+    // Dynamic global shipping rule evaluation
+    grandShipping = grandSubtotal >= 999 ? 0 : 40; 
 
     if (missingProducts.length > 0) {
       const completelyNotFound = missingProducts.filter(p => p.error_type === "not_found");
@@ -327,7 +352,7 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      // Dynamic list formatting loops through ALL invalid variations concurrently
+      // ✨ FIX 2: Dynamic list formatting loops through ALL invalid variations concurrently
       if (invalidVariants.length > 0) {
         let customErrorMessage = "Sorry, those specific combinations are unavailable:\n";
         
@@ -405,7 +430,9 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Success confirmation layout logic for multi-item orders
+    // =========================================================================
+    // ✨ FIX 3: SUCCESS INTERCEPTION FOR WHATSAPP MULTI-ITEM ORDERS
+    // =========================================================================
     if (isMultiProductSession) {
       const itemsSummary = validatedItems
         .map(i => {
@@ -427,7 +454,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Default single item validation success payload template configuration
+    // Default single item direct validation message structure
     return NextResponse.json({
       success: true,
       items: validatedItems,
@@ -438,7 +465,7 @@ export async function POST(req: NextRequest) {
     });
 
   } catch (err: any) {
-    console.error("Critical System Validation Exception:", err);
+    console.error("Critical Route Error:", err);
     return NextResponse.json({ success: false, message: "Oops! An unexpected system error occurred." }, { status: 500 });
   }
 }
