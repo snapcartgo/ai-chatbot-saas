@@ -95,7 +95,6 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ success: false, message: `Invalid quantity for ${product_name || "product"}.` }, { status: 400 });
       }
 
-      // Filter out empty string values from incoming attributes to treat them as unspecified
       const cleanIncomingAttributes = Object.entries(selected_attributes || {}).reduce((acc: any, [k, v]) => {
         if (v !== "" && v !== null && v !== undefined) {
           acc[k.toLowerCase().trim()] = v;
@@ -104,18 +103,12 @@ export async function POST(req: NextRequest) {
       }, {});
 
       let search = product_name.trim().toLowerCase();
-
-      // Clean conversational plurals and normalizations
       if (/^(tshirt|t-shirt|t shirt|shirt)s?$/i.test(search)) {
         search = "t-shirt";
       } else {
-        search = search
-          .replace(/\bt\s+shirts?\b/g, 't-shirt')
-          .replace(/\btshirts?\b/g, 't-shirt')
-          .replace(/s\b/g, ''); // Generalized singular fallback step for fuzzy tracking
+        search = search.replace(/\bt\s+shirts?\b/g, 't-shirt').replace(/\btshirts?\b/g, 't-shirt').replace(/s\b/g, '');
       }
 
-      // ✨ FIX 1: Extract implicit color attributes from the product name text string if missing
       if (!cleanIncomingAttributes.color) {
         if (search.includes("black")) cleanIncomingAttributes.color = "black";
         else if (search.includes("white")) cleanIncomingAttributes.color = "white";
@@ -123,7 +116,6 @@ export async function POST(req: NextRequest) {
         else if (search.includes("red")) cleanIncomingAttributes.color = "red";
       }
 
-      // 1. Primary Fuzzy Search 🟢 (Constrained to product_type = 'meta')
       let { data: products, error: productError } = await supabase
         .from("products")
         .select("*")
@@ -131,14 +123,10 @@ export async function POST(req: NextRequest) {
         .eq("product_type", "meta")
         .or(`name.ilike.%${search}%,category.ilike.%${search}%,description.ilike.%${search}%`);
 
-      // 2. Fallback Split-Phrase Search 🟢 (Constrained to product_type = 'meta')
       if ((!products || products.length === 0) && search.includes(" ")) {
         const words = search.split(" ").filter(Boolean);
         let genericTerm = words[words.length - 1]; 
-        
-        if (/^(tshirt|t-shirt|t shirt|shirt)s?$/i.test(genericTerm)) {
-          genericTerm = "t-shirt";
-        }
+        if (/^(tshirt|t-shirt|t shirt|shirt)s?$/i.test(genericTerm)) genericTerm = "t-shirt";
         
         const { data: fallbackProducts } = await supabase
           .from("products")
@@ -147,27 +135,20 @@ export async function POST(req: NextRequest) {
           .eq("product_type", "meta")
           .or(`name.ilike.%${genericTerm}%,category.ilike.%${genericTerm}%`);
           
-        if (fallbackProducts && fallbackProducts.length > 0) {
-          products = fallbackProducts;
-        }
+        if (fallbackProducts && fallbackProducts.length > 0) products = fallbackProducts;
       }
 
       if (productError || !products || products.length === 0) {
-        missingProducts.push({
-          product_name: product_name,
-          error_type: "not_found"
-        });
+        missingProducts.push({ product_name, error_type: "not_found" });
         continue; 
       }
 
       let product = null;
       let variantMatched = false;
 
-      // Exact Variant Matching
       if (Object.keys(cleanIncomingAttributes).length > 0) {
         const matchedProduct = products.find((p: any) => {
           if (!p.attributes) return false;
-
           const dbAttributesNormalized = Object.entries(p.attributes).reduce((acc: any, [k, v]) => {
             acc[k.toLowerCase().trim()] = v;
             return acc;
@@ -176,21 +157,11 @@ export async function POST(req: NextRequest) {
           return Object.entries(cleanIncomingAttributes).every(([key, value]) => {
             const cleanKey = key.toLowerCase().trim();
             const targetVal = String(value).toLowerCase().trim();
-
             const dbValue1 = dbAttributesNormalized[cleanKey];
             const dbValue2 = dbAttributesNormalized[cleanKey === "color" ? "size" : "color"];
-
             if (!dbValue1) return false;
-
-            const isMatchPrimary = Array.isArray(dbValue1)
-              ? dbValue1.map(v => String(v).toLowerCase().trim()).includes(targetVal)
-              : String(dbValue1).toLowerCase().trim() === targetVal;
-
-            const isMatchSwapped = dbValue2 && (Array.isArray(dbValue2)
-              ? dbValue2.map(v => String(v).toLowerCase().trim()).includes(targetVal)
-              : String(dbValue2).toLowerCase().trim() === targetVal);
-
-            return isMatchPrimary || isMatchSwapped;
+            return (Array.isArray(dbValue1) ? dbValue1.map(v => String(v).toLowerCase().trim()).includes(targetVal) : String(dbValue1).toLowerCase().trim() === targetVal) ||
+                   (dbValue2 && (Array.isArray(dbValue2) ? dbValue2.map(v => String(v).toLowerCase().trim()).includes(targetVal) : String(dbValue2).toLowerCase().trim() === targetVal));
           });
         });
 
@@ -200,21 +171,17 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // ⚡ VALIDATION CHECK: Catch wrong/invalid choices explicitly passed by user
       if (!variantMatched && Object.keys(cleanIncomingAttributes).length > 0) {
         const totalAvailableOptions: Record<string, string[]> = { color: [], size: [] };
-        
         products.forEach((p: any) => {
           if (p.attributes) {
             Object.entries(p.attributes).forEach(([key, val]) => {
               if (!val || String(val).toLowerCase() === "null") return;
               const cleanKey = key.toLowerCase().trim();
               const valuesArray = Array.isArray(val) ? val : String(val).split(",").map(v => v.trim());
-
               valuesArray.forEach(strVal => {
                 const cleanVal = String(strVal).toLowerCase().trim();
                 if (!cleanVal) return;
-
                 if (cleanKey === "size" || /^(m|l|xl|s|xs|xxl|30|32|34|36|38|40|42)$/i.test(cleanVal)) {
                   if (!totalAvailableOptions.size.includes(strVal)) totalAvailableOptions.size.push(strVal);
                 } else if (cleanKey === "color" || /^(black|white|blue|red|green|yellow|pink|grey)$/i.test(cleanVal)) {
@@ -224,35 +191,23 @@ export async function POST(req: NextRequest) {
             });
           }
         });
-
-        missingProducts.push({
-          product_name: products[0].name,
-          error_type: "invalid_variant",
-          available_options: totalAvailableOptions
-        });
+        missingProducts.push({ product_name: products[0].name, error_type: "invalid_variant", available_options: totalAvailableOptions });
         continue; 
       }
 
-      if (!product) {
-        product = products[0];
-      }
+      if (!product) product = products[0];
 
-      // Check if variant choices are explicitly required by database rules when none are provided
       if (!variantMatched && Object.keys(cleanIncomingAttributes).length === 0 && product.required_fields && product.required_fields.length > 0) {
         const totalAvailableOptions: Record<string, string[]> = { color: [], size: [] };
-        
         products.forEach((p: any) => {
           if (p.attributes) {
             Object.entries(p.attributes).forEach(([key, val]) => {
               if (!val || String(val).toLowerCase() === "null") return;
-              
               const cleanKey = key.toLowerCase().trim();
               const valuesArray = Array.isArray(val) ? val : String(val).split(",").map(v => v.trim());
-
               valuesArray.forEach(strVal => {
                 const cleanVal = String(strVal).toLowerCase().trim();
                 if (!cleanVal) return;
-
                 if (cleanKey === "size" || /^(m|l|xl|s|xs|xxl|30|32|34|36|38|40|42)$/i.test(cleanVal)) {
                   if (!totalAvailableOptions.size.includes(strVal)) totalAvailableOptions.size.push(strVal);
                 } else if (cleanKey === "color" || /^(black|white|blue|red|green|yellow|pink|grey)$/i.test(cleanVal)) {
@@ -264,12 +219,7 @@ export async function POST(req: NextRequest) {
         });
 
         if (totalAvailableOptions.color.length > 0 || totalAvailableOptions.size.length > 0) {
-          missingProducts.push({
-            product_name: product.name,
-            error_type: "missing_attributes",
-            missing_fields: product.required_fields,
-            available_options: totalAvailableOptions
-          });
+          missingProducts.push({ product_name: product.name, error_type: "missing_attributes", missing_fields: product.required_fields, available_options: totalAvailableOptions });
           continue;
         }
       }
@@ -279,19 +229,11 @@ export async function POST(req: NextRequest) {
       const missingFields: string[] = [];
 
       for (const field of requiredFields) {
-        const cleanField = field.toLowerCase().trim();
-        if (!cleanIncomingAttributes[cleanField]) {
-          missingFields.push(field);
-        }
+        if (!cleanIncomingAttributes[field.toLowerCase().trim()]) missingFields.push(field);
       }
 
       if (missingFields.length > 0) {
-        missingProducts.push({
-          product_name: product.name,
-          error_type: "missing_attributes",
-          missing_fields: missingFields,
-          available_options: availableOptions,
-        });
+        missingProducts.push({ product_name: product.name, error_type: "missing_attributes", missing_fields: missingFields, available_options: availableOptions });
         continue;
       }
 
@@ -301,36 +243,8 @@ export async function POST(req: NextRequest) {
 
       const unitPrice = Number(product.price);
       const subtotal = unitPrice * requestedQuantity;
-
-      // 🛑 PERMANENT FIX: Clear out any existing database items with the same name structure 
-      // but different IDs for this session to prevent old variant "ghosts"
-      await supabase
-        .from("cart_sessions")
-        .delete()
-        .eq("session_id", sessionId)
-        .ilike("product_name", product.name.trim());
-
-      // ✅ NOW SAVE THE LATEST VALID VARIANT STATE
-      const { error: cartUpsertError } = await supabase
-        .from("cart_sessions")
-        .upsert({
-          session_id: sessionId, 
-          product_id: product.id,
-          product_name: product.name,
-          quantity: requestedQuantity,
-          selected_attributes: cleanIncomingAttributes,
-          current_flow: "whatsapp_ecommerce",
-          current_step: "checkout",
-          updated_at: new Date().toISOString(),
-        });
-
-      if (cartUpsertError) {
-        console.error("Cart database save error:", cartUpsertError);
-        return NextResponse.json({ success: false, message: "Database system error. Please try again." }, { status: 500 });
-      }
-
+      
       grandSubtotal += subtotal;
-
       validatedItems.push({
         product_id: product.id,
         product_name: product.name,
@@ -342,9 +256,12 @@ export async function POST(req: NextRequest) {
     }
 
     // Dynamic global shipping rule evaluation
-    grandShipping = grandSubtotal >= 999 ? 0 : 40; 
+    grandShipping = grandSubtotal >= 999 ? 0 : 40;
 
+    // Handle Validation Failures Early
     if (missingProducts.length > 0) {
+      // ⚠️ DO NOT WRITE TO DATABASE IF THERE IS AN ERROR!
+      // Simply return the error string prompts as normal.
       const completelyNotFound = missingProducts.filter(p => p.error_type === "not_found");
       const invalidVariants = missingProducts.filter(p => p.error_type === "invalid_variant");
 
@@ -366,20 +283,16 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      // ✨ FIX 2: Dynamic list formatting loops through ALL invalid variations concurrently
       if (invalidVariants.length > 0) {
         let customErrorMessage = "Sorry, those specific combinations are unavailable:\n";
-        
         invalidVariants.forEach((item, index) => {
           const allowedColors = item.available_options?.color?.length ? item.available_options.color.join(" or ") : "";
           const allowedSizes = item.available_options?.size?.length ? item.available_options.size.join(", ") : "";
-          
           customErrorMessage += `\n*${index + 1}. ${item.product_name}:*`;
           if (allowedColors) customErrorMessage += `\n   • *Colors:* _${allowedColors}_`;
           if (allowedSizes) customErrorMessage += `\n   • *Sizes:* _${allowedSizes}_`;
           customErrorMessage += `\n`;
         });
-        
         return NextResponse.json({
           success: false,
           requires_selection: true,
@@ -389,19 +302,13 @@ export async function POST(req: NextRequest) {
       }
 
       let userFriendlyMessage = "";
-
       const buildOptionsText = (item: any) => {
         const opts = item.available_options || {};
         const optionsStringArray: string[] = [];
-
         Object.entries(opts).forEach(([key, values]) => {
           let parsedValues: string[] = [];
-          if (Array.isArray(values)) {
-            parsedValues = values;
-          } else if (typeof values === "string") {
-            parsedValues = values.split(",").map(v => v.trim());
-          }
-
+          if (Array.isArray(values)) parsedValues = values;
+          else if (typeof values === "string") parsedValues = values.split(",").map(v => v.trim());
           if (parsedValues.length > 0) {
             const label = key.charAt(0).toUpperCase() + key.slice(1);
             optionsStringArray.push(`\n• *${label}s:* _${parsedValues.join(" or ")}_`);
@@ -414,25 +321,18 @@ export async function POST(req: NextRequest) {
         const item = missingProducts[0];
         const missingFieldsList = item.missing_fields.join(" and ");
         const choices = buildOptionsText(item);
-
         userFriendlyMessage = `Please reply with your preferred *${missingFieldsList}* option for *${item.product_name}*.`;
-        if (choices) {
-          userFriendlyMessage += `\n\n*AVAILABLE CHOICES:*${choices}`;
-        }
+        if (choices) userFriendlyMessage += `\n\n*AVAILABLE CHOICES:*${choices}`;
       } else {
         userFriendlyMessage = `Please specify required options for the following products:\n`;
-        
         missingProducts.forEach((item, index) => {
           const missingFieldsList = item.missing_fields.join(" and ");
           userFriendlyMessage += `\n*${index + 1}. ${item.product_name}* (Missing: ${missingFieldsList})`;
         });
-
         userFriendlyMessage += `\n\n*AVAILABLE CHOICES:*`;
         missingProducts.forEach((item) => {
           const choices = buildOptionsText(item);
-          if (choices) {
-            userFriendlyMessage += `\n\n*For ${item.product_name}:*${choices}`;
-          }
+          if (choices) userFriendlyMessage += `\n\n*For ${item.product_name}:*${choices}`;
         });
       }
 
@@ -445,7 +345,38 @@ export async function POST(req: NextRequest) {
     }
 
     // =========================================================================
-    // ✨ FIX 3: SUCCESS INTERCEPTION FOR WHATSAPP MULTI-ITEM ORDERS
+    // 🎉 ORDER IS FULLY VALID! NOW PERFORM A CLEAN DATABASE OVERWRITE
+    // =========================================================================
+    
+    // 1. Wipe out everything associated with this specific session to clear out past histories
+    await supabase
+      .from("cart_sessions")
+      .delete()
+      .eq("session_id", sessionId);
+
+    // 2. Batch write only the clean, validated list of actual target products
+    for (const validItem of validatedItems) {
+      const { error: cartUpsertError } = await supabase
+        .from("cart_sessions")
+        .upsert({
+          session_id: sessionId, 
+          product_id: validItem.product_id,
+          product_name: validItem.product_name,
+          quantity: validItem.quantity,
+          selected_attributes: validItem.selected_attributes,
+          current_flow: "whatsapp_ecommerce",
+          current_step: "checkout",
+          updated_at: new Date().toISOString(),
+        });
+
+      if (cartUpsertError) {
+        console.error("Cart database save error:", cartUpsertError);
+        return NextResponse.json({ success: false, message: "Database system error. Please try again." }, { status: 500 });
+      }
+    }
+
+    // =========================================================================
+    // Return Success Outputs
     // =========================================================================
     if (isMultiProductSession) {
       const itemsSummary = validatedItems
@@ -468,7 +399,6 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Default single item direct validation message structure
     return NextResponse.json({
       success: true,
       items: validatedItems,
