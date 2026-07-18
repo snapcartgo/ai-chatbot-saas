@@ -347,22 +347,22 @@ export async function GET(request: Request) {
       }
     }
 
-    // 8. Intelligent General Search (Color-Resilient Wildcard & Generic Noise Fix)
+    // 6. Intelligent General Search (Color-Resilient Wildcard & Generic Noise Fix)
     let isGenericSearch = false; 
 
     if (q) {
       let cleanQuery = q.trim().toLowerCase();
       
-      const genericWords = [
-        "product", "products", "item", "items", "thing", "things", 
-        "all", "list", "any", "any product", "available products", "available product"
-      ];
+      const genericWords = ["product", "products", "item", "items", "thing", "things", "all", "list", "any", "catalog"];
       
-      // ✨ FIX: Check if it's explicitly generic or contains the n8n fallback intro string
+      // ✨ ULTIMATE FIX: Flags as generic if it contains commas (like "Fashion, Electronics...") or broad keywords
       if (
         genericWords.includes(cleanQuery) || 
-        cleanQuery.includes("available products in") || 
-        cleanQuery.includes("show all")
+        cleanQuery.includes("any product") || 
+        cleanQuery.includes("available products") || 
+        cleanQuery.includes("show me") ||
+        cleanQuery.includes(",") || // Catches comma-separated lists from n8n
+        cleanQuery.includes("home essentials")
       ) {
         isGenericSearch = true;
       } else {
