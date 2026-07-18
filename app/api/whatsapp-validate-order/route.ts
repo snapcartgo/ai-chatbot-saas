@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Now extract values from the successfully built body object
+    // Extract values from the successfully built body object
     const sessionId = body.session_id; 
     const items = body.items;
     const user_id = body.user_id;
@@ -86,7 +86,7 @@ export async function POST(req: NextRequest) {
           .replace(/s\b/g, ''); // Generalized singular fallback step for fuzzy tracking
       }
 
-      // ✨ FIX 1: Extract implicit color attributes from the product name text string if missing
+      // ✨ Extract implicit color attributes from the product name text string if missing
       if (!cleanIncomingAttributes.color) {
         if (search.includes("black")) cleanIncomingAttributes.color = "black";
         else if (search.includes("white")) cleanIncomingAttributes.color = "white";
@@ -327,7 +327,7 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      // ✨ FIX 2: Dynamic list formatting loops through ALL invalid variations concurrently
+      // Dynamic list formatting loops through ALL invalid variations concurrently
       if (invalidVariants.length > 0) {
         let customErrorMessage = "Sorry, those specific combinations are unavailable:\n";
         
@@ -405,9 +405,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // =========================================================================
-    // ✨ FIX 3: SUCCESS INTERCEPTION FOR WHATSAPP MULTI-ITEM ORDERS
-    // =========================================================================
+    // Success confirmation layout logic for multi-item orders
     if (isMultiProductSession) {
       const itemsSummary = validatedItems
         .map(i => {
@@ -429,7 +427,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Default single item direct validation message structure
+    // Default single item validation success payload template configuration
     return NextResponse.json({
       success: true,
       items: validatedItems,
@@ -440,6 +438,7 @@ export async function POST(req: NextRequest) {
     });
 
   } catch (err: any) {
+    console.error("Critical System Validation Exception:", err);
     return NextResponse.json({ success: false, message: "Oops! An unexpected system error occurred." }, { status: 500 });
   }
 }
