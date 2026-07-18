@@ -42,13 +42,13 @@ export async function GET(request: Request) {
         });
       }
 
-      // ✨ STRATEGIC FIX: Broad expression matching for incoming n8n/conversational text strings
+      // Broad expression matching for incoming n8n/conversational text strings
       const isMetaGenericSearch = 
         genericWords.includes(queryText) || 
         queryText.includes("any product") || 
         queryText.includes("available products") || 
         queryText.includes("show me") || 
-        queryText.includes(",") || // Dynamic handle for comma-separated categories lists
+        queryText.includes(",") || 
         queryText.includes("home essentials");
 
       // Step A1: Unify and isolate price statements from query string
@@ -91,7 +91,7 @@ export async function GET(request: Request) {
       }
 
       // Strip structural noise words and color tags
-      const colorAdjectives = ["white", "black", "blue", "red", "green", "grey", "gray", "yellow"];
+      const colorAdjectives = ["white", "black", "blue", "red", "green", "grey", "gray", "yellow", "olive"];
       
       let queryWords = cleanQuery.split(/\s+/).filter((word: string) => word.length > 0);
       
@@ -146,6 +146,7 @@ export async function GET(request: Request) {
 
       // Step A3: Compile filter conditions for Meta Catalog
       let metaFilterObject: any = {};
+      let usingTextSearchFallback = false;
 
       if (isMetaGenericSearch) {
         metaFilterObject = {}; 
@@ -158,21 +159,7 @@ export async function GET(request: Request) {
 
         metaFilterObject = { or: idConditions };
       } else {
-        const wordsToSearch = [...itemWords, ...explicitColorsFound]
-          .filter((w: string) => !genericWords.includes(w));
-
-        if (wordsToSearch.length > 0) {
-          const textConditions = wordsToSearch.map((word: string) => ({
-            or: [
-              { name: { contains: word } },
-              { description: { contains: word } },
-              { color: { contains: word } }
-            ]
-          }));
-          metaFilterObject = { and: textConditions };
-        } else {
-          metaFilterObject = {};
-        }
+        usingTextSearchFallback = true;
       }
 
       // Build Meta URL
@@ -183,10 +170,12 @@ export async function GET(request: Request) {
 
       if (Object.keys(metaFilterObject).length > 0) {
         metaUrl += `&filter=${encodeURIComponent(JSON.stringify(metaFilterObject))}`;
+      } else if (usingTextSearchFallback && finalSearchTerm) {
+        metaUrl += `&q=${encodeURIComponent(finalSearchTerm)}`;
       }
 
-      const metaResponse = await fetch(metaUrl);
-      const metaData = await metaResponse.json();
+      let metaResponse = await fetch(metaUrl);
+      let metaData = await metaResponse.json();
 
       if (!metaResponse.ok) {
         throw new Error(metaData.error?.message || "Meta Catalog API failure.");
@@ -210,12 +199,49 @@ export async function GET(request: Request) {
         });
       }
 
-      // Fallback fallback response structure configuration
-      if (products.length === 0) {
+      // Broad expression handling fallback logic
+      if (products.length === 0 && isMetaGenericSearch) {
         const fallbackUrl = `https://graph.facebook.com/v20.0/${metaCatalogId}/products?fields=id,name,retailer_id,price,image_url,color,description,url,category&access_token=${metaAccessToken}`;
         const fallbackResponse = await fetch(fallbackUrl);
         const fallbackData = await fallbackResponse.json();
         products = fallbackData.data || [];
+      }
+
+      // Alternate color option lookup loop fallback
+      if (products.length === 0 && !isMetaGenericSearch && finalSearchTerm) {
+        const colorFallbackUrl = 
+          `https://graph.facebook.com/v20.0/${metaCatalogId}/products` +
+          `?fields=id,name,retailer_id,price,image_url,color,description,url,category` +
+          `&q=${encodeURIComponent(finalSearchTerm)}` +
+          `&access_token=${metaAccessToken}`;
+
+        const colorFallbackResponse = await fetch(colorFallbackUrl);
+        const colorFallbackData = await colorFallbackResponse.json();
+        
+        if (colorFallbackResponse.ok && colorFallbackData.data) {
+          products = colorFallbackData.data;
+        }
+      }
+
+      // ✨ STRATEGIC POST-FILTER FIX: 
+      // If it's a specific search, strictly ensure products match the expected item type noun (e.g. "t-shirt")
+      // This stops loose keywords from pulling mismatched cross-category items like Jeans into T-shirt results.
+      if (products.length > 0 && !isMetaGenericSearch && finalSearchTerm) {
+        products = products.filter((item: any) => {
+          const name = (item.name || '').toLowerCase();
+          const desc = (item.description || '').toLowerCase();
+          const cat = (item.category || '').toLowerCase();
+          
+          // Match variations of the strict noun tokens (e.g., matching "t-shirt", "tshirt", "shirt")
+          const cleanSearchToken = finalSearchTerm.toLowerCase();
+          
+          if (cleanSearchToken === "t-shirt") {
+            return name.includes("t-shirt") || name.includes("tshirt") || name.includes("shirt") || 
+                   desc.includes("t-shirt") || desc.includes("tshirt") || desc.includes("shirt");
+          }
+          
+          return name.includes(cleanSearchToken) || desc.includes(cleanSearchToken) || cat.includes(cleanSearchToken);
+        });
       }
 
       if (products.length === 0) {
@@ -230,7 +256,7 @@ export async function GET(request: Request) {
         });
       }
 
-      // ✨ FIX APPLIED: Clean, absolute category grouping loops (Max 8 categories, 1 product each)
+      // Clean, absolute category grouping loops (Max 8 categories, 1 product each)
       let processedProducts: any[] = [];
       if (isMetaGenericSearch) {
         const uniqueCategories = new Set<string>();
@@ -269,9 +295,17 @@ export async function GET(request: Request) {
         product_retailer_id: item.retailer_id
       }));
 
+      // Adjust messaging dynamic headers based on whether we matched exact queries or alternative variants
+      const hasMatchedRequestedColor = explicitColorsFound.length === 0 || products.some((p: any) => 
+        (p.color || '').toLowerCase().includes(explicitColorsFound[0]) || 
+        (p.name || '').toLowerCase().includes(explicitColorsFound[0])
+      );
+
       const bodyText = isMetaGenericSearch
         ? "Here are the top categories currently available in our store:"
-        : `Here is what we found matching your request for "${(q || '').trim()}":`;
+        : hasMatchedRequestedColor 
+          ? `Here is what we found matching your request for "${(q || '').trim()}":`
+          : `We don't have "${(q || '').trim()}" in stock, but here are some other colors you might like:`;
 
       const footerText = isMetaGenericSearch 
         ? "Tap view options below to see all items, etc."
@@ -363,7 +397,7 @@ export async function GET(request: Request) {
       ) {
         isGenericSearch = true;
       } else {
-        const colorAdjectives = ["white", "black", "blue", "red", "green", "grey", "gray", "yellow"];
+        const colorAdjectives = ["white", "black", "blue", "red", "green", "grey", "gray", "yellow", "olive"];
         let queryWords = cleanQuery.split(/\s+/).filter((word: string) => !colorAdjectives.includes(word));
         
         queryWords = queryWords.map((word: string) => {
