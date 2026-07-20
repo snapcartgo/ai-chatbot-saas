@@ -210,35 +210,39 @@ export async function POST(req: Request) {
         let firstProductImageUrl = ""; 
 
         for (const product of n8nData) {
-          if (!product.image_url) continue;
-          
-          if (!firstProductImageUrl) {
-            firstProductImageUrl = product.image_url;
-          }
+  if (!product.image_url) continue;
+  
+  if (!firstProductImageUrl) {
+    firstProductImageUrl = product.image_url;
+  }
 
-          const assistantText = `${product.name}\nSKU: ${product.retailer_id || ""}\nPrice: ${product.price}`;
-          combinedAssistantContent += `[Sent Image: ${assistantText}]\n`;
+  // Extract link dynamically from n8n response fields
+  const productLink = product.product_url || product.website_url || "";
+  const linkText = productLink ? `\nLink: ${productLink}` : "";
 
-          const payload = {
-            messaging_product: "whatsapp",
-            to: customerPhone,
-            type: "image",
-            image: {
-              link: product.image_url,
-              caption: assistantText,
-            },
-          };
+  const assistantText = `${product.name}\nSKU: ${product.retailer_id || ""}\nPrice: ${product.price}${linkText}`;
+  combinedAssistantContent += `[Sent Image: ${assistantText}]\n`;
 
-          const metaRes = await fetch(metaUrl, {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${metaAccessToken}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify(payload),
-          });
-          console.log("Status product sent:", metaRes.status);
-        }
+  const payload = {
+    messaging_product: "whatsapp",
+    to: customerPhone,
+    type: "image",
+    image: {
+      link: product.image_url,
+      caption: assistantText,
+    },
+  };
+
+  const metaRes = await fetch(metaUrl, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${metaAccessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+  console.log("Status product sent:", metaRes.status);
+}
 
         if (combinedAssistantContent) {
           await supabase.from("messages").insert([
@@ -256,40 +260,44 @@ export async function POST(req: Request) {
         }
 
       } else if (n8nData?.image_url) {
-        const assistantText = `${n8nData.name}\nPrice: ${n8nData.price}`;
-        const payload = {
-          messaging_product: "whatsapp",
-          to: customerPhone,
-          type: "image",
-          image: {
-            link: n8nData.image_url,
-            caption: assistantText,
-          },
-        };
+  // Extract link dynamically from n8n response fields
+  const productLink = n8nData.product_url || n8nData.website_url || "";
+  const linkText = productLink ? `\nLink: ${productLink}` : "";
 
-        await fetch(metaUrl, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${metaAccessToken}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(payload),
-        });
+  const assistantText = `${n8nData.name}\nPrice: ${n8nData.price}${linkText}`;
 
-        await supabase.from("messages").insert([
-          {
-            conversation_id: conversationId,
-            role: "assistant",
-            content: `[Sent Image: ${assistantText}]`,
-            channel: "whatsapp",
-            phone_number: cleanPhone,
-            bot_id: config.chatbot_id,
-            user_id: config.user_id,
-            image_url: n8nData.image_url 
-          },
-        ]);
+  const payload = {
+    messaging_product: "whatsapp",
+    to: customerPhone,
+    type: "image",
+    image: {
+      link: n8nData.image_url,
+      caption: assistantText,
+    },
+  };
 
-      } else if (aiResponse || n8nData?.type === "text") {
+  await fetch(metaUrl, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${metaAccessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  await supabase.from("messages").insert([
+    {
+      conversation_id: conversationId,
+      role: "assistant",
+      content: `[Sent Image: ${assistantText}]`,
+      channel: "whatsapp",
+      phone_number: cleanPhone,
+      bot_id: config.chatbot_id,
+      user_id: config.user_id,
+      image_url: n8nData.image_url 
+    },
+  ]);
+} else if (aiResponse || n8nData?.type === "text") {
 
         const textBody =
           aiResponse ||
