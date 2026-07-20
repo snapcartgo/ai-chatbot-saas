@@ -19,13 +19,27 @@ export async function POST(request: Request) {
 
     const firstItem = body.items && body.items[0] ? body.items[0] : {};
 
-    // 3. Unify Extraction
+    // 3. Unify Parameter Extraction
     const category = searchParams.get('category') || body.category || firstItem.category || null;
     const product_type = searchParams.get('product_type') || body.product_type || firstItem.product_type || null;
-    const q = searchParams.get('q') || body.q || firstItem.product_name || null; 
+    const q = searchParams.get('q') || body.q || firstItem.product_name || body.product_search || body.product_name || null; 
     const color = searchParams.get('color') || body.color || firstItem.color || null;
     const price_query = searchParams.get('price_query') || searchParams.get('price') || body.price_query || firstItem.price_query || null; 
     const user_id = searchParams.get('user_id') || body.user_id || firstItem.user_id || null; 
+
+    // Dedicated Stock Check Parameter Extraction
+    const isStockQueryParam = 
+      searchParams.get('is_stock_query') === 'true' || 
+      searchParams.get('stock_check') === 'true' || 
+      searchParams.get('availability') === 'true' ||
+      body.is_stock_query === true ||
+      body.stock_check === true ||
+      body.availability === true;
+
+    // Keyword Fallback Detection
+    const stockKeywords = ["stock", "available", "availability", "in stock", "have", "present", "left"];
+    const queryLower = (q || '').toLowerCase();
+    const isStockQuery = isStockQueryParam || stockKeywords.some((keyword) => queryLower.includes(keyword));
 
     // 4. Enforce tenancy boundaries immediately
     if (!user_id) {
@@ -81,7 +95,11 @@ export async function POST(request: Request) {
         isGenericSearch = true;
       } else {
         const colorAdjectives = ["white", "black", "blue", "red", "green", "grey", "gray", "yellow", "olive green", "olive"];
-        let queryWords = cleanQuery.split(/\s+/).filter((word: string) => !colorAdjectives.includes(word));
+        const stockNoiseWords = ["stock", "available", "availability", "in stock", "is", "are", "have", "present", "left"];
+
+        let queryWords = cleanQuery.split(/\s+/).filter((word: string) => 
+          !colorAdjectives.includes(word) && !stockNoiseWords.includes(word)
+        );
         
         queryWords = queryWords.map((word: string) => {
           if (word === "shirts" || word === "tshirt" || word === "tshirts") return "t-shirt";
@@ -94,7 +112,7 @@ export async function POST(request: Request) {
         const finalSearchTerm = queryWords.join(" ");
 
         if (finalSearchTerm.length > 0) {
-          fallbackSearchTerm = finalSearchTerm; // Keep for fallback!
+          fallbackSearchTerm = finalSearchTerm;
           query = query.or(`name.ilike.%${finalSearchTerm}%,description.ilike.%${finalSearchTerm}%,category.ilike.%${finalSearchTerm}%`);
         } else {
           fallbackSearchTerm = q.trim();
@@ -103,7 +121,7 @@ export async function POST(request: Request) {
       }
     }
 
-    // 9. Execution and Response
+    // 9. Execution
     let { data, error } = await query;
 
     if (error) {
@@ -111,18 +129,37 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // --- CATEGORY-AWARE FALLBACK IF NO SPECIFIC COLOR/VARIANT MATCH FOUND ---
+    // Helper: Build precise stock response message
+    const buildStockMessage = (items: any[]) => {
+      if (!items || items.length === 0) return null;
+      const topProduct = items[0];
+      const productName = topProduct.name || topProduct.title || (q || '').trim();
+      const rawStock = topProduct.stock;
+
+      let stockNum = 0;
+      if (typeof rawStock === 'number') {
+        stockNum = rawStock;
+      } else if (typeof rawStock === 'string') {
+        stockNum = parseInt(rawStock.replace(/[^0-9]/g, ''), 10) || 0;
+      }
+
+      if (stockNum > 0) {
+        return `✅ Status: *${productName}* is in stock (${stockNum} units available).`;
+      } else {
+        return `❌ Status: *${productName}* is currently out of stock.`;
+      }
+    };
+
+    // --- CATEGORY-AWARE FALLBACK IF NO DIRECT MATCH ---
     if (!data || data.length === 0 || isGenericSearch) {
       let altQuery = supabase.from('products').select('*').eq('user_id', user_id);
       let hasPriceFilter = false;
       let priceLabel = "";
 
-      // IF a specific product type (like t-shirt) was searched, restrict fallback strictly to that category/term
       if (fallbackSearchTerm && !isGenericSearch) {
         altQuery = altQuery.or(`name.ilike.%${fallbackSearchTerm}%,description.ilike.%${fallbackSearchTerm}%,category.ilike.%${fallbackSearchTerm}%`);
       }
 
-      // Re-apply price filtering to fallback if requested
       if (price_query && price_query !== "null" && price_query.trim() !== "") {
         const cleanPriceQuery = price_query.trim().toLowerCase();
         if (cleanPriceQuery.startsWith('under')) {
@@ -153,7 +190,6 @@ export async function POST(request: Request) {
 
       let { data: alternatives, error: altError } = await altQuery;
 
-      // Secondary Fallback: If no other t-shirts exist, then fall back to all catalog items
       if ((!alternatives || alternatives.length === 0) && fallbackSearchTerm && !isGenericSearch) {
         let globalQuery = supabase.from('products').select('*').eq('user_id', user_id).limit(12);
         const { data: globalAlternatives } = await globalQuery;
@@ -161,22 +197,33 @@ export async function POST(request: Request) {
       }
 
       if (alternatives && alternatives.length > 0) {
+        // IF STOCK QUERY WAS EXPLICITLY REQUESTED
+        if (isStockQuery) {
+          return NextResponse.json({
+            data: alternatives,
+            success: true,
+            is_stock_check: true,
+            message: buildStockMessage(alternatives)
+          });
+        }
+
         const searchItemName = isGenericSearch ? "products" : q ? `"${q.trim()}"` : "that item";
         let responseMessage = "";
 
         if (q && !isGenericSearch) {
-          responseMessage = `I'm sorry, we don't have ${searchItemName} ${priceLabel ? priceLabel : ''} in our store at the moment. However, you might love these options from our collection:`;
+          responseMessage = `I'm sorry, we don't have ${searchItemName} ${priceLabel ? priceLabel : ''} in that exact variant. However, here are similar options from our collection:`;
         } else if (hasPriceFilter) {
           responseMessage = `Here are the options available in our collection ${priceLabel}:`;
         } else if (isGenericSearch) {
           responseMessage = `Here are some products available in our store:`;
         } else {
-          responseMessage = `I'm sorry, we don't have ${searchItemName} in our store at the moment. However, you might love these popular pieces from our collection:`;
+          responseMessage = `I'm sorry, we don't have ${searchItemName} in our store at the moment. However, you might love these popular pieces:`;
         }
 
         return NextResponse.json({ 
           data: alternatives,
           success: true, 
+          is_stock_check: false,
           message: responseMessage
         });
       }
@@ -184,17 +231,35 @@ export async function POST(request: Request) {
       return NextResponse.json({ 
         data: [],
         success: false,
+        is_stock_check: isStockQuery,
         message: q ? `We couldn't find any items matching "${q.trim()}" right now.` : "That item is currently unavailable."
       });
     }
 
-    // If initial search criteria matched perfectly
+    // --- SUCCESS RESPONSE ---
+    
+    // IF THIS IS A SPECIFIC STOCK QUERY
+    if (isStockQuery) {
+      return NextResponse.json({ 
+        data, 
+        success: true, 
+        is_stock_check: true,
+        message: buildStockMessage(data)
+      });
+    }
+
+    // REGULAR SEARCH RESPONSE
     let matchMessage = "Here is what we found:";
     if (isGenericSearch && price_query) {
       matchMessage = "Here are the options available in our collection matching your budget layout:";
     }
 
-    return NextResponse.json({ data, success: true, message: matchMessage });
+    return NextResponse.json({ 
+      data, 
+      success: true, 
+      is_stock_check: false,
+      message: matchMessage 
+    });
 
   } catch (err: any) {
     console.error("Critical System Route Error:", err);
