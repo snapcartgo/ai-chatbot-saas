@@ -27,7 +27,7 @@ export async function POST(request: Request) {
     const price_query = searchParams.get('price_query') || searchParams.get('price') || body.price_query || firstItem.price_query || null; 
     const user_id = searchParams.get('user_id') || body.user_id || firstItem.user_id || null; 
 
-    // Dedicated Stock Check Parameter Extraction (handles strings 'true' and booleans)
+    // Dedicated Stock Check Parameter Extraction
     const isStockQueryParam = 
       searchParams.get('is_stock_query') === 'true' || 
       searchParams.get('stock_check') === 'true' || 
@@ -36,8 +36,7 @@ export async function POST(request: Request) {
       body.stock_check === true || body.stock_check === 'true' ||
       body.availability === true || body.availability === 'true';
 
-    // Keyword Fallback Detection
-    const stockKeywords = ["stock", "available", "availability", "in stock", "have", "present", "left"];
+    const stockKeywords = ["stock", "available", "availability", "in stock", "have", "present", "left", "do you have"];
     const queryLower = (q || '').toLowerCase();
     const isStockQuery = isStockQueryParam || stockKeywords.some((keyword) => queryLower.includes(keyword));
 
@@ -49,19 +48,23 @@ export async function POST(request: Request) {
     // 5. Initialize Supabase
     const supabase = await createSupabaseServerClient();
 
+    // Helper to safely parse numerical stock values
+    const getStockCount = (item: any) => {
+      const raw = item?.stock;
+      if (typeof raw === 'number') return raw;
+      if (typeof raw === 'string') return parseInt(raw.replace(/[^0-9]/g, ''), 10) || 0;
+      return 0;
+    };
+
     // 6. Build the initial query
     let query = supabase.from('products').select('*').eq('user_id', user_id); 
 
-    // Store sanitized item term for category-restricted fallback
     let fallbackSearchTerm = category || product_type || "";
 
     // 7. Apply conditional filters
     if (category) query = query.ilike('category', `%${category.trim()}%`);
     if (product_type) query = query.ilike('product_type', `%${product_type.trim()}%`);
-    
-    if (color && color !== "") {
-      query = query.ilike('color', `%${color.trim()}%`);
-    }
+    if (color && color !== "") query = query.ilike('color', `%${color.trim()}%`);
 
     // Intelligent Price Filter Parser
     if (price_query && price_query !== "null" && price_query.trim() !== "") {
@@ -95,7 +98,7 @@ export async function POST(request: Request) {
         isGenericSearch = true;
       } else {
         const colorAdjectives = ["white", "black", "blue", "red", "green", "grey", "gray", "yellow", "olive green", "olive"];
-        const stockNoiseWords = ["stock", "available", "availability", "in stock", "is", "are", "have", "present", "left"];
+        const stockNoiseWords = ["stock", "available", "availability", "in stock", "is", "are", "have", "present", "left", "do", "you"];
 
         let queryWords = cleanQuery.split(/\s+/).filter((word: string) => 
           !colorAdjectives.includes(word) && !stockNoiseWords.includes(word)
@@ -129,148 +132,55 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // Helper to safely parse numerical stock values
-    const getStockCount = (item: any) => {
-      const raw = item?.stock;
-      if (typeof raw === 'number') return raw;
-      if (typeof raw === 'string') return parseInt(raw.replace(/[^0-9]/g, ''), 10) || 0;
-      return 0;
-    };
+    // =========================================================================
+    // DYNAMIC STOCK & ALTERNATIVE ITEM HANDLING
+    // =========================================================================
+    const requestedItemName = (q || fallbackSearchTerm || 'item').trim();
 
-    // Helper: Build precise stock response message across all returned variants
-    const buildStockMessage = (items: any[]) => {
-      if (!items || items.length === 0) return null;
+    // Check if the specific search returned item(s) that are ALL OUT OF STOCK (stock = 0)
+    const matchedItems = data || [];
+    const isExactMatchOutOfStock = matchedItems.length > 0 && matchedItems.every(item => getStockCount(item) === 0);
 
-      const inStockItem = items.find((item) => getStockCount(item) > 0);
-
-      if (inStockItem) {
-        const productName = inStockItem.name || inStockItem.title || (q || '').trim();
-        const stockNum = getStockCount(inStockItem);
-        return `✅ Status: *${productName}* is in stock (${stockNum} units available).`;
-      }
-
-      const topProduct = items[0];
-      const productName = topProduct.name || topProduct.title || (q || '').trim();
-      return `❌ Status: *${productName}* is currently out of stock.`;
-    };
-
-    // Filter out items that have 0 stock whenever it's a stock check query
-    let filteredData = data || [];
-    if (isStockQuery && filteredData.length > 0) {
-      const inStockOnly = filteredData.filter((item) => getStockCount(item) > 0);
-      if (inStockOnly.length > 0) {
-        filteredData = inStockOnly;
-      }
-    }
-
-    // --- CATEGORY-AWARE FALLBACK IF NO DIRECT MATCH ---
-    if (!data || data.length === 0 || isGenericSearch) {
+    if (isExactMatchOutOfStock || matchedItems.length === 0) {
+      // Find available alternative products from the same category/store that DO have stock > 0
       let altQuery = supabase.from('products').select('*').eq('user_id', user_id);
-      let hasPriceFilter = false;
-      let priceLabel = "";
 
       if (fallbackSearchTerm && !isGenericSearch) {
         altQuery = altQuery.or(`name.ilike.%${fallbackSearchTerm}%,description.ilike.%${fallbackSearchTerm}%,category.ilike.%${fallbackSearchTerm}%`);
       }
 
-      if (price_query && price_query !== "null" && price_query.trim() !== "") {
-        const cleanPriceQuery = price_query.trim().toLowerCase();
-        if (cleanPriceQuery.startsWith('under')) {
-          const maxPrice = parseFloat(cleanPriceQuery.replace('under', '').trim());
-          if (!isNaN(maxPrice)) {
-            altQuery = altQuery.lte('price', maxPrice);
-            hasPriceFilter = true;
-            priceLabel = `under Rs. ${maxPrice}`;
-          }
-        } else if (cleanPriceQuery.startsWith('exact')) {
-          const exactPrice = parseFloat(cleanPriceQuery.replace('exact', '').trim());
-          if (!isNaN(exactPrice)) {
-            altQuery = altQuery.eq('price', exactPrice);
-            hasPriceFilter = true;
-            priceLabel = `at exactly Rs. ${exactPrice}`;
-          }
-        } else if (cleanPriceQuery.startsWith('between')) {
-          const numericParts = cleanPriceQuery.replace('between', '').split('to').map((num: string) => parseFloat(num.trim()));
-          if (!isNaN(numericParts[0]) && !isNaN(numericParts[1])) {
-            altQuery = altQuery.gte('price', numericParts[0]).lte('price', numericParts[1]);
-            hasPriceFilter = true;
-            priceLabel = `between Rs. ${numericParts[0]} to Rs. ${numericParts[1]}`;
-          }
-        }
+      const { data: altData } = await altQuery;
+      const inStockAlternatives = (altData || []).filter(item => getStockCount(item) > 0);
+
+      // Construct user-friendly messaging
+      let responseMessage = `I'm sorry, right now *${requestedItemName}* is out of stock. As soon as the stock is available, I will let you know!`;
+
+      if (inStockAlternatives.length > 0) {
+        responseMessage += ` In the meantime, we have some other options available in our collection:`;
       }
 
-      altQuery = altQuery.limit(12);
-
-      let { data: alternatives, error: altError } = await altQuery;
-
-      if ((!alternatives || alternatives.length === 0) && fallbackSearchTerm && !isGenericSearch) {
-        let globalQuery = supabase.from('products').select('*').eq('user_id', user_id).limit(12);
-        const { data: globalAlternatives } = await globalQuery;
-        alternatives = globalAlternatives || [];
-      }
-
-      if (alternatives && alternatives.length > 0) {
-        // IF STOCK QUERY WAS EXPLICITLY REQUESTED
-        if (isStockQuery) {
-          return NextResponse.json({
-            data: alternatives,
-            success: true,
-            is_stock_check: true,
-            message: buildStockMessage(alternatives)
-          });
-        }
-
-        const searchItemName = isGenericSearch ? "products" : q ? `"${q.trim()}"` : "that item";
-        let responseMessage = "";
-
-        if (q && !isGenericSearch) {
-          responseMessage = `I'm sorry, we don't have ${searchItemName} ${priceLabel ? priceLabel : ''} in that exact variant. However, here are similar options from our collection:`;
-        } else if (hasPriceFilter) {
-          responseMessage = `Here are the options available in our collection ${priceLabel}:`;
-        } else if (isGenericSearch) {
-          responseMessage = `Here are some products available in our store:`;
-        } else {
-          responseMessage = `I'm sorry, we don't have ${searchItemName} in our store at the moment. However, you might love these popular pieces:`;
-        }
-
-        return NextResponse.json({ 
-          data: alternatives,
-          success: true, 
-          is_stock_check: false,
-          message: responseMessage
-        });
-      }
-
-      return NextResponse.json({ 
-        data: [],
-        success: false,
-        is_stock_check: isStockQuery,
-        message: q ? `We couldn't find any items matching "${q.trim()}" right now.` : "That item is currently unavailable."
-      });
-    }
-
-    // --- SUCCESS RESPONSE ---
-    
-    // IF THIS IS A SPECIFIC STOCK QUERY
-    if (isStockQuery) {
-      return NextResponse.json({ 
-        data: filteredData, 
-        success: true, 
+      return NextResponse.json({
+        data: inStockAlternatives.length > 0 ? inStockAlternatives : matchedItems,
+        success: true,
         is_stock_check: true,
-        message: buildStockMessage(data)
+        message: responseMessage
       });
     }
 
-    // REGULAR SEARCH RESPONSE
-    let matchMessage = "Here is what we found:";
-    if (isGenericSearch && price_query) {
-      matchMessage = "Here are the options available in our collection matching your budget layout:";
-    }
+    // If matching items ARE in stock, filter the carousel to only display in-stock items
+    const inStockItems = matchedItems.filter(item => getStockCount(item) > 0);
+    const topInStockItem = inStockItems[0] || matchedItems[0];
+    const topProductName = topInStockItem.name || topInStockItem.title || requestedItemName;
+    const stockNum = getStockCount(topInStockItem);
+
+    let matchMessage = isStockQuery 
+      ? `✅ Yes, *${topProductName}* is available in stock (${stockNum} units available).`
+      : "Here is what we found:";
 
     return NextResponse.json({ 
-      data: filteredData, 
+      data: inStockItems, 
       success: true, 
-      is_stock_check: false,
+      is_stock_check: isStockQuery,
       message: matchMessage 
     });
 
