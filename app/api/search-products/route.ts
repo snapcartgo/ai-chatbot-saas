@@ -133,29 +133,42 @@ export async function POST(request: Request) {
 const buildStockMessage = (items: any[]) => {
   if (!items || items.length === 0) return null;
 
-  // Helper to parse numerical stock values safely
-  const getStockCount = (item: any) => {
-    const raw = item?.stock;
-    if (typeof raw === 'number') return raw;
-    if (typeof raw === 'string') return parseInt(raw.replace(/[^0-9]/g, ''), 10) || 0;
-    return 0;
-  };
+  // Helper to safely parse numerical stock values
+    const getStockCount = (item: any) => {
+      const raw = item?.stock;
+      if (typeof raw === 'number') return raw;
+      if (typeof raw === 'string') return parseInt(raw.replace(/[^0-9]/g, ''), 10) || 0;
+      return 0;
+    };
 
-  // 1. Find the first variant that is actually IN STOCK (> 0)
-  const inStockItem = items.find((item) => getStockCount(item) > 0);
+    // Helper: Build precise stock response message across all returned variants
+    const buildStockMessage = (items: any[]) => {
+      if (!items || items.length === 0) return null;
 
-  if (inStockItem) {
-    const productName = inStockItem.name || inStockItem.title || (q || '').trim();
-    const stockNum = getStockCount(inStockItem);
-    return `✅ Status: *${productName}* is in stock (${stockNum} units available).`;
+      const inStockItem = items.find((item) => getStockCount(item) > 0);
+
+      if (inStockItem) {
+        const productName = inStockItem.name || inStockItem.title || (q || '').trim();
+        const stockNum = getStockCount(inStockItem);
+        return `✅ Status: *${productName}* is in stock (${stockNum} units available).`;
+      }
+
+      const topProduct = items[0];
+      const productName = topProduct.name || topProduct.title || (q || '').trim();
+      return `❌ Status: *${productName}* is currently out of stock.`;
+    };
+
+    // Filter out items that have 0 stock whenever it's a stock check query
+    let filteredData = data || [];
+    if (isStockQuery && filteredData.length > 0) {
+      const inStockOnly = filteredData.filter((item) => getStockCount(item) > 0);
+      
+      // If there are in-stock variants, ONLY show those in the carousel!
+      if (inStockOnly.length > 0) {
+        filteredData = inStockOnly;
+      }
+    }
   }
-
-  // 2. If NO items in the returned array have stock > 0
-  const topProduct = items[0];
-  const productName = topProduct.name || topProduct.title || (q || '').trim();
-  return `❌ Status: *${productName}* is currently out of stock.`;
-};
-
     // --- CATEGORY-AWARE FALLBACK IF NO DIRECT MATCH ---
     if (!data || data.length === 0 || isGenericSearch) {
       let altQuery = supabase.from('products').select('*').eq('user_id', user_id);
