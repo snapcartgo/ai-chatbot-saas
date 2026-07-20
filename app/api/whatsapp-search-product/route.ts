@@ -12,6 +12,7 @@ export async function GET(request: Request) {
     const color = searchParams.get('color');
     const price_query = searchParams.get('price_query') || searchParams.get('price'); 
     const user_id = searchParams.get('user_id'); 
+    const checkStock = searchParams.get('stock') || searchParams.get('availability');
     
     // Extract the dynamic phone number forwarded from the n8n webhook trigger
     const userPhone = searchParams.get('phone') || '';
@@ -162,10 +163,10 @@ export async function GET(request: Request) {
         usingTextSearchFallback = true;
       }
 
-      // Build Meta URL
+      // Build Meta URL with availability field included
       let metaUrl =
         `https://graph.facebook.com/v20.0/${metaCatalogId}/products` +
-        `?fields=id,name,retailer_id,price,image_url,color,description,url,category` +
+        `?fields=id,name,retailer_id,price,image_url,color,description,url,category,availability` +
         `&access_token=${metaAccessToken}`;
 
       if (Object.keys(metaFilterObject).length > 0) {
@@ -201,7 +202,7 @@ export async function GET(request: Request) {
 
       // Broad expression handling fallback logic
       if (products.length === 0 && isMetaGenericSearch) {
-        const fallbackUrl = `https://graph.facebook.com/v20.0/${metaCatalogId}/products?fields=id,name,retailer_id,price,image_url,color,description,url,category&access_token=${metaAccessToken}`;
+        const fallbackUrl = `https://graph.facebook.com/v20.0/${metaCatalogId}/products?fields=id,name,retailer_id,price,image_url,color,description,url,category,availability&access_token=${metaAccessToken}`;
         const fallbackResponse = await fetch(fallbackUrl);
         const fallbackData = await fallbackResponse.json();
         products = fallbackData.data || [];
@@ -211,7 +212,7 @@ export async function GET(request: Request) {
       if (products.length === 0 && !isMetaGenericSearch && finalSearchTerm) {
         const colorFallbackUrl = 
           `https://graph.facebook.com/v20.0/${metaCatalogId}/products` +
-          `?fields=id,name,retailer_id,price,image_url,color,description,url,category` +
+          `?fields=id,name,retailer_id,price,image_url,color,description,url,category,availability` +
           `&q=${encodeURIComponent(finalSearchTerm)}` +
           `&access_token=${metaAccessToken}`;
 
@@ -223,16 +224,13 @@ export async function GET(request: Request) {
         }
       }
 
-      // ✨ STRATEGIC POST-FILTER FIX: 
-      // If it's a specific search, strictly ensure products match the expected item type noun (e.g. "t-shirt")
-      // This stops loose keywords from pulling mismatched cross-category items like Jeans into T-shirt results.
+      // Strict token search post-filter
       if (products.length > 0 && !isMetaGenericSearch && finalSearchTerm) {
         products = products.filter((item: any) => {
           const name = (item.name || '').toLowerCase();
           const desc = (item.description || '').toLowerCase();
           const cat = (item.category || '').toLowerCase();
           
-          // Match variations of the strict noun tokens (e.g., matching "t-shirt", "tshirt", "shirt")
           const cleanSearchToken = finalSearchTerm.toLowerCase();
           
           if (cleanSearchToken === "t-shirt") {
@@ -256,7 +254,7 @@ export async function GET(request: Request) {
         });
       }
 
-      // Clean, absolute category grouping loops (Max 8 categories, 1 product each)
+      // Process products (Max 8 categories for generic search, or top 30 for specific)
       let processedProducts: any[] = [];
       if (isMetaGenericSearch) {
         const uniqueCategories = new Set<string>();
@@ -265,7 +263,6 @@ export async function GET(request: Request) {
           let itemCategory = (item.category || '').trim().toLowerCase();
           const itemName = (item.name || '').toLowerCase();
 
-          // Exclude earbuds and t-shirts explicitly from general broad display loops
           if (itemName.includes('earbud') || itemName.includes('tshirt') || itemName.includes('t-shirt')) {
             continue;
           }
@@ -277,7 +274,6 @@ export async function GET(request: Request) {
             else itemCategory = 'general_' + item.retailer_id; 
           }
           
-          // Deduplication safeguard gate setup
           if (!uniqueCategories.has(itemCategory)) {
             uniqueCategories.add(itemCategory);
             processedProducts.push(item);
@@ -295,21 +291,31 @@ export async function GET(request: Request) {
         product_retailer_id: item.retailer_id
       }));
 
-      // Adjust messaging dynamic headers based on whether we matched exact queries or alternative variants
       const hasMatchedRequestedColor = explicitColorsFound.length === 0 || products.some((p: any) => 
         (p.color || '').toLowerCase().includes(explicitColorsFound[0]) || 
         (p.name || '').toLowerCase().includes(explicitColorsFound[0])
       );
 
-      const bodyText = isMetaGenericSearch
-        ? "Here are the top categories currently available in our store:"
-        : hasMatchedRequestedColor 
-          ? `Here is what we found matching your request for "${(q || '').trim()}":`
-          : `We don't have "${(q || '').trim()}" in stock, but here are some other colors you might like:`;
+      // =========================================================================
+      // DYNAMIC STOCK STATUS CALCULATION (TEXT ONLY - NO NUMBERS)
+      // =========================================================================
+      const topItem = processedProducts[0];
+      const isAvailable = topItem?.availability === 'in stock' || topItem?.availability === 'in_stock';
 
-      const footerText = isMetaGenericSearch 
-        ? "Tap view options below to see all items, etc."
-        : "Tap view options below to see all items";
+      const stockStatusLine = isAvailable
+        ? `\n\n✅ Status: Available in Stock`
+        : `\n\n❌ Status: Out of Stock`;
+
+      let bodyText = "";
+      if (isMetaGenericSearch) {
+        bodyText = "Here are the top categories currently available in our store:";
+      } else if (hasMatchedRequestedColor) {
+        bodyText = `Here is what we found matching your request for "${(q || '').trim()}":${stockStatusLine}`;
+      } else {
+        bodyText = `We don't have "${(q || '').trim()}" in stock, but here are some other options you might like:`;
+      }
+
+      const footerText = "Tap view options below to see all items";
 
       return NextResponse.json({
         messaging_product: "whatsapp",
@@ -342,6 +348,7 @@ export async function GET(request: Request) {
           id: item.id,
           name: item.name,
           price: item.price,
+          availability: item.availability,
           description: item.description,
           image_url: item.image_url,
           color: item.color,
