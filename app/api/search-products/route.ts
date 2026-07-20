@@ -27,14 +27,14 @@ export async function POST(request: Request) {
     const price_query = searchParams.get('price_query') || searchParams.get('price') || body.price_query || firstItem.price_query || null; 
     const user_id = searchParams.get('user_id') || body.user_id || firstItem.user_id || null; 
 
-    // Dedicated Stock Check Parameter Extraction
+    // Dedicated Stock Check Parameter Extraction (handles strings 'true' and booleans)
     const isStockQueryParam = 
       searchParams.get('is_stock_query') === 'true' || 
       searchParams.get('stock_check') === 'true' || 
       searchParams.get('availability') === 'true' ||
-      body.is_stock_query === true ||
-      body.stock_check === true ||
-      body.availability === true;
+      body.is_stock_query === true || body.is_stock_query === 'true' ||
+      body.stock_check === true || body.stock_check === 'true' ||
+      body.availability === true || body.availability === 'true';
 
     // Keyword Fallback Detection
     const stockKeywords = ["stock", "available", "availability", "in stock", "have", "present", "left"];
@@ -129,11 +129,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // Helper: Build precise stock response message across all returned variants
-const buildStockMessage = (items: any[]) => {
-  if (!items || items.length === 0) return null;
-
-  // Helper to safely parse numerical stock values
+    // Helper to safely parse numerical stock values
     const getStockCount = (item: any) => {
       const raw = item?.stock;
       if (typeof raw === 'number') return raw;
@@ -162,13 +158,11 @@ const buildStockMessage = (items: any[]) => {
     let filteredData = data || [];
     if (isStockQuery && filteredData.length > 0) {
       const inStockOnly = filteredData.filter((item) => getStockCount(item) > 0);
-      
-      // If there are in-stock variants, ONLY show those in the carousel!
       if (inStockOnly.length > 0) {
         filteredData = inStockOnly;
       }
     }
-  }
+
     // --- CATEGORY-AWARE FALLBACK IF NO DIRECT MATCH ---
     if (!data || data.length === 0 || isGenericSearch) {
       let altQuery = supabase.from('products').select('*').eq('user_id', user_id);
@@ -260,7 +254,7 @@ const buildStockMessage = (items: any[]) => {
     // IF THIS IS A SPECIFIC STOCK QUERY
     if (isStockQuery) {
       return NextResponse.json({ 
-        data, 
+        data: filteredData, 
         success: true, 
         is_stock_check: true,
         message: buildStockMessage(data)
@@ -274,7 +268,7 @@ const buildStockMessage = (items: any[]) => {
     }
 
     return NextResponse.json({ 
-      data, 
+      data: filteredData, 
       success: true, 
       is_stock_check: false,
       message: matchMessage 
