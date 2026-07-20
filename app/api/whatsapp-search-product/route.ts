@@ -12,7 +12,6 @@ export async function GET(request: Request) {
     const color = searchParams.get('color');
     const price_query = searchParams.get('price_query') || searchParams.get('price'); 
     const user_id = searchParams.get('user_id'); 
-    const checkStock = searchParams.get('stock') || searchParams.get('availability');
     
     // Extract the dynamic phone number forwarded from the n8n webhook trigger
     const userPhone = searchParams.get('phone') || '';
@@ -33,6 +32,16 @@ export async function GET(request: Request) {
     if (metaCatalogId && metaAccessToken) {
       let queryText = (q || '').trim().toLowerCase();
       
+      // 1. Check for dedicated stock query parameters
+      const isStockQueryParam = 
+        searchParams.get('is_stock_query') === 'true' || 
+        searchParams.get('stock_check') === 'true' || 
+        searchParams.get('availability') === 'true';
+
+      // 2. Keyword fallback check inside search text string
+      const stockKeywords = ["stock", "available", "availability", "in stock", "have", "present", "left"];
+      const isStockQuery = isStockQueryParam || stockKeywords.some((keyword) => queryText.includes(keyword));
+
       if (!queryText) {
         return NextResponse.json({
           messaging_product: "whatsapp",
@@ -91,13 +100,13 @@ export async function GET(request: Request) {
         }
       }
 
-      // Strip structural noise words and color tags
+      // Strip structural noise words, stock keywords, and color tags
       const colorAdjectives = ["white", "black", "blue", "red", "green", "grey", "gray", "yellow", "olive"];
       
       let queryWords = cleanQuery.split(/\s+/).filter((word: string) => word.length > 0);
       
       const explicitColorsFound = queryWords.filter((word: string) => colorAdjectives.includes(word));
-      let itemWords = queryWords.filter((word: string) => !colorAdjectives.includes(word) && !genericWords.includes(word));
+      let itemWords = queryWords.filter((word: string) => !colorAdjectives.includes(word) && !genericWords.includes(word) && !stockKeywords.includes(word));
 
       itemWords = itemWords.map((word: string) => {
         if (word === "shirts" || word === "tshirt" || word === "tshirts") return "t-shirt";
@@ -254,7 +263,32 @@ export async function GET(request: Request) {
         });
       }
 
-      // Process products (Max 8 categories for generic search, or top 30 for specific)
+      // =========================================================================
+      // DEDICATED STOCK QUERY OVERRIDE (RETURNS TEXT ONLY)
+      // =========================================================================
+      if (isStockQuery) {
+        const topItem = products[0];
+        const isAvailable = topItem?.availability === 'in stock' || topItem?.availability === 'in_stock';
+        const productName = topItem?.name || (q || '').trim();
+
+        const stockText = isAvailable
+          ? `✅ Yes, *${productName}* is available in stock!`
+          : `❌ Sorry, *${productName}* is currently out of stock.`;
+
+        return NextResponse.json({
+          messaging_product: "whatsapp",
+          recipient_type: "individual",
+          to: userPhone,
+          type: "text",
+          text: {
+            body: stockText
+          }
+        });
+      }
+
+      // =========================================================================
+      // STANDARD PRODUCT SEARCH (RETURNS INTERACTIVE CATALOG CARD)
+      // =========================================================================
       let processedProducts: any[] = [];
       if (isMetaGenericSearch) {
         const uniqueCategories = new Set<string>();
@@ -279,9 +313,7 @@ export async function GET(request: Request) {
             processedProducts.push(item);
           }
           
-          if (processedProducts.length === 8) {
-            break;
-          }
+          if (processedProducts.length === 8) break;
         }
       } else {
         processedProducts = products.slice(0, 30);
@@ -296,21 +328,11 @@ export async function GET(request: Request) {
         (p.name || '').toLowerCase().includes(explicitColorsFound[0])
       );
 
-      // =========================================================================
-      // DYNAMIC STOCK STATUS CALCULATION (TEXT ONLY - NO NUMBERS)
-      // =========================================================================
-      const topItem = processedProducts[0];
-      const isAvailable = topItem?.availability === 'in stock' || topItem?.availability === 'in_stock';
-
-      const stockStatusLine = isAvailable
-        ? `\n\n✅ Status: Available in Stock`
-        : `\n\n❌ Status: Out of Stock`;
-
       let bodyText = "";
       if (isMetaGenericSearch) {
         bodyText = "Here are the top categories currently available in our store:";
       } else if (hasMatchedRequestedColor) {
-        bodyText = `Here is what we found matching your request for "${(q || '').trim()}":${stockStatusLine}`;
+        bodyText = `Here is what we found matching your request for "${(q || '').trim()}":`;
       } else {
         bodyText = `We don't have "${(q || '').trim()}" in stock, but here are some other options you might like:`;
       }
