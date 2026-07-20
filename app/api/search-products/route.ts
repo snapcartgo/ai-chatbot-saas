@@ -3,10 +3,10 @@ import { createSupabaseServerClient } from '../../../lib/supabaseServer';
 
 export async function POST(request: Request) {
   try {
-    // 1. Extract query parameters from the URL first
+    // 1. Extract query parameters from the URL first (keeps existing n8n setups working)
     const { searchParams } = new URL(request.url);
 
-    // 2. Safely catch incoming JSON body data if provided
+    // 2. Safely catch incoming JSON body data if provided, preventing crashes if it's empty
     let body: any = {};
     try {
       const contentType = request.headers.get('content-type');
@@ -14,32 +14,18 @@ export async function POST(request: Request) {
         body = await request.json();
       }
     } catch (e) {
-      // Body empty or malformed
+      // Body empty or malformed; swallow exception and fallback to URL query strings
     }
 
     const firstItem = body.items && body.items[0] ? body.items[0] : {};
 
-    // 3. Unify Parameter Extraction
+    // 3. Unify Extraction: Check URL params first, then check JSON body variants
     const category = searchParams.get('category') || body.category || firstItem.category || null;
     const product_type = searchParams.get('product_type') || body.product_type || firstItem.product_type || null;
-    const q = searchParams.get('q') || body.q || firstItem.product_name || body.product_search || body.product_name || null; 
+    const q = searchParams.get('q') || body.q || firstItem.product_name || null; 
     const color = searchParams.get('color') || body.color || firstItem.color || null;
     const price_query = searchParams.get('price_query') || searchParams.get('price') || body.price_query || firstItem.price_query || null; 
     const user_id = searchParams.get('user_id') || body.user_id || firstItem.user_id || null; 
-
-    // Dedicated Stock Check Parameter Extraction
-    const isStockQueryParam = 
-      searchParams.get('is_stock_query') === 'true' || 
-      searchParams.get('stock_check') === 'true' || 
-      searchParams.get('availability') === 'true' ||
-      body.is_stock_query === true ||
-      body.stock_check === true ||
-      body.availability === true;
-
-    // Keyword Fallback Detection
-    const stockKeywords = ["stock", "available", "availability", "in stock", "have", "present", "left"];
-    const queryLower = (q || '').toLowerCase();
-    const isStockQuery = isStockQueryParam || stockKeywords.some((keyword) => queryLower.includes(keyword));
 
     // 4. Enforce tenancy boundaries immediately
     if (!user_id) {
@@ -49,13 +35,10 @@ export async function POST(request: Request) {
     // 5. Initialize Supabase
     const supabase = await createSupabaseServerClient();
 
-    // 6. Build the initial query
+    // 6. Build the query and mandate user_id ownership immediately
     let query = supabase.from('products').select('*').eq('user_id', user_id); 
 
-    // Store sanitized item term for category-restricted fallback
-    let fallbackSearchTerm = category || product_type || "";
-
-    // 7. Apply conditional filters
+    // 7. Apply conditional filters (with trim and lowercase sanitation)
     if (category) query = query.ilike('category', `%${category.trim()}%`);
     if (product_type) query = query.ilike('product_type', `%${product_type.trim()}%`);
     
@@ -63,25 +46,37 @@ export async function POST(request: Request) {
       query = query.ilike('color', `%${color.trim()}%`);
     }
 
-    // Intelligent Price Filter Parser
+    // ✨ Intelligent Price Filter Parser
     if (price_query && price_query !== "null" && price_query.trim() !== "") {
       const cleanPriceQuery = price_query.trim().toLowerCase();
 
+      // Case 1: Handle "under X"
       if (cleanPriceQuery.startsWith('under')) {
         const maxPrice = parseFloat(cleanPriceQuery.replace('under', '').trim());
-        if (!isNaN(maxPrice)) query = query.lte('price', maxPrice);
-      } else if (cleanPriceQuery.startsWith('exact')) {
+        if (!isNaN(maxPrice)) {
+          query = query.lte('price', maxPrice);
+        }
+      } 
+      // Case 2: Handle "exact X"
+      else if (cleanPriceQuery.startsWith('exact')) {
         const exactPrice = parseFloat(cleanPriceQuery.replace('exact', '').trim());
-        if (!isNaN(exactPrice)) query = query.eq('price', exactPrice);
-      } else if (cleanPriceQuery.startsWith('between')) {
+        if (!isNaN(exactPrice)) {
+          query = query.eq('price', exactPrice);
+        }
+      } 
+      // Case 3: Handle "between X to Y"
+      else if (cleanPriceQuery.startsWith('between')) {
         const numericParts = cleanPriceQuery.replace('between', '').split('to').map((num: string) => parseFloat(num.trim()));
-        if (!isNaN(numericParts[0]) && !isNaN(numericParts[1])) {
-          query = query.gte('price', numericParts[0]).lte('price', numericParts[1]);
+        const minPrice = numericParts[0];
+        const maxPrice = numericParts[1];
+        
+        if (!isNaN(minPrice) && !isNaN(maxPrice)) {
+          query = query.gte('price', minPrice).lte('price', maxPrice);
         }
       }
     }
 
-    // 8. Intelligent General Search
+    // 8. Intelligent General Search (Color-Resilient Wildcard & Generic Noise Fix)
     let isGenericSearch = false; 
 
     if (q) {
@@ -94,12 +89,8 @@ export async function POST(request: Request) {
       if (genericWords.includes(cleanQuery)) {
         isGenericSearch = true;
       } else {
-        const colorAdjectives = ["white", "black", "blue", "red", "green", "grey", "gray", "yellow", "olive green", "olive"];
-        const stockNoiseWords = ["stock", "available", "availability", "in stock", "is", "are", "have", "present", "left"];
-
-        let queryWords = cleanQuery.split(/\s+/).filter((word: string) => 
-          !colorAdjectives.includes(word) && !stockNoiseWords.includes(word)
-        );
+        const colorAdjectives = ["white", "black", "blue", "red", "green", "grey", "gray", "yellow"];
+        let queryWords = cleanQuery.split(/\s+/).filter((word: string) => !colorAdjectives.includes(word));
         
         queryWords = queryWords.map((word: string) => {
           if (word === "shirts" || word === "tshirt" || word === "tshirts") return "t-shirt";
@@ -112,16 +103,14 @@ export async function POST(request: Request) {
         const finalSearchTerm = queryWords.join(" ");
 
         if (finalSearchTerm.length > 0) {
-          fallbackSearchTerm = finalSearchTerm;
           query = query.or(`name.ilike.%${finalSearchTerm}%,description.ilike.%${finalSearchTerm}%,category.ilike.%${finalSearchTerm}%`);
         } else {
-          fallbackSearchTerm = q.trim();
           query = query.or(`name.ilike.%${q.trim()}%,description.ilike.%${q.trim()}%`);
         }
       }
     }
 
-    // 9. Execution
+    // 9. Execution and Response
     let { data, error } = await query;
 
     if (error) {
@@ -129,36 +118,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // Helper: Build precise stock response message
-    const buildStockMessage = (items: any[]) => {
-      if (!items || items.length === 0) return null;
-      const topProduct = items[0];
-      const productName = topProduct.name || topProduct.title || (q || '').trim();
-      const rawStock = topProduct.stock;
-
-      let stockNum = 0;
-      if (typeof rawStock === 'number') {
-        stockNum = rawStock;
-      } else if (typeof rawStock === 'string') {
-        stockNum = parseInt(rawStock.replace(/[^0-9]/g, ''), 10) || 0;
-      }
-
-      if (stockNum > 0) {
-        return `✅ Status: *${productName}* is in stock (${stockNum} units available).`;
-      } else {
-        return `❌ Status: *${productName}* is currently out of stock.`;
-      }
-    };
-
-    // --- CATEGORY-AWARE FALLBACK IF NO DIRECT MATCH ---
+    // --- SOLUTION 2: FALLBACK TRIGGERED IF NO RESULTS FOUND OR GENERIC SEARCH ---
     if (!data || data.length === 0 || isGenericSearch) {
       let altQuery = supabase.from('products').select('*').eq('user_id', user_id);
       let hasPriceFilter = false;
       let priceLabel = "";
-
-      if (fallbackSearchTerm && !isGenericSearch) {
-        altQuery = altQuery.or(`name.ilike.%${fallbackSearchTerm}%,description.ilike.%${fallbackSearchTerm}%,category.ilike.%${fallbackSearchTerm}%`);
-      }
 
       if (price_query && price_query !== "null" && price_query.trim() !== "") {
         const cleanPriceQuery = price_query.trim().toLowerCase();
@@ -188,42 +152,25 @@ export async function POST(request: Request) {
 
       altQuery = altQuery.limit(12);
 
-      let { data: alternatives, error: altError } = await altQuery;
+      const { data: alternatives, error: altError } = await altQuery; 
 
-      if ((!alternatives || alternatives.length === 0) && fallbackSearchTerm && !isGenericSearch) {
-        let globalQuery = supabase.from('products').select('*').eq('user_id', user_id).limit(12);
-        const { data: globalAlternatives } = await globalQuery;
-        alternatives = globalAlternatives || [];
-      }
-
-      if (alternatives && alternatives.length > 0) {
-        // IF STOCK QUERY WAS EXPLICITLY REQUESTED
-        if (isStockQuery) {
-          return NextResponse.json({
-            data: alternatives,
-            success: true,
-            is_stock_check: true,
-            message: buildStockMessage(alternatives)
-          });
-        }
-
+      if (!altError && alternatives && alternatives.length > 0) {
         const searchItemName = isGenericSearch ? "products" : q ? `"${q.trim()}"` : "that item";
         let responseMessage = "";
 
         if (q && !isGenericSearch) {
-          responseMessage = `I'm sorry, we don't have ${searchItemName} ${priceLabel ? priceLabel : ''} in that exact variant. However, here are similar options from our collection:`;
+          responseMessage = `I'm sorry, we don't have ${searchItemName} ${priceLabel ? priceLabel : ''} in our store at the moment. However, you might love these options from our collection:`;
         } else if (hasPriceFilter) {
           responseMessage = `Here are the options available in our collection ${priceLabel}:`;
         } else if (isGenericSearch) {
           responseMessage = `Here are some products available in our store:`;
         } else {
-          responseMessage = `I'm sorry, we don't have ${searchItemName} in our store at the moment. However, you might love these popular pieces:`;
+          responseMessage = `I'm sorry, we don't have ${searchItemName} in our store at the moment. However, you might love these popular pieces from our collection:`;
         }
 
         return NextResponse.json({ 
           data: alternatives,
           success: true, 
-          is_stock_check: false,
           message: responseMessage
         });
       }
@@ -231,35 +178,17 @@ export async function POST(request: Request) {
       return NextResponse.json({ 
         data: [],
         success: false,
-        is_stock_check: isStockQuery,
         message: q ? `We couldn't find any items matching "${q.trim()}" right now.` : "That item is currently unavailable."
       });
     }
 
-    // --- SUCCESS RESPONSE ---
-    
-    // IF THIS IS A SPECIFIC STOCK QUERY
-    if (isStockQuery) {
-      return NextResponse.json({ 
-        data, 
-        success: true, 
-        is_stock_check: true,
-        message: buildStockMessage(data)
-      });
-    }
-
-    // REGULAR SEARCH RESPONSE
+    // If initial explicit search criteria matched perfectly
     let matchMessage = "Here is what we found:";
     if (isGenericSearch && price_query) {
       matchMessage = "Here are the options available in our collection matching your budget layout:";
     }
 
-    return NextResponse.json({ 
-      data, 
-      success: true, 
-      is_stock_check: false,
-      message: matchMessage 
-    });
+    return NextResponse.json({ data, success: true, message: matchMessage });
 
   } catch (err: any) {
     console.error("Critical System Route Error:", err);
