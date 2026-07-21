@@ -43,10 +43,28 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const sessionId = body.session_id; 
-    const items = body.items;
-    const user_id = body.user_id;
-    const isBuyIntent = body.intent === "buy" || !!body.customer_info;
+    const sessionId =
+  body.session_id ||
+  body.conversation_id ||
+  body.chat_id ||
+  body.customerPhone ||
+  body.from ||
+  null;
+
+const items = body.items;
+const user_id = body.user_id;
+const isBuyIntent = body.intent === "buy" || !!body.customer_info;
+
+console.log("--> Received sessionId:", sessionId);
+console.log("--> Received user_id:", user_id);
+console.log("--> Received items:", JSON.stringify(items));
+
+if (!sessionId) {
+  return NextResponse.json(
+    { success: false, message: "Missing session_id or conversation_id context." },
+    { status: 400 }
+  );
+}
 
     console.log("--> Received User ID:", user_id);
     console.log("--> Received Items array:", JSON.stringify(items));
@@ -59,11 +77,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, message: "No products provided." }, { status: 400 });
     }
 
-    // 🕒 LOOKUP PRIOR SESSION STATE FROM SUPABASE
-    const { data: existingCartRows } = await supabase
-      .from("cart_sessions")
-      .select("*")
-      .eq("session_id", sessionId);
+    const { data: existingCartRows, error: cartLookupError } = await supabase
+  .from("cart_sessions")
+  .select("*")
+  .eq("session_id", sessionId);
+
+console.log("--> Existing cart rows found:", existingCartRows?.length || 0);
+
+if (cartLookupError) {
+  console.error("Cart lookup error:", cartLookupError);
+}
 
     let finalItemsToProcess: any[] = [];
 
@@ -312,24 +335,34 @@ export async function POST(req: NextRequest) {
 
     // SAVE COMPLETE WORKING CART BACK TO SUPABASE
     await supabase
-      .from("cart_sessions")
-      .delete()
-      .eq("session_id", sessionId);
+  .from("cart_sessions")
+  .delete()
+  .eq("session_id", sessionId);
 
-    for (const item of finalItemsToProcess) {
-      await supabase
-        .from("cart_sessions")
-        .upsert({
-          session_id: sessionId, 
-          product_id: item.product_id || "draft_item",
-          product_name: item.product_name,
-          quantity: item.quantity || 1,
-          selected_attributes: item.selected_attributes || {},
-          current_flow: "whatsapp_ecommerce",
-          current_step: missingProducts.length > 0 ? "collect_attributes" : "checkout",
-          updated_at: new Date().toISOString(),
-        });
-    }
+for (const item of finalItemsToProcess) {
+  const normalizedSelectedAttributes = Object.entries(item.selected_attributes || {}).reduce(
+    (acc: any, [key, value]) => {
+      if (value !== null && value !== undefined && value !== "") {
+        acc[String(key).toLowerCase().trim()] = String(value).trim();
+      }
+      return acc;
+    },
+    {}
+  );
+
+  await supabase
+    .from("cart_sessions")
+    .upsert({
+      session_id: sessionId,
+      product_id: item.product_id || item.product_name || "draft_item",
+      product_name: item.product_name,
+      quantity: item.quantity || 1,
+      selected_attributes: normalizedSelectedAttributes,
+      current_flow: "whatsapp_ecommerce",
+      current_step: missingProducts.length > 0 ? "collect_attributes" : "checkout",
+      updated_at: new Date().toISOString(),
+    });
+}
 
     // 🔴 PROMPT USER FOR MISSING OR INVALID ATTRIBUTES
     if (!isBuyIntent && missingProducts.length > 0) {
