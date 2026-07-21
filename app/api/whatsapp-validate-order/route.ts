@@ -65,19 +65,11 @@ export async function POST(req: NextRequest) {
       .select("*")
       .eq("session_id", sessionId);
 
-    let finalItemsToProcess: any[] = [];
+    // 🔄 SMART ACCUMULATIVE CART MERGING
+    const dbMap = new Map<string, any>();
 
-    // Check if the previous turn explicitly stopped to collect attributes
-    const isMidwayAttributeCollection = 
-      !isBuyIntent &&
-      existingCartRows && 
-      existingCartRows.length > 0 && 
-      existingCartRows.some((r: any) => r.current_step === "collect_attributes");
-
-    // 🟢 CASE 1: BUY INTENT or MIDWAY ATTRIBUTE COLLECTION -> Preserve DB History
-    if ((isBuyIntent || isMidwayAttributeCollection) && existingCartRows && existingCartRows.length > 0) {
-      const dbMap = new Map<string, any>();
-
+    // Step A: Load all existing DB items into memory map
+    if (existingCartRows && existingCartRows.length > 0) {
       existingCartRows.forEach((dbItem: any) => {
         const key = normalizeProductName(dbItem.product_name) || dbItem.product_name;
         dbMap.set(key, {
@@ -87,33 +79,31 @@ export async function POST(req: NextRequest) {
           selected_attributes: dbItem.selected_attributes || {},
         });
       });
-
-      if (Array.isArray(items)) {
-        items.forEach((incomingItem: any) => {
-          const incomingKey = normalizeProductName(incomingItem.product_name) || incomingItem.product_name;
-          
-          if (dbMap.has(incomingKey)) {
-            const existing = dbMap.get(incomingKey);
-            dbMap.set(incomingKey, {
-              ...existing,
-              selected_attributes: {
-                ...(existing.selected_attributes || {}),
-                ...(incomingItem.selected_attributes || {}),
-              },
-            });
-          } else {
-            dbMap.set(incomingKey, { ...incomingItem });
-          }
-        });
-      }
-
-      finalItemsToProcess = Array.from(dbMap.values());
-    } 
-    // 🟢 CASE 2: FRESH NEW ORDER REQUEST -> Start Clean with ONLY incoming items!
-    else {
-      finalItemsToProcess = items.map((item: any) => ({ ...item }));
     }
-    
+
+    // Step B: Overlay incoming items onto existing items map
+    if (Array.isArray(items) && items.length > 0) {
+      items.forEach((incomingItem: any) => {
+        const incomingKey = normalizeProductName(incomingItem.product_name) || incomingItem.product_name;
+        
+        if (dbMap.has(incomingKey)) {
+          // Merge newly provided attributes with existing stored attributes
+          const existing = dbMap.get(incomingKey);
+          dbMap.set(incomingKey, {
+            ...existing,
+            selected_attributes: {
+              ...(existing.selected_attributes || {}),
+              ...(incomingItem.selected_attributes || {}),
+            },
+          });
+        } else {
+          // New product introduced in conversation
+          dbMap.set(incomingKey, { ...incomingItem });
+        }
+      });
+    }
+
+    const finalItemsToProcess = Array.from(dbMap.values());
     const isMultiProductSession = finalItemsToProcess.length > 1;
 
     const validatedItems = [];
@@ -122,7 +112,7 @@ export async function POST(req: NextRequest) {
 
     const missingProducts: any[] = [];
 
-    // Stage 1: Validate Every Product in finalItemsToProcess
+    // Stage 1: Validate Every Product in the Merged Cart
     for (const item of finalItemsToProcess) {
       const { product_name, quantity, selected_attributes = {} } = item;
       const requestedQuantity = Number(quantity) || 1;
@@ -431,7 +421,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // 🟢 UNIFIED SUCCESS RESPONSE GENERATION (Supports 1 or multiple items)
+    // 🟢 UNIFIED SUCCESS RESPONSE GENERATION
     const itemsSummary = validatedItems
       .map(i => {
         const attrs = Object.entries(i.selected_attributes)
@@ -441,9 +431,7 @@ export async function POST(req: NextRequest) {
       })
       .join("\n");
 
-    const responseMessage = isMultiProductSession
-      ? `Great! I've confirmed everything is in stock:\n\n${itemsSummary}\n\n*Subtotal:* ₹${grandSubtotal}\n*Shipping:* ${grandShipping === 0 ? "_FREE_" : `₹${grandShipping}`}\n*Total:* *₹${grandSubtotal + grandShipping}*\n\nAre you interested to buy these products? Kindly confirm. Yes. Kindly share your *Name, Email, phone and Delivery Address* to complete checkout.`
-      : `🛍️ *Order Summary verified successfully!*\n\n${itemsSummary}\n\n*Subtotal:* ₹${grandSubtotal}\n*Shipping:* ${grandShipping === 0 ? "_FREE_" : `₹${grandShipping}`}\n*Total:* *₹${grandSubtotal + grandShipping}*\n\nKindly share your *Name, Email, phone and Delivery Address* to complete checkout.`;
+    const responseMessage = `Great! I've confirmed everything is in stock:\n\n${itemsSummary}\n\n*Subtotal:* ₹${grandSubtotal}\n*Shipping:* ${grandShipping === 0 ? "_FREE_" : `₹${grandShipping}`}\n*Total:* *₹${grandSubtotal + grandShipping}*\n\nAre you interested to buy these products? Kindly confirm. Yes. Kindly share your *Name, Email, phone and Delivery Address* to complete checkout.`;
 
     return NextResponse.json({
       success: true,
