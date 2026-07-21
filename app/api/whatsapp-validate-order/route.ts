@@ -7,6 +7,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+// Aggressive fuzzy normalization to match user inputs (e.g. "tshirt", "blue jeans") with DB names
 const normalizeProductName = (name: string) => {
   if (!name) return "";
   let clean = name.toLowerCase().trim();
@@ -58,7 +59,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, message: "No products provided." }, { status: 400 });
     }
 
-    // 🕒 LOOKUP PRIOR SESSION STATE
+    // 🕒 LOOKUP PRIOR SESSION STATE FROM SUPABASE
     const { data: existingCartRows } = await supabase
       .from("cart_sessions")
       .select("*")
@@ -66,15 +67,15 @@ export async function POST(req: NextRequest) {
 
     let finalItemsToProcess: any[] = [];
 
-    // 🟢 DETERMINE IF THIS IS A FOLLOW-UP TURN (User answering missing choices)
+    // Check if previous turn requested missing attributes
     const isFollowUpTurn = 
       !isBuyIntent &&
       existingCartRows && 
       existingCartRows.length > 0 && 
       existingCartRows.some((r: any) => r.current_step === "collect_attributes");
 
-    if (isBuyIntent && existingCartRows && existingCartRows.length > 0) {
-      // Locking in session items for final checkout
+    if ((isBuyIntent || isFollowUpTurn) && existingCartRows && existingCartRows.length > 0) {
+      // Start with saved items from cart session
       finalItemsToProcess = existingCartRows.map((dbItem: any) => ({
         product_id: dbItem.product_id,
         product_name: dbItem.product_name,
@@ -82,45 +83,29 @@ export async function POST(req: NextRequest) {
         selected_attributes: dbItem.selected_attributes || {},
       }));
 
+      // Merge incoming attribute updates into the existing products
       if (Array.isArray(items) && items.length > 0) {
         items.forEach((incomingItem: any) => {
           const incomingNormalized = normalizeProductName(incomingItem.product_name);
+          
           const targetIndex = finalItemsToProcess.findIndex(
             (i: any) => normalizeProductName(i.product_name) === incomingNormalized
           );
 
           if (targetIndex !== -1) {
+            // Found target item: update its attributes
             finalItemsToProcess[targetIndex].selected_attributes = {
               ...(finalItemsToProcess[targetIndex].selected_attributes || {}),
               ...(incomingItem.selected_attributes || {}),
             };
+          } else if (!isBuyIntent) {
+            // New item added during validation turn
+            finalItemsToProcess.push({ ...incomingItem });
           }
         });
       }
-    } else if (isFollowUpTurn) {
-      // Merge follow-up choices onto active draft cart
-      finalItemsToProcess = existingCartRows.map((dbItem: any) => ({
-        product_id: dbItem.product_id,
-        product_name: dbItem.product_name,
-        quantity: dbItem.quantity,
-        selected_attributes: dbItem.selected_attributes || {},
-      }));
-
-      items.forEach((incomingItem: any) => {
-        const incomingNormalized = normalizeProductName(incomingItem.product_name);
-        const targetIndex = finalItemsToProcess.findIndex(
-          (i: any) => normalizeProductName(i.product_name) === incomingNormalized
-        );
-
-        if (targetIndex !== -1) {
-          finalItemsToProcess[targetIndex].selected_attributes = {
-            ...(finalItemsToProcess[targetIndex].selected_attributes || {}),
-            ...(incomingItem.selected_attributes || {}),
-          };
-        }
-      });
     } else {
-      // Fresh new request: Trust payload items directly
+      // Fresh new order request: process incoming items
       finalItemsToProcess = items.map((item: any) => ({ ...item }));
     }
 
@@ -132,7 +117,7 @@ export async function POST(req: NextRequest) {
 
     const missingProducts: any[] = [];
 
-    // Stage 1: Gather and Validate Everything
+    // Stage 1: Validate Every Item in finalItemsToProcess
     for (const item of finalItemsToProcess) {
       const { product_name, quantity, selected_attributes = {} } = item;
       const requestedQuantity = Number(quantity);
@@ -141,9 +126,10 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ success: false, message: `Invalid quantity for ${product_name || "product"}.` }, { status: 400 });
       }
 
+      // Filter out null/empty strings
       const cleanIncomingAttributes = Object.entries(selected_attributes || {}).reduce((acc: any, [k, v]) => {
         if (v !== "" && v !== null && v !== undefined) {
-          acc[k.toLowerCase().trim()] = v;
+          acc[k.toLowerCase().trim()] = String(v).trim();
         }
         return acc;
       }, {});
@@ -159,6 +145,7 @@ export async function POST(req: NextRequest) {
           .replace(/s\b/g, '');
       }
 
+      // Extract implicit color if specified in product name text
       if (!cleanIncomingAttributes.color) {
         if (search.includes("black")) cleanIncomingAttributes.color = "black";
         else if (search.includes("white")) cleanIncomingAttributes.color = "white";
@@ -166,6 +153,7 @@ export async function POST(req: NextRequest) {
         else if (search.includes("red")) cleanIncomingAttributes.color = "red";
       }
 
+      // 1. Primary Fuzzy Search
       let { data: products, error: productError } = await supabase
         .from("products")
         .select("*")
@@ -173,6 +161,7 @@ export async function POST(req: NextRequest) {
         .eq("product_type", "meta")
         .or(`name.ilike.%${search}%,category.ilike.%${search}%,description.ilike.%${search}%`);
 
+      // 2. Fallback Split Search
       if ((!products || products.length === 0) && search.includes(" ")) {
         const words = search.split(" ").filter(Boolean);
         let genericTerm = words[words.length - 1]; 
@@ -245,7 +234,7 @@ export async function POST(req: NextRequest) {
         product = products[0];
       }
 
-      // Invalid Variant Check
+      // Check 1: User specified an INVALID variant choice
       if (!variantMatched && !isBuyIntent && Object.keys(cleanIncomingAttributes).length > 0) {
         const totalAvailableOptions: Record<string, string[]> = { color: [], size: [] };
         
@@ -271,22 +260,26 @@ export async function POST(req: NextRequest) {
         });
 
         missingProducts.push({
-          product_name: products[0].name,
+          product_name: product.name,
           error_type: "invalid_variant",
           available_options: totalAvailableOptions
         });
         continue; 
       }
 
-      // 🟢 MISSING REQUIRED ATTRIBUTES CHECK (Size/Color)
-      const requiredFields = product.required_fields || [];
+      // Check 2: Check for MISSING required attributes (Size / Color)
+      // Defaults to checking ["size"] if required_fields is omitted in Supabase
+      const requiredFields = (Array.isArray(product.required_fields) && product.required_fields.length > 0)
+        ? product.required_fields 
+        : (product.attributes?.size ? ["size"] : []);
+
       const availableOptions = product.allowed_options || product.attributes || {};
       const missingFields: string[] = [];
 
       for (const field of requiredFields) {
         const cleanField = field.toLowerCase().trim();
         if (!cleanIncomingAttributes[cleanField]) {
-          missingFields.push(field);
+          missingFields.push(cleanField);
         }
       }
 
@@ -315,9 +308,10 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // Dynamic Shipping Rule Calculation
     grandShipping = grandSubtotal >= 999 ? 0 : 40; 
 
-    // SAVE COMPLETE WORKING SESSION TO SUPABASE
+    // SAVE INTERMEDIATE DRAFT CART TO DB
     await supabase
       .from("cart_sessions")
       .delete()
@@ -338,7 +332,7 @@ export async function POST(req: NextRequest) {
         });
     }
 
-    // 🟢 PROMPT USER FOR MISSING ATTRIBUTES WHEN APPLICABLE
+    // 🔴 HANDLE VALIDATION FAILURES EARLY (Prompt for missing / invalid attributes)
     if (!isBuyIntent && missingProducts.length > 0) {
       const completelyNotFound = missingProducts.filter(p => p.error_type === "not_found");
       const invalidVariants = missingProducts.filter(p => p.error_type === "invalid_variant");
@@ -438,7 +432,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // 🟢 UNIFIED SUCCESS RESPONSE STRUCTURE
+    // 🟢 UNIFIED SUCCESS RESPONSE GENERATION
     const itemsSummary = validatedItems
       .map(i => {
         const attrs = Object.entries(i.selected_attributes)
