@@ -62,46 +62,49 @@ export async function POST(req: NextRequest) {
     }
 
     // 🕒 LOOKUP PRIOR SESSION STATE
-    const { data: existingCartRows } = await supabase
-      .from("cart_sessions")
-      .select("*")
-      .eq("session_id", sessionId);
+const { data: existingCartRows } = await supabase
+  .from("cart_sessions")
+  .select("*")
+  .eq("session_id", sessionId);
 
-    let finalItemsToProcess: any[] = [];
+let finalItemsToProcess: any[] = [];
 
-    // Check if the current payload is purely a follow-up response providing missing attributes (e.g. only 1 item sent while DB has more)
-    const isFollowUpTurn = 
-      existingCartRows && 
-      existingCartRows.length > items.length && 
-      items.length === 1 &&
-      Object.keys(items[0].selected_attributes || {}).length > 0;
+// 🟢 Check if this is a follow-up turn filling in attributes for an existing cart session
+const isFollowUpTurn = 
+  existingCartRows && 
+  existingCartRows.length > 0 && 
+  existingCartRows.length >= items.length;
 
-    if (isFollowUpTurn) {
-      // 🟢 FOLLOW-UP CASE: Update existing DB cart items with incoming attributes without dropping other items
-      finalItemsToProcess = existingCartRows.map((dbItem: any) => ({
-        product_name: dbItem.product_name,
-        quantity: dbItem.quantity,
-        selected_attributes: dbItem.selected_attributes || {},
-      }));
+if (isFollowUpTurn) {
+  // Start with existing DB cart items so no items from earlier turns are lost
+  finalItemsToProcess = existingCartRows.map((dbItem: any) => ({
+    product_name: dbItem.product_name,
+    quantity: dbItem.quantity,
+    selected_attributes: dbItem.selected_attributes || {},
+  }));
 
-      const incomingItem = items[0];
-      const incomingNormalized = normalizeProductName(incomingItem.product_name);
+  // Merge attributes from incoming item(s) onto matching cart items
+  items.forEach((incomingItem: any) => {
+    const incomingNormalized = normalizeProductName(incomingItem.product_name);
 
-      const targetIndex = finalItemsToProcess.findIndex(
-        (i: any) => normalizeProductName(i.product_name) === incomingNormalized
-      );
+    const targetIndex = finalItemsToProcess.findIndex(
+      (i: any) => normalizeProductName(i.product_name) === incomingNormalized
+    );
 
-      if (targetIndex !== -1) {
-        finalItemsToProcess[targetIndex].selected_attributes = {
-          ...(finalItemsToProcess[targetIndex].selected_attributes || {}),
-          ...(incomingItem.selected_attributes || {}),
-        };
-      }
+    if (targetIndex !== -1) {
+      finalItemsToProcess[targetIndex].selected_attributes = {
+        ...(finalItemsToProcess[targetIndex].selected_attributes || {}),
+        ...(incomingItem.selected_attributes || {}),
+      };
     } else {
-      // 🟢 NEW ORDER / FULL PAYLOAD CASE: Trust ONLY the incoming request items
-      finalItemsToProcess = items.map((item: any) => ({ ...item }));
+      // If a completely new product was added during follow-up, append it
+      finalItemsToProcess.push({ ...incomingItem });
     }
-
+  });
+} else {
+  // 🟢 NEW ORDER: Payload has explicit items and no previous active session state to merge
+  finalItemsToProcess = items.map((item: any) => ({ ...item }));
+}
     const isMultiProductSession = finalItemsToProcess.length > 1;
 
     const validatedItems = [];
