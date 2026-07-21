@@ -7,12 +7,10 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-// Aggressive normalization to match ANY variation of user product names
 const normalizeProductName = (name: string) => {
   if (!name) return "";
   let clean = name.toLowerCase().trim();
 
-  // Strip generic adjectives and store branding
   clean = clean
     .replace(/\b(premium|cotton|slim|fit|regular|mens|womens|casual|wireless|pro)\b/g, "")
     .replace(/[^a-z0-9\s]/g, "")
@@ -68,9 +66,15 @@ export async function POST(req: NextRequest) {
 
     let finalItemsToProcess: any[] = [];
 
-    // 🟢 LOCK IN ALL ITEMS FROM DB FOR "BUY" INTENT OR FOLLOW-UP TURNS
-    if (existingCartRows && existingCartRows.length > 0) {
-      // Start with all items currently stored in Supabase cart session
+    // 🟢 DETERMINE IF THIS IS A FOLLOW-UP TURN (User answering missing choices)
+    const isFollowUpTurn = 
+      !isBuyIntent &&
+      existingCartRows && 
+      existingCartRows.length > 0 && 
+      existingCartRows.some((r: any) => r.current_step === "collect_attributes");
+
+    if (isBuyIntent && existingCartRows && existingCartRows.length > 0) {
+      // Locking in session items for final checkout
       finalItemsToProcess = existingCartRows.map((dbItem: any) => ({
         product_id: dbItem.product_id,
         product_name: dbItem.product_name,
@@ -81,24 +85,42 @@ export async function POST(req: NextRequest) {
       if (Array.isArray(items) && items.length > 0) {
         items.forEach((incomingItem: any) => {
           const incomingNormalized = normalizeProductName(incomingItem.product_name);
-          
           const targetIndex = finalItemsToProcess.findIndex(
             (i: any) => normalizeProductName(i.product_name) === incomingNormalized
           );
 
           if (targetIndex !== -1) {
-            // Update attributes for matching item
             finalItemsToProcess[targetIndex].selected_attributes = {
               ...(finalItemsToProcess[targetIndex].selected_attributes || {}),
               ...(incomingItem.selected_attributes || {}),
             };
-          } else if (!isBuyIntent) {
-            // New item added during validation
-            finalItemsToProcess.push({ ...incomingItem });
           }
         });
       }
+    } else if (isFollowUpTurn) {
+      // Merge follow-up choices onto active draft cart
+      finalItemsToProcess = existingCartRows.map((dbItem: any) => ({
+        product_id: dbItem.product_id,
+        product_name: dbItem.product_name,
+        quantity: dbItem.quantity,
+        selected_attributes: dbItem.selected_attributes || {},
+      }));
+
+      items.forEach((incomingItem: any) => {
+        const incomingNormalized = normalizeProductName(incomingItem.product_name);
+        const targetIndex = finalItemsToProcess.findIndex(
+          (i: any) => normalizeProductName(i.product_name) === incomingNormalized
+        );
+
+        if (targetIndex !== -1) {
+          finalItemsToProcess[targetIndex].selected_attributes = {
+            ...(finalItemsToProcess[targetIndex].selected_attributes || {}),
+            ...(incomingItem.selected_attributes || {}),
+          };
+        }
+      });
     } else {
+      // Fresh new request: Trust payload items directly
       finalItemsToProcess = items.map((item: any) => ({ ...item }));
     }
 
@@ -256,7 +278,7 @@ export async function POST(req: NextRequest) {
         continue; 
       }
 
-      // Missing Required Attributes Check (Size/Color)
+      // 🟢 MISSING REQUIRED ATTRIBUTES CHECK (Size/Color)
       const requiredFields = product.required_fields || [];
       const availableOptions = product.allowed_options || product.attributes || {};
       const missingFields: string[] = [];
@@ -295,28 +317,28 @@ export async function POST(req: NextRequest) {
 
     grandShipping = grandSubtotal >= 999 ? 0 : 40; 
 
-    // SAVE COMPLETE CART BACK TO SUPABASE
+    // SAVE COMPLETE WORKING SESSION TO SUPABASE
     await supabase
       .from("cart_sessions")
       .delete()
       .eq("session_id", sessionId);
 
-    for (const validItem of validatedItems) {
+    for (const item of finalItemsToProcess) {
       await supabase
         .from("cart_sessions")
         .upsert({
           session_id: sessionId, 
-          product_id: validItem.product_id,
-          product_name: validItem.product_name,
-          quantity: validItem.quantity,
-          selected_attributes: validItem.selected_attributes || {},
+          product_id: item.product_id || "draft_item",
+          product_name: item.product_name,
+          quantity: item.quantity,
+          selected_attributes: item.selected_attributes || {},
           current_flow: "whatsapp_ecommerce",
           current_step: missingProducts.length > 0 ? "collect_attributes" : "checkout",
           updated_at: new Date().toISOString(),
         });
     }
 
-    // HANDLE MISSING ATTRIBUTES PROMPT
+    // 🟢 PROMPT USER FOR MISSING ATTRIBUTES WHEN APPLICABLE
     if (!isBuyIntent && missingProducts.length > 0) {
       const completelyNotFound = missingProducts.filter(p => p.error_type === "not_found");
       const invalidVariants = missingProducts.filter(p => p.error_type === "invalid_variant");
@@ -416,7 +438,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // UNIFIED RESPONSE FORMAT (Handles 1 product or multi products cleanly)
+    // 🟢 UNIFIED SUCCESS RESPONSE STRUCTURE
     const itemsSummary = validatedItems
       .map(i => {
         const attrs = Object.entries(i.selected_attributes)

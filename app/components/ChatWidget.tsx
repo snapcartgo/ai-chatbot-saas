@@ -441,7 +441,7 @@ export default function ChatWidget({
     event.target.value = "";
   };
 
-  const handlePaste = async (event: ClipboardEvent<HTMLInputElement>) => {
+  const handlePaste = async (event: ClipboardEvent<HTMLTextAreaElement | HTMLInputElement>) => {
     if (!isEnterprisePlan) return;
 
     const items = event.clipboardData?.items;
@@ -827,10 +827,37 @@ export default function ChatWidget({
           </>
         )}
 
-        <div className="flex gap-2">
-          <input type="text" value={userInput} onChange={(e) => setUserInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleSendMessage()} placeholder="Type your message..." className="flex-1 rounded-md border px-3 py-2 text-xs text-black focus:outline-none focus:ring-2 focus:ring-blue-500 md:text-sm" />
-          <button onClick={handleSendMessage} className="rounded-md bg-blue-600 px-3 py-2 text-xs text-white transition hover:bg-blue-700 md:text-sm">Send</button>
-        </div>
+        <div className="flex gap-2 items-end">
+  <textarea
+  rows={1}
+  value={userInput}
+  onChange={(e) => {
+    setUserInput(e.target.value);
+    // Auto-grow height according to content
+    e.target.style.height = "auto";
+    e.target.style.height = `${e.target.scrollHeight}px`;
+  }}
+  onPaste={handlePaste}
+  onKeyDown={(e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage();
+      // Reset height back to default after sending
+      if (e.currentTarget) {
+        e.currentTarget.style.height = "auto";
+      }
+    }
+  }}
+  placeholder="Type your message..."
+  className="flex-1 resize-none overflow-y-auto rounded-md border px-3 py-2 text-xs text-black focus:outline-none focus:ring-2 focus:ring-blue-500 md:text-sm max-h-32 min-h-[38px]"
+/>
+  <button 
+    onClick={handleSendMessage} 
+    className="h-9 rounded-md bg-blue-600 px-3 text-xs text-white transition hover:bg-blue-700 md:text-sm"
+  >
+    Send
+  </button>
+</div>
       </div>
     </div>
   );
