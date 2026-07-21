@@ -7,7 +7,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-// Aggressive fuzzy normalization to match user inputs (e.g. "tshirt", "blue jeans") with DB names
+// Aggressive fuzzy normalization to match user inputs with store products
 const normalizeProductName = (name: string) => {
   if (!name) return "";
   let clean = name.toLowerCase().trim();
@@ -67,67 +67,46 @@ export async function POST(req: NextRequest) {
 
     let finalItemsToProcess: any[] = [];
 
-    // 🟢 1. BUY INTENT: Always rely on DB cart history first so no products get lost during checkout!
-    if (isBuyIntent) {
-      if (existingCartRows && existingCartRows.length > 0) {
-        // Pull ALL items verified in the active session
-        finalItemsToProcess = existingCartRows.map((dbItem: any) => ({
+    // 🟢 ACCUMULATIVE CART LOGIC: Retain previous products from DB
+    if (existingCartRows && existingCartRows.length > 0) {
+      // 1. Load all saved items from database session
+      const dbMap = new Map<string, any>();
+
+      existingCartRows.forEach((dbItem: any) => {
+        const key = normalizeProductName(dbItem.product_name) || dbItem.product_name;
+        dbMap.set(key, {
           product_id: dbItem.product_id,
           product_name: dbItem.product_name,
-          quantity: dbItem.quantity,
+          quantity: dbItem.quantity || 1,
           selected_attributes: dbItem.selected_attributes || {},
-        }));
-
-        // Merge any newly specified attributes if present in incoming payload
-        if (Array.isArray(items) && items.length > 0) {
-          items.forEach((incomingItem: any) => {
-            const incomingNormalized = normalizeProductName(incomingItem.product_name);
-            const targetIndex = finalItemsToProcess.findIndex(
-              (i: any) => normalizeProductName(i.product_name) === incomingNormalized
-            );
-
-            if (targetIndex !== -1 && Object.keys(incomingItem.selected_attributes || {}).length > 0) {
-              finalItemsToProcess[targetIndex].selected_attributes = {
-                ...(finalItemsToProcess[targetIndex].selected_attributes || {}),
-                ...(incomingItem.selected_attributes || {}),
-              };
-            }
-          });
-        }
-      } else {
-        // Fallback if DB was empty
-        finalItemsToProcess = items.map((item: any) => ({ ...item }));
-      }
-    } 
-    // 🟢 2. FOLLOW-UP ATTRIBUTE TURN
-    else if (
-      existingCartRows && 
-      existingCartRows.length > 0 && 
-      existingCartRows.some((r: any) => r.current_step === "collect_attributes")
-    ) {
-      finalItemsToProcess = existingCartRows.map((dbItem: any) => ({
-        product_id: dbItem.product_id,
-        product_name: dbItem.product_name,
-        quantity: dbItem.quantity,
-        selected_attributes: dbItem.selected_attributes || {},
-      }));
-
-      items.forEach((incomingItem: any) => {
-        const incomingNormalized = normalizeProductName(incomingItem.product_name);
-        const targetIndex = finalItemsToProcess.findIndex(
-          (i: any) => normalizeProductName(i.product_name) === incomingNormalized
-        );
-
-        if (targetIndex !== -1) {
-          finalItemsToProcess[targetIndex].selected_attributes = {
-            ...(finalItemsToProcess[targetIndex].selected_attributes || {}),
-            ...(incomingItem.selected_attributes || {}),
-          };
-        }
+        });
       });
-    } 
-    // 🟢 3. FRESH NEW ORDER REQUEST
-    else {
+
+      // 2. Overlay incoming item updates from payload
+      if (Array.isArray(items)) {
+        items.forEach((incomingItem: any) => {
+          const incomingKey = normalizeProductName(incomingItem.product_name) || incomingItem.product_name;
+          
+          if (dbMap.has(incomingKey)) {
+            // Update existing product's attributes
+            const existing = dbMap.get(incomingKey);
+            dbMap.set(incomingKey, {
+              ...existing,
+              selected_attributes: {
+                ...(existing.selected_attributes || {}),
+                ...(incomingItem.selected_attributes || {}),
+              },
+            });
+          } else {
+            // Add new product introduced in follow-up message
+            dbMap.set(incomingKey, { ...incomingItem });
+          }
+        });
+      }
+
+      finalItemsToProcess = Array.from(dbMap.values());
+    } else {
+      // Fresh new request with no prior database history
       finalItemsToProcess = items.map((item: any) => ({ ...item }));
     }
 
@@ -139,16 +118,15 @@ export async function POST(req: NextRequest) {
 
     const missingProducts: any[] = [];
 
-    // Stage 1: Validate Every Item in finalItemsToProcess
+    // Stage 1: Validate Every Product in finalItemsToProcess
     for (const item of finalItemsToProcess) {
       const { product_name, quantity, selected_attributes = {} } = item;
-      const requestedQuantity = Number(quantity);
+      const requestedQuantity = Number(quantity) || 1;
 
-      if (!product_name || Number.isNaN(requestedQuantity) || requestedQuantity <= 0) {
-        return NextResponse.json({ success: false, message: `Invalid quantity for ${product_name || "product"}.` }, { status: 400 });
+      if (!product_name) {
+        return NextResponse.json({ success: false, message: `Invalid product name.` }, { status: 400 });
       }
 
-      // Filter out null/empty strings
       const cleanIncomingAttributes = Object.entries(selected_attributes || {}).reduce((acc: any, [k, v]) => {
         if (v !== "" && v !== null && v !== undefined) {
           acc[k.toLowerCase().trim()] = String(v).trim();
@@ -167,7 +145,6 @@ export async function POST(req: NextRequest) {
           .replace(/s\b/g, '');
       }
 
-      // Extract implicit color if specified in product name text
       if (!cleanIncomingAttributes.color) {
         if (search.includes("black")) cleanIncomingAttributes.color = "black";
         else if (search.includes("white")) cleanIncomingAttributes.color = "white";
@@ -175,7 +152,6 @@ export async function POST(req: NextRequest) {
         else if (search.includes("red")) cleanIncomingAttributes.color = "red";
       }
 
-      // 1. Primary Fuzzy Search
       let { data: products, error: productError } = await supabase
         .from("products")
         .select("*")
@@ -183,7 +159,6 @@ export async function POST(req: NextRequest) {
         .eq("product_type", "meta")
         .or(`name.ilike.%${search}%,category.ilike.%${search}%,description.ilike.%${search}%`);
 
-      // 2. Fallback Split Search
       if ((!products || products.length === 0) && search.includes(" ")) {
         const words = search.split(" ").filter(Boolean);
         let genericTerm = words[words.length - 1]; 
@@ -290,7 +265,6 @@ export async function POST(req: NextRequest) {
       }
 
       // Check 2: Check for MISSING required attributes (Size / Color)
-      // Defaults to checking ["size"] if required_fields is omitted in Supabase
       const requiredFields = (Array.isArray(product.required_fields) && product.required_fields.length > 0)
         ? product.required_fields 
         : (product.attributes?.size ? ["size"] : []);
@@ -330,10 +304,9 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Dynamic Shipping Rule Calculation
     grandShipping = grandSubtotal >= 999 ? 0 : 40; 
 
-    // SAVE INTERMEDIATE DRAFT CART TO DB
+    // SAVE COMPLETE WORKING CART BACK TO SUPABASE
     await supabase
       .from("cart_sessions")
       .delete()
@@ -346,7 +319,7 @@ export async function POST(req: NextRequest) {
           session_id: sessionId, 
           product_id: item.product_id || "draft_item",
           product_name: item.product_name,
-          quantity: item.quantity,
+          quantity: item.quantity || 1,
           selected_attributes: item.selected_attributes || {},
           current_flow: "whatsapp_ecommerce",
           current_step: missingProducts.length > 0 ? "collect_attributes" : "checkout",
@@ -354,7 +327,7 @@ export async function POST(req: NextRequest) {
         });
     }
 
-    // 🔴 HANDLE VALIDATION FAILURES EARLY (Prompt for missing / invalid attributes)
+    // 🔴 PROMPT USER FOR MISSING OR INVALID ATTRIBUTES
     if (!isBuyIntent && missingProducts.length > 0) {
       const completelyNotFound = missingProducts.filter(p => p.error_type === "not_found");
       const invalidVariants = missingProducts.filter(p => p.error_type === "invalid_variant");
@@ -454,7 +427,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // 🟢 UNIFIED SUCCESS RESPONSE GENERATION
+    // 🟢 UNIFIED SUCCESS RESPONSE GENERATION (Supports 1 or multiple items)
     const itemsSummary = validatedItems
       .map(i => {
         const attrs = Object.entries(i.selected_attributes)
