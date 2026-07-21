@@ -12,7 +12,6 @@ const normalizeProductName = (name: string) => {
   if (!name) return "";
   let clean = name.toLowerCase().trim();
 
-  // Strip generic adjectives
   clean = clean
     .replace(/\b(premium|cotton|slim|fit|regular|mens|womens|casual)\b/g, "")
     .trim();
@@ -71,7 +70,6 @@ export async function POST(req: NextRequest) {
     let finalItemsToProcess: any[] = [];
 
     if (isBuyIntent && Array.isArray(items) && items.length > 0) {
-      // 🟢 BUY INTENT: Use incoming items from payload if present, otherwise fall back to DB
       finalItemsToProcess = items.map((item: any) => ({ ...item }));
     } else if (isBuyIntent && existingCartRows && existingCartRows.length > 0) {
       finalItemsToProcess = existingCartRows.map((dbItem: any) => ({
@@ -232,7 +230,7 @@ export async function POST(req: NextRequest) {
         product = products[0];
       }
 
-      // 1. Check if user provided wrong/invalid variant choices
+      // 1. Invalid Variant check
       if (!variantMatched && !isBuyIntent && Object.keys(cleanIncomingAttributes).length > 0) {
         const totalAvailableOptions: Record<string, string[]> = { color: [], size: [] };
         
@@ -265,7 +263,7 @@ export async function POST(req: NextRequest) {
         continue; 
       }
 
-      // 2. 🟢 CHECK FOR MISSING REQUIRED ATTRIBUTES (Size/Color)
+      // 2. 🟢 MISSING ATTRIBUTES CHECK (Size/Color)
       const requiredFields = product.required_fields || [];
       const availableOptions = product.allowed_options || product.attributes || {};
       const missingFields: string[] = [];
@@ -277,7 +275,6 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // If attributes are missing during validation (and NOT during final checkout submission)
       if (missingFields.length > 0 && !isBuyIntent) {
         missingProducts.push({
           product_name: product.name,
@@ -285,9 +282,9 @@ export async function POST(req: NextRequest) {
           missing_fields: missingFields,
           available_options: availableOptions,
         });
-        continue; // Stops this product from validating until choices are given!
+        continue; 
       }
-      
+
       const unitPrice = Number(product.price);
       const subtotal = unitPrice * requestedQuantity;
 
@@ -326,7 +323,7 @@ export async function POST(req: NextRequest) {
         });
     }
 
-    // Handle Validation Failures Early (Only during validation steps)
+    // 🟢 HANDLE VALIDATION FAILURES EARLY (Prompt user for missing attributes)
     if (!isBuyIntent && missingProducts.length > 0) {
       const completelyNotFound = missingProducts.filter(p => p.error_type === "not_found");
       const invalidVariants = missingProducts.filter(p => p.error_type === "invalid_variant");
@@ -369,6 +366,61 @@ export async function POST(req: NextRequest) {
           message: customErrorMessage.trim()
         });
       }
+
+      let userFriendlyMessage = "";
+
+      const buildOptionsText = (item: any) => {
+        const opts = item.available_options || {};
+        const optionsStringArray: string[] = [];
+
+        Object.entries(opts).forEach(([key, values]) => {
+          let parsedValues: string[] = [];
+          if (Array.isArray(values)) {
+            parsedValues = values;
+          } else if (typeof values === "string") {
+            parsedValues = values.split(",").map(v => v.trim());
+          }
+
+          if (parsedValues.length > 0) {
+            const label = key.charAt(0).toUpperCase() + key.slice(1);
+            optionsStringArray.push(`\n• *${label}s:* _${parsedValues.join(" or ")}_`);
+          }
+        });
+        return optionsStringArray.join("");
+      };
+
+      if (missingProducts.length === 1) {
+        const item = missingProducts[0];
+        const missingFieldsList = item.missing_fields.join(" and ");
+        const choices = buildOptionsText(item);
+
+        userFriendlyMessage = `Please reply with your preferred *${missingFieldsList}* option for *${item.product_name}*.`;
+        if (choices) {
+          userFriendlyMessage += `\n\n*AVAILABLE CHOICES:*${choices}`;
+        }
+      } else {
+        userFriendlyMessage = `Please specify required options for the following products:\n`;
+        
+        missingProducts.forEach((item, index) => {
+          const missingFieldsList = item.missing_fields.join(" and ");
+          userFriendlyMessage += `\n*${index + 1}. ${item.product_name}* (Missing: ${missingFieldsList})`;
+        });
+
+        userFriendlyMessage += `\n\n*AVAILABLE CHOICES:*`;
+        missingProducts.forEach((item) => {
+          const choices = buildOptionsText(item);
+          if (choices) {
+            userFriendlyMessage += `\n\n*For ${item.product_name}:*${choices}`;
+          }
+        });
+      }
+
+      return NextResponse.json({
+        success: false,
+        requires_selection: true,
+        missing_products: missingProducts,
+        message: userFriendlyMessage
+      });
     }
 
     // Return Clean Success Output Structure
