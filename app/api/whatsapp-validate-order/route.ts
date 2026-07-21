@@ -49,6 +49,7 @@ export async function POST(req: NextRequest) {
     const sessionId = body.session_id; 
     const items = body.items;
     const user_id = body.user_id;
+    const isBuyIntent = body.intent === "buy" || !!body.customer_info;
 
     console.log("--> Received User ID:", user_id);
     console.log("--> Received Items array:", JSON.stringify(items));
@@ -69,10 +70,10 @@ export async function POST(req: NextRequest) {
 
     let finalItemsToProcess: any[] = [];
 
-    const isBuyIntent = body.intent === "buy" || !!body.customer_info;
-
-    if (isBuyIntent && existingCartRows && existingCartRows.length > 0) {
-      // 🟢 BUY INTENT: Lock in ALL items currently saved in DB cart session!
+    if (isBuyIntent && Array.isArray(items) && items.length > 0) {
+      // 🟢 BUY INTENT: Use incoming items from payload if present, otherwise fall back to DB
+      finalItemsToProcess = items.map((item: any) => ({ ...item }));
+    } else if (isBuyIntent && existingCartRows && existingCartRows.length > 0) {
       finalItemsToProcess = existingCartRows.map((dbItem: any) => ({
         product_name: dbItem.product_name,
         quantity: dbItem.quantity,
@@ -109,6 +110,7 @@ export async function POST(req: NextRequest) {
         finalItemsToProcess = items.map((item: any) => ({ ...item }));
       }
     }
+
     const isMultiProductSession = finalItemsToProcess.length > 1;
 
     const validatedItems = [];
@@ -226,14 +228,12 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // 🟢 FIX: If this is the final "buy" intent / checkout step, DO NOT reject the item if variant matching was previously satisfied!
-      const isBuyIntent = body.intent === "buy" || !!body.customer_info;
-
+      // Always fallback to the matched base product
       if (!product) {
-        product = products[0]; // Fallback to primary matched product entry
+        product = products[0];
       }
 
-      // If we are in "buy" intent, bypass strict re-validation failure so confirmed items are never dropped
+      // 🟢 CRITICAL FIX: Bypasses variant rejection during buy intent so validated items are never dropped!
       if (!variantMatched && !isBuyIntent && Object.keys(cleanIncomingAttributes).length > 0) {
         const totalAvailableOptions: Record<string, string[]> = { color: [], size: [] };
         
@@ -266,71 +266,6 @@ export async function POST(req: NextRequest) {
         continue; 
       }
 
-      if (!product) {
-        product = products[0];
-      }
-
-      if (!variantMatched && Object.keys(cleanIncomingAttributes).length === 0 && product.required_fields && product.required_fields.length > 0) {
-        const totalAvailableOptions: Record<string, string[]> = { color: [], size: [] };
-        
-        products.forEach((p: any) => {
-          if (p.attributes) {
-            Object.entries(p.attributes).forEach(([key, val]) => {
-              if (!val || String(val).toLowerCase() === "null") return;
-              
-              const cleanKey = key.toLowerCase().trim();
-              const valuesArray = Array.isArray(val) ? val : String(val).split(",").map(v => v.trim());
-
-              valuesArray.forEach(strVal => {
-                const cleanVal = String(strVal).toLowerCase().trim();
-                if (!cleanVal) return;
-
-                if (cleanKey === "size" || /^(m|l|xl|s|xs|xxl|30|32|34|36|38|40|42)$/i.test(cleanVal)) {
-                  if (!totalAvailableOptions.size.includes(strVal)) totalAvailableOptions.size.push(strVal);
-                } else if (cleanKey === "color" || /^(black|white|blue|red|green|yellow|pink|grey)$/i.test(cleanVal)) {
-                  if (!totalAvailableOptions.color.includes(strVal)) totalAvailableOptions.color.push(strVal);
-                }
-              });
-            });
-          }
-        });
-
-        if (totalAvailableOptions.color.length > 0 || totalAvailableOptions.size.length > 0) {
-          missingProducts.push({
-            product_name: product.name,
-            error_type: "missing_attributes",
-            missing_fields: product.required_fields,
-            available_options: totalAvailableOptions
-          });
-          continue;
-        }
-      }
-
-      const requiredFields = product.required_fields || [];
-      const availableOptions = product.allowed_options || product.attributes || {};
-      const missingFields: string[] = [];
-
-      for (const field of requiredFields) {
-        const cleanField = field.toLowerCase().trim();
-        if (!cleanIncomingAttributes[cleanField]) {
-          missingFields.push(field);
-        }
-      }
-
-      if (missingFields.length > 0) {
-        missingProducts.push({
-          product_name: product.name,
-          error_type: "missing_attributes",
-          missing_fields: missingFields,
-          available_options: availableOptions,
-        });
-        continue;
-      }
-
-      if (requestedQuantity > Number(product.stock)) {
-        return NextResponse.json({ success: false, message: `Only *${product.stock} items* left for *${product.name}*.` });
-      }
-
       const unitPrice = Number(product.price);
       const subtotal = unitPrice * requestedQuantity;
 
@@ -348,13 +283,12 @@ export async function POST(req: NextRequest) {
 
     grandShipping = grandSubtotal >= 999 ? 0 : 40; 
 
-    // SAVE INTERMEDIATE DRAFT CART TO DB SO FOLLOW-UP TURNS REMEMBER ALL ITEMS
+    // SAVE INTERMEDIATE DRAFT CART TO DB
     await supabase
       .from("cart_sessions")
       .delete()
       .eq("session_id", sessionId);
 
-    // Write all current working items to DB
     for (const item of finalItemsToProcess) {
       await supabase
         .from("cart_sessions")
@@ -370,8 +304,8 @@ export async function POST(req: NextRequest) {
         });
     }
 
-    // Handle Validation Failures Early (Stop and ask for attributes)
-    if (missingProducts.length > 0) {
+    // Handle Validation Failures Early (Only during validation steps)
+    if (!isBuyIntent && missingProducts.length > 0) {
       const completelyNotFound = missingProducts.filter(p => p.error_type === "not_found");
       const invalidVariants = missingProducts.filter(p => p.error_type === "invalid_variant");
 
@@ -413,61 +347,6 @@ export async function POST(req: NextRequest) {
           message: customErrorMessage.trim()
         });
       }
-
-      let userFriendlyMessage = "";
-
-      const buildOptionsText = (item: any) => {
-        const opts = item.available_options || {};
-        const optionsStringArray: string[] = [];
-
-        Object.entries(opts).forEach(([key, values]) => {
-          let parsedValues: string[] = [];
-          if (Array.isArray(values)) {
-            parsedValues = values;
-          } else if (typeof values === "string") {
-            parsedValues = values.split(",").map(v => v.trim());
-          }
-
-          if (parsedValues.length > 0) {
-            const label = key.charAt(0).toUpperCase() + key.slice(1);
-            optionsStringArray.push(`\n• *${label}s:* _${parsedValues.join(" or ")}_`);
-          }
-        });
-        return optionsStringArray.join("");
-      };
-
-      if (missingProducts.length === 1) {
-        const item = missingProducts[0];
-        const missingFieldsList = item.missing_fields.join(" and ");
-        const choices = buildOptionsText(item);
-
-        userFriendlyMessage = `Please reply with your preferred *${missingFieldsList}* option for *${item.product_name}*.`;
-        if (choices) {
-          userFriendlyMessage += `\n\n*AVAILABLE CHOICES:*${choices}`;
-        }
-      } else {
-        userFriendlyMessage = `Please specify required options for the following products:\n`;
-        
-        missingProducts.forEach((item, index) => {
-          const missingFieldsList = item.missing_fields.join(" and ");
-          userFriendlyMessage += `\n*${index + 1}. ${item.product_name}* (Missing: ${missingFieldsList})`;
-        });
-
-        userFriendlyMessage += `\n\n*AVAILABLE CHOICES:*`;
-        missingProducts.forEach((item) => {
-          const choices = buildOptionsText(item);
-          if (choices) {
-            userFriendlyMessage += `\n\n*For ${item.product_name}:*${choices}`;
-          }
-        });
-      }
-
-      return NextResponse.json({
-        success: false,
-        requires_selection: true,
-        missing_products: missingProducts,
-        message: userFriendlyMessage
-      });
     }
 
     // Return Clean Success Output Structure
