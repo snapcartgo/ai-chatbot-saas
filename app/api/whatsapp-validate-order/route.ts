@@ -228,12 +228,11 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Always fallback to the matched base product
       if (!product) {
         product = products[0];
       }
 
-      // 🟢 CRITICAL FIX: Bypasses variant rejection during buy intent so validated items are never dropped!
+      // 1. Check if user provided wrong/invalid variant choices
       if (!variantMatched && !isBuyIntent && Object.keys(cleanIncomingAttributes).length > 0) {
         const totalAvailableOptions: Record<string, string[]> = { color: [], size: [] };
         
@@ -266,6 +265,29 @@ export async function POST(req: NextRequest) {
         continue; 
       }
 
+      // 2. 🟢 CHECK FOR MISSING REQUIRED ATTRIBUTES (Size/Color)
+      const requiredFields = product.required_fields || [];
+      const availableOptions = product.allowed_options || product.attributes || {};
+      const missingFields: string[] = [];
+
+      for (const field of requiredFields) {
+        const cleanField = field.toLowerCase().trim();
+        if (!cleanIncomingAttributes[cleanField]) {
+          missingFields.push(field);
+        }
+      }
+
+      // If attributes are missing during validation (and NOT during final checkout submission)
+      if (missingFields.length > 0 && !isBuyIntent) {
+        missingProducts.push({
+          product_name: product.name,
+          error_type: "missing_attributes",
+          missing_fields: missingFields,
+          available_options: availableOptions,
+        });
+        continue; // Stops this product from validating until choices are given!
+      }
+      
       const unitPrice = Number(product.price);
       const subtotal = unitPrice * requestedQuantity;
 
