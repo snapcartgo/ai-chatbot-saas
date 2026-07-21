@@ -62,49 +62,53 @@ export async function POST(req: NextRequest) {
     }
 
     // 🕒 LOOKUP PRIOR SESSION STATE
-const { data: existingCartRows } = await supabase
-  .from("cart_sessions")
-  .select("*")
-  .eq("session_id", sessionId);
+    const { data: existingCartRows } = await supabase
+      .from("cart_sessions")
+      .select("*")
+      .eq("session_id", sessionId);
 
-let finalItemsToProcess: any[] = [];
+    let finalItemsToProcess: any[] = [];
 
-// 🟢 Check if this is a follow-up turn filling in attributes for an existing cart session
-const isFollowUpTurn = 
-  existingCartRows && 
-  existingCartRows.length > 0 && 
-  existingCartRows.length >= items.length;
+    const isBuyIntent = body.intent === "buy" || !!body.customer_info;
 
-if (isFollowUpTurn) {
-  // Start with existing DB cart items so no items from earlier turns are lost
-  finalItemsToProcess = existingCartRows.map((dbItem: any) => ({
-    product_name: dbItem.product_name,
-    quantity: dbItem.quantity,
-    selected_attributes: dbItem.selected_attributes || {},
-  }));
-
-  // Merge attributes from incoming item(s) onto matching cart items
-  items.forEach((incomingItem: any) => {
-    const incomingNormalized = normalizeProductName(incomingItem.product_name);
-
-    const targetIndex = finalItemsToProcess.findIndex(
-      (i: any) => normalizeProductName(i.product_name) === incomingNormalized
-    );
-
-    if (targetIndex !== -1) {
-      finalItemsToProcess[targetIndex].selected_attributes = {
-        ...(finalItemsToProcess[targetIndex].selected_attributes || {}),
-        ...(incomingItem.selected_attributes || {}),
-      };
+    if (isBuyIntent && existingCartRows && existingCartRows.length > 0) {
+      // 🟢 BUY INTENT: Lock in ALL items currently saved in DB cart session!
+      finalItemsToProcess = existingCartRows.map((dbItem: any) => ({
+        product_name: dbItem.product_name,
+        quantity: dbItem.quantity,
+        selected_attributes: dbItem.selected_attributes || {},
+      }));
     } else {
-      // If a completely new product was added during follow-up, append it
-      finalItemsToProcess.push({ ...incomingItem });
+      // 🟢 FOLLOW-UP / VALIDATION INTENT
+      const isFollowUpTurn = 
+        existingCartRows && 
+        existingCartRows.length > 0 && 
+        existingCartRows.length >= items.length;
+
+      if (isFollowUpTurn) {
+        finalItemsToProcess = existingCartRows.map((dbItem: any) => ({
+          product_name: dbItem.product_name,
+          quantity: dbItem.quantity,
+          selected_attributes: dbItem.selected_attributes || {},
+        }));
+
+        items.forEach((incomingItem: any) => {
+          const incomingNormalized = normalizeProductName(incomingItem.product_name);
+          const targetIndex = finalItemsToProcess.findIndex(
+            (i: any) => normalizeProductName(i.product_name) === incomingNormalized
+          );
+
+          if (targetIndex !== -1) {
+            finalItemsToProcess[targetIndex].selected_attributes = {
+              ...(finalItemsToProcess[targetIndex].selected_attributes || {}),
+              ...(incomingItem.selected_attributes || {}),
+            };
+          }
+        });
+      } else {
+        finalItemsToProcess = items.map((item: any) => ({ ...item }));
+      }
     }
-  });
-} else {
-  // 🟢 NEW ORDER: Payload has explicit items and no previous active session state to merge
-  finalItemsToProcess = items.map((item: any) => ({ ...item }));
-}
     const isMultiProductSession = finalItemsToProcess.length > 1;
 
     const validatedItems = [];
