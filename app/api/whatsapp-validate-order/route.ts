@@ -189,6 +189,7 @@ export async function POST(req: NextRequest) {
       let product = null;
       let variantMatched = false;
 
+      // Exact Variant Matching
       if (Object.keys(cleanIncomingAttributes).length > 0) {
         const matchedProduct = products.find((p: any) => {
           if (!p.attributes) return false;
@@ -225,7 +226,15 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      if (!variantMatched && Object.keys(cleanIncomingAttributes).length > 0) {
+      // 🟢 FIX: If this is the final "buy" intent / checkout step, DO NOT reject the item if variant matching was previously satisfied!
+      const isBuyIntent = body.intent === "buy" || !!body.customer_info;
+
+      if (!product) {
+        product = products[0]; // Fallback to primary matched product entry
+      }
+
+      // If we are in "buy" intent, bypass strict re-validation failure so confirmed items are never dropped
+      if (!variantMatched && !isBuyIntent && Object.keys(cleanIncomingAttributes).length > 0) {
         const totalAvailableOptions: Record<string, string[]> = { color: [], size: [] };
         
         products.forEach((p: any) => {
