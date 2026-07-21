@@ -67,9 +67,15 @@ export async function POST(req: NextRequest) {
 
     let finalItemsToProcess: any[] = [];
 
-    // 🟢 ACCUMULATIVE CART LOGIC: Retain previous products from DB
-    if (existingCartRows && existingCartRows.length > 0) {
-      // 1. Load all saved items from database session
+    // Check if the previous turn explicitly stopped to collect attributes
+    const isMidwayAttributeCollection = 
+      !isBuyIntent &&
+      existingCartRows && 
+      existingCartRows.length > 0 && 
+      existingCartRows.some((r: any) => r.current_step === "collect_attributes");
+
+    // 🟢 CASE 1: BUY INTENT or MIDWAY ATTRIBUTE COLLECTION -> Preserve DB History
+    if ((isBuyIntent || isMidwayAttributeCollection) && existingCartRows && existingCartRows.length > 0) {
       const dbMap = new Map<string, any>();
 
       existingCartRows.forEach((dbItem: any) => {
@@ -82,13 +88,11 @@ export async function POST(req: NextRequest) {
         });
       });
 
-      // 2. Overlay incoming item updates from payload
       if (Array.isArray(items)) {
         items.forEach((incomingItem: any) => {
           const incomingKey = normalizeProductName(incomingItem.product_name) || incomingItem.product_name;
           
           if (dbMap.has(incomingKey)) {
-            // Update existing product's attributes
             const existing = dbMap.get(incomingKey);
             dbMap.set(incomingKey, {
               ...existing,
@@ -98,18 +102,18 @@ export async function POST(req: NextRequest) {
               },
             });
           } else {
-            // Add new product introduced in follow-up message
             dbMap.set(incomingKey, { ...incomingItem });
           }
         });
       }
 
       finalItemsToProcess = Array.from(dbMap.values());
-    } else {
-      // Fresh new request with no prior database history
+    } 
+    // 🟢 CASE 2: FRESH NEW ORDER REQUEST -> Start Clean with ONLY incoming items!
+    else {
       finalItemsToProcess = items.map((item: any) => ({ ...item }));
     }
-
+    
     const isMultiProductSession = finalItemsToProcess.length > 1;
 
     const validatedItems = [];
