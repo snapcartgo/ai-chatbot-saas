@@ -7,21 +7,20 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-// Robust normalization to match generic user inputs with actual store product names
+// Aggressive normalization to match ANY variation of user product names
 const normalizeProductName = (name: string) => {
   if (!name) return "";
   let clean = name.toLowerCase().trim();
 
+  // Strip generic adjectives and store branding
   clean = clean
-    .replace(/\b(premium|cotton|slim|fit|regular|mens|womens|casual)\b/g, "")
+    .replace(/\b(premium|cotton|slim|fit|regular|mens|womens|casual|wireless|pro)\b/g, "")
+    .replace(/[^a-z0-9\s]/g, "")
     .trim();
 
-  if (/^(tshirt|t-shirt|t shirt|shirt)s?$/i.test(clean) || clean.includes("shirt")) {
-    return "t-shirt";
-  }
-  if (clean.includes("jean") || clean.includes("denim") || clean.includes("pant")) {
-    return "jeans";
-  }
+  if (clean.includes("shirt") || clean.includes("tshirt")) return "t-shirt";
+  if (clean.includes("jean") || clean.includes("denim") || clean.includes("pant")) return "jeans";
+  if (clean.includes("earbud") || clean.includes("airpod") || clean.includes("headphone") || clean.includes("audio")) return "earbud";
   
   return clean.replace(/s\b/g, "");
 };
@@ -69,44 +68,38 @@ export async function POST(req: NextRequest) {
 
     let finalItemsToProcess: any[] = [];
 
-    if (isBuyIntent && Array.isArray(items) && items.length > 0) {
-      finalItemsToProcess = items.map((item: any) => ({ ...item }));
-    } else if (isBuyIntent && existingCartRows && existingCartRows.length > 0) {
+    // 🟢 LOCK IN ALL ITEMS FROM DB FOR "BUY" INTENT OR FOLLOW-UP TURNS
+    if (existingCartRows && existingCartRows.length > 0) {
+      // Start with all items currently stored in Supabase cart session
       finalItemsToProcess = existingCartRows.map((dbItem: any) => ({
+        product_id: dbItem.product_id,
         product_name: dbItem.product_name,
         quantity: dbItem.quantity,
         selected_attributes: dbItem.selected_attributes || {},
       }));
-    } else {
-      // 🟢 FOLLOW-UP / VALIDATION INTENT
-      const isFollowUpTurn = 
-        existingCartRows && 
-        existingCartRows.length > 0 && 
-        existingCartRows.length >= items.length;
 
-      if (isFollowUpTurn) {
-        finalItemsToProcess = existingCartRows.map((dbItem: any) => ({
-          product_name: dbItem.product_name,
-          quantity: dbItem.quantity,
-          selected_attributes: dbItem.selected_attributes || {},
-        }));
-
+      if (Array.isArray(items) && items.length > 0) {
         items.forEach((incomingItem: any) => {
           const incomingNormalized = normalizeProductName(incomingItem.product_name);
+          
           const targetIndex = finalItemsToProcess.findIndex(
             (i: any) => normalizeProductName(i.product_name) === incomingNormalized
           );
 
           if (targetIndex !== -1) {
+            // Update attributes for matching item
             finalItemsToProcess[targetIndex].selected_attributes = {
               ...(finalItemsToProcess[targetIndex].selected_attributes || {}),
               ...(incomingItem.selected_attributes || {}),
             };
+          } else if (!isBuyIntent) {
+            // New item added during validation
+            finalItemsToProcess.push({ ...incomingItem });
           }
         });
-      } else {
-        finalItemsToProcess = items.map((item: any) => ({ ...item }));
       }
+    } else {
+      finalItemsToProcess = items.map((item: any) => ({ ...item }));
     }
 
     const isMultiProductSession = finalItemsToProcess.length > 1;
@@ -230,7 +223,7 @@ export async function POST(req: NextRequest) {
         product = products[0];
       }
 
-      // 1. Invalid Variant check
+      // Invalid Variant Check
       if (!variantMatched && !isBuyIntent && Object.keys(cleanIncomingAttributes).length > 0) {
         const totalAvailableOptions: Record<string, string[]> = { color: [], size: [] };
         
@@ -263,7 +256,7 @@ export async function POST(req: NextRequest) {
         continue; 
       }
 
-      // 2. 🟢 MISSING ATTRIBUTES CHECK (Size/Color)
+      // Missing Required Attributes Check (Size/Color)
       const requiredFields = product.required_fields || [];
       const availableOptions = product.allowed_options || product.attributes || {};
       const missingFields: string[] = [];
@@ -302,28 +295,28 @@ export async function POST(req: NextRequest) {
 
     grandShipping = grandSubtotal >= 999 ? 0 : 40; 
 
-    // SAVE INTERMEDIATE DRAFT CART TO DB
+    // SAVE COMPLETE CART BACK TO SUPABASE
     await supabase
       .from("cart_sessions")
       .delete()
       .eq("session_id", sessionId);
 
-    for (const item of finalItemsToProcess) {
+    for (const validItem of validatedItems) {
       await supabase
         .from("cart_sessions")
         .upsert({
           session_id: sessionId, 
-          product_id: item.product_id || "draft_item",
-          product_name: item.product_name,
-          quantity: item.quantity,
-          selected_attributes: item.selected_attributes || {},
+          product_id: validItem.product_id,
+          product_name: validItem.product_name,
+          quantity: validItem.quantity,
+          selected_attributes: validItem.selected_attributes || {},
           current_flow: "whatsapp_ecommerce",
           current_step: missingProducts.length > 0 ? "collect_attributes" : "checkout",
           updated_at: new Date().toISOString(),
         });
     }
 
-    // 🟢 HANDLE VALIDATION FAILURES EARLY (Prompt user for missing attributes)
+    // HANDLE MISSING ATTRIBUTES PROMPT
     if (!isBuyIntent && missingProducts.length > 0) {
       const completelyNotFound = missingProducts.filter(p => p.error_type === "not_found");
       const invalidVariants = missingProducts.filter(p => p.error_type === "invalid_variant");
@@ -423,35 +416,28 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Return Clean Success Output Structure
-    if (isMultiProductSession) {
-      const itemsSummary = validatedItems
-        .map(i => {
-          const attrs = Object.entries(i.selected_attributes)
-            .map(([k, v]) => `*${k}:* _${v}_`)
-            .join(", ");
-          return `• *${i.product_name}* ${attrs ? `(${attrs})` : ""}`;
-        })
-        .join("\n");
+    // UNIFIED RESPONSE FORMAT (Handles 1 product or multi products cleanly)
+    const itemsSummary = validatedItems
+      .map(i => {
+        const attrs = Object.entries(i.selected_attributes)
+          .map(([k, v]) => `*${k}:* _${v}_`)
+          .join(", ");
+        return `• *${i.product_name}* ${attrs ? `(${attrs})` : ""}`;
+      })
+      .join("\n");
 
-      return NextResponse.json({
-        success: true,
-        requires_confirmation: true, 
-        items: validatedItems,
-        subtotal: grandSubtotal,
-        shipping: grandShipping,
-        total: grandSubtotal + grandShipping,
-        message: `Great! I've confirmed everything is in stock:\n\n${itemsSummary}\n\n*Subtotal:* ₹${grandSubtotal}\n*Shipping:* ${grandShipping === 0 ? "_FREE_" : `₹${grandShipping}`}\n*Total:* *₹${grandSubtotal + grandShipping}*\n\nAre you interested to buy these products? Kindly confirm. Yes. Kindly share your *Name, Email, phone and Delivery Address* to complete checkout.`,
-      });
-    }
+    const responseMessage = isMultiProductSession
+      ? `Great! I've confirmed everything is in stock:\n\n${itemsSummary}\n\n*Subtotal:* ₹${grandSubtotal}\n*Shipping:* ${grandShipping === 0 ? "_FREE_" : `₹${grandShipping}`}\n*Total:* *₹${grandSubtotal + grandShipping}*\n\nAre you interested to buy these products? Kindly confirm. Yes. Kindly share your *Name, Email, phone and Delivery Address* to complete checkout.`
+      : `🛍️ *Order Summary verified successfully!*\n\n${itemsSummary}\n\n*Subtotal:* ₹${grandSubtotal}\n*Shipping:* ${grandShipping === 0 ? "_FREE_" : `₹${grandShipping}`}\n*Total:* *₹${grandSubtotal + grandShipping}*\n\nKindly share your *Name, Email, phone and Delivery Address* to complete checkout.`;
 
     return NextResponse.json({
       success: true,
+      requires_confirmation: isMultiProductSession,
       items: validatedItems,
       subtotal: grandSubtotal,
       shipping: grandShipping,
       total: grandSubtotal + grandShipping,
-      message: `🛍️ *Order Summary verified successfully!* \n\n*Subtotal:* ₹${grandSubtotal}\n*Shipping:* ${grandShipping === 0 ? "_FREE_" : `₹${grandShipping}`}\n*Total:* *₹${grandSubtotal + grandShipping}*\n\nKindly share your *Name, Email, phone and Delivery Address* to complete checkout.`,
+      message: responseMessage,
     });
 
   } catch (err: any) {
