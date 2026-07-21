@@ -67,15 +67,44 @@ export async function POST(req: NextRequest) {
 
     let finalItemsToProcess: any[] = [];
 
-    // Check if previous turn requested missing attributes
-    const isFollowUpTurn = 
-      !isBuyIntent &&
+    // 🟢 1. BUY INTENT: Always rely on DB cart history first so no products get lost during checkout!
+    if (isBuyIntent) {
+      if (existingCartRows && existingCartRows.length > 0) {
+        // Pull ALL items verified in the active session
+        finalItemsToProcess = existingCartRows.map((dbItem: any) => ({
+          product_id: dbItem.product_id,
+          product_name: dbItem.product_name,
+          quantity: dbItem.quantity,
+          selected_attributes: dbItem.selected_attributes || {},
+        }));
+
+        // Merge any newly specified attributes if present in incoming payload
+        if (Array.isArray(items) && items.length > 0) {
+          items.forEach((incomingItem: any) => {
+            const incomingNormalized = normalizeProductName(incomingItem.product_name);
+            const targetIndex = finalItemsToProcess.findIndex(
+              (i: any) => normalizeProductName(i.product_name) === incomingNormalized
+            );
+
+            if (targetIndex !== -1 && Object.keys(incomingItem.selected_attributes || {}).length > 0) {
+              finalItemsToProcess[targetIndex].selected_attributes = {
+                ...(finalItemsToProcess[targetIndex].selected_attributes || {}),
+                ...(incomingItem.selected_attributes || {}),
+              };
+            }
+          });
+        }
+      } else {
+        // Fallback if DB was empty
+        finalItemsToProcess = items.map((item: any) => ({ ...item }));
+      }
+    } 
+    // 🟢 2. FOLLOW-UP ATTRIBUTE TURN
+    else if (
       existingCartRows && 
       existingCartRows.length > 0 && 
-      existingCartRows.some((r: any) => r.current_step === "collect_attributes");
-
-    if ((isBuyIntent || isFollowUpTurn) && existingCartRows && existingCartRows.length > 0) {
-      // Start with saved items from cart session
+      existingCartRows.some((r: any) => r.current_step === "collect_attributes")
+    ) {
       finalItemsToProcess = existingCartRows.map((dbItem: any) => ({
         product_id: dbItem.product_id,
         product_name: dbItem.product_name,
@@ -83,29 +112,22 @@ export async function POST(req: NextRequest) {
         selected_attributes: dbItem.selected_attributes || {},
       }));
 
-      // Merge incoming attribute updates into the existing products
-      if (Array.isArray(items) && items.length > 0) {
-        items.forEach((incomingItem: any) => {
-          const incomingNormalized = normalizeProductName(incomingItem.product_name);
-          
-          const targetIndex = finalItemsToProcess.findIndex(
-            (i: any) => normalizeProductName(i.product_name) === incomingNormalized
-          );
+      items.forEach((incomingItem: any) => {
+        const incomingNormalized = normalizeProductName(incomingItem.product_name);
+        const targetIndex = finalItemsToProcess.findIndex(
+          (i: any) => normalizeProductName(i.product_name) === incomingNormalized
+        );
 
-          if (targetIndex !== -1) {
-            // Found target item: update its attributes
-            finalItemsToProcess[targetIndex].selected_attributes = {
-              ...(finalItemsToProcess[targetIndex].selected_attributes || {}),
-              ...(incomingItem.selected_attributes || {}),
-            };
-          } else if (!isBuyIntent) {
-            // New item added during validation turn
-            finalItemsToProcess.push({ ...incomingItem });
-          }
-        });
-      }
-    } else {
-      // Fresh new order request: process incoming items
+        if (targetIndex !== -1) {
+          finalItemsToProcess[targetIndex].selected_attributes = {
+            ...(finalItemsToProcess[targetIndex].selected_attributes || {}),
+            ...(incomingItem.selected_attributes || {}),
+          };
+        }
+      });
+    } 
+    // 🟢 3. FRESH NEW ORDER REQUEST
+    else {
       finalItemsToProcess = items.map((item: any) => ({ ...item }));
     }
 
