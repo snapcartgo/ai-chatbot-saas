@@ -7,10 +7,29 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+// Robust normalization to match generic user inputs with actual store product names
+const normalizeProductName = (name: string) => {
+  if (!name) return "";
+  let clean = name.toLowerCase().trim();
+
+  // Strip generic adjectives
+  clean = clean
+    .replace(/\b(premium|cotton|slim|fit|regular|mens|womens|casual)\b/g, "")
+    .trim();
+
+  if (/^(tshirt|t-shirt|t shirt|shirt)s?$/i.test(clean) || clean.includes("shirt")) {
+    return "t-shirt";
+  }
+  if (clean.includes("jean") || clean.includes("denim") || clean.includes("pant")) {
+    return "jeans";
+  }
+  
+  return clean.replace(/s\b/g, "");
+};
+
 export async function POST(req: NextRequest) {
   console.log("===== WHATSAPP VALIDATE ORDER API PRODUCTION =====");
   try {
-    // 1. Fully robust parsing fallback for proxy/tunnel layers
     let body: any = {};
     try {
       body = await req.json();
@@ -27,12 +46,10 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Now extract values from the successfully built body object
     const sessionId = body.session_id; 
     const items = body.items;
     const user_id = body.user_id;
 
-    // Debugging logs to see exactly what arrives in your console terminal
     console.log("--> Received User ID:", user_id);
     console.log("--> Received Items array:", JSON.stringify(items));
 
@@ -44,36 +61,45 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, message: "No products provided." }, { status: 400 });
     }
 
-    // 🕒 LOOKUP PRIOR SESSION STATE (To track multi-item history context)
+    // 🕒 LOOKUP PRIOR SESSION STATE
     const { data: existingCartRows } = await supabase
       .from("cart_sessions")
       .select("*")
       .eq("session_id", sessionId);
 
-    // 🔄 MERGE INCOMING ITEMS WITH EXISTING DB SESSION ITEMS
     let finalItemsToProcess: any[] = [];
 
-    if (Array.isArray(items)) {
-      finalItemsToProcess = [...items];
-    }
+    // Check if the current payload is purely a follow-up response providing missing attributes (e.g. only 1 item sent while DB has more)
+    const isFollowUpTurn = 
+      existingCartRows && 
+      existingCartRows.length > items.length && 
+      items.length === 1 &&
+      Object.keys(items[0].selected_attributes || {}).length > 0;
 
-    if (existingCartRows && existingCartRows.length > 0) {
-      existingCartRows.forEach((dbItem: any) => {
-        // Check if this specific product name is already handled in the incoming payload updates
-        const isBeingUpdated = finalItemsToProcess.some(
-          (incomingItem: any) =>
-            incomingItem.product_name?.trim().toLowerCase() === dbItem.product_name?.trim().toLowerCase()
-        );
+    if (isFollowUpTurn) {
+      // 🟢 FOLLOW-UP CASE: Update existing DB cart items with incoming attributes without dropping other items
+      finalItemsToProcess = existingCartRows.map((dbItem: any) => ({
+        product_name: dbItem.product_name,
+        quantity: dbItem.quantity,
+        selected_attributes: dbItem.selected_attributes || {},
+      }));
 
-        // ONLY pull from history if it's a completely different product missing from the current message
-        if (!isBeingUpdated) {
-          finalItemsToProcess.push({
-            product_name: dbItem.product_name,
-            quantity: dbItem.quantity,
-            selected_attributes: dbItem.selected_attributes || {},
-          });
-        }
-      });
+      const incomingItem = items[0];
+      const incomingNormalized = normalizeProductName(incomingItem.product_name);
+
+      const targetIndex = finalItemsToProcess.findIndex(
+        (i: any) => normalizeProductName(i.product_name) === incomingNormalized
+      );
+
+      if (targetIndex !== -1) {
+        finalItemsToProcess[targetIndex].selected_attributes = {
+          ...(finalItemsToProcess[targetIndex].selected_attributes || {}),
+          ...(incomingItem.selected_attributes || {}),
+        };
+      }
+    } else {
+      // 🟢 NEW ORDER / FULL PAYLOAD CASE: Trust ONLY the incoming request items
+      finalItemsToProcess = items.map((item: any) => ({ ...item }));
     }
 
     const isMultiProductSession = finalItemsToProcess.length > 1;
@@ -93,7 +119,6 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ success: false, message: `Invalid quantity for ${product_name || "product"}.` }, { status: 400 });
       }
 
-      // Filter out empty string values from incoming attributes to treat them as unspecified
       const cleanIncomingAttributes = Object.entries(selected_attributes || {}).reduce((acc: any, [k, v]) => {
         if (v !== "" && v !== null && v !== undefined) {
           acc[k.toLowerCase().trim()] = v;
@@ -103,17 +128,15 @@ export async function POST(req: NextRequest) {
 
       let search = product_name.trim().toLowerCase();
 
-      // Clean conversational plurals and normalizations
       if (/^(tshirt|t-shirt|t shirt|shirt)s?$/i.test(search)) {
         search = "t-shirt";
       } else {
         search = search
           .replace(/\bt\s+shirts?\b/g, 't-shirt')
           .replace(/\btshirts?\b/g, 't-shirt')
-          .replace(/s\b/g, ''); // Generalized singular fallback step for fuzzy tracking
+          .replace(/s\b/g, '');
       }
 
-      // ✨ FIX 1: Extract implicit color attributes from the product name text string if missing
       if (!cleanIncomingAttributes.color) {
         if (search.includes("black")) cleanIncomingAttributes.color = "black";
         else if (search.includes("white")) cleanIncomingAttributes.color = "white";
@@ -121,7 +144,6 @@ export async function POST(req: NextRequest) {
         else if (search.includes("red")) cleanIncomingAttributes.color = "red";
       }
 
-      // 1. Primary Fuzzy Search 🟢 (Constrained to product_type = 'meta')
       let { data: products, error: productError } = await supabase
         .from("products")
         .select("*")
@@ -129,7 +151,6 @@ export async function POST(req: NextRequest) {
         .eq("product_type", "meta")
         .or(`name.ilike.%${search}%,category.ilike.%${search}%,description.ilike.%${search}%`);
 
-      // 2. Fallback Split-Phrase Search 🟢 (Constrained to product_type = 'meta')
       if ((!products || products.length === 0) && search.includes(" ")) {
         const words = search.split(" ").filter(Boolean);
         let genericTerm = words[words.length - 1]; 
@@ -161,7 +182,6 @@ export async function POST(req: NextRequest) {
       let product = null;
       let variantMatched = false;
 
-      // Exact Variant Matching
       if (Object.keys(cleanIncomingAttributes).length > 0) {
         const matchedProduct = products.find((p: any) => {
           if (!p.attributes) return false;
@@ -198,7 +218,6 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // ⚡ VALIDATION CHECK: Catch wrong/invalid choices explicitly passed by user
       if (!variantMatched && Object.keys(cleanIncomingAttributes).length > 0) {
         const totalAvailableOptions: Record<string, string[]> = { color: [], size: [] };
         
@@ -235,7 +254,6 @@ export async function POST(req: NextRequest) {
         product = products[0];
       }
 
-      // Check if variant choices are explicitly required by database rules when none are provided
       if (!variantMatched && Object.keys(cleanIncomingAttributes).length === 0 && product.required_fields && product.required_fields.length > 0) {
         const totalAvailableOptions: Record<string, string[]> = { color: [], size: [] };
         
@@ -312,8 +330,29 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Dynamic global shipping rule evaluation
     grandShipping = grandSubtotal >= 999 ? 0 : 40; 
+
+    // SAVE INTERMEDIATE DRAFT CART TO DB SO FOLLOW-UP TURNS REMEMBER ALL ITEMS
+    await supabase
+      .from("cart_sessions")
+      .delete()
+      .eq("session_id", sessionId);
+
+    // Write all current working items to DB
+    for (const item of finalItemsToProcess) {
+      await supabase
+        .from("cart_sessions")
+        .upsert({
+          session_id: sessionId, 
+          product_id: item.product_id || "draft_item",
+          product_name: item.product_name,
+          quantity: item.quantity,
+          selected_attributes: item.selected_attributes || {},
+          current_flow: "whatsapp_ecommerce",
+          current_step: missingProducts.length > 0 ? "collect_attributes" : "checkout",
+          updated_at: new Date().toISOString(),
+        });
+    }
 
     // Handle Validation Failures Early (Stop and ask for attributes)
     if (missingProducts.length > 0) {
@@ -415,37 +454,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // =========================================================================
-    // 🎉 ATOMIC DB SAVE: WIPE OUT HISTORY AND WRITE THE CLEAN TARGET ITEMS
-    // =========================================================================
-    await supabase
-      .from("cart_sessions")
-      .delete()
-      .eq("session_id", sessionId);
-
-    for (const validItem of validatedItems) {
-      const { error: cartUpsertError } = await supabase
-        .from("cart_sessions")
-        .upsert({
-          session_id: sessionId, 
-          product_id: validItem.product_id,
-          product_name: validItem.product_name,
-          quantity: validItem.quantity,
-          selected_attributes: validItem.selected_attributes,
-          current_flow: "whatsapp_ecommerce",
-          current_step: "checkout",
-          updated_at: new Date().toISOString(),
-        });
-
-      if (cartUpsertError) {
-        console.error("Cart database save error:", cartUpsertError);
-        return NextResponse.json({ success: false, message: "Database system error. Please try again." }, { status: 500 });
-      }
-    }
-
-    // =========================================================================
-    // Return Clean Success Context Structures
-    // =========================================================================
+    // Return Clean Success Output Structure
     if (isMultiProductSession) {
       const itemsSummary = validatedItems
         .map(i => {
@@ -467,7 +476,6 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Default single item direct validation message structure
     return NextResponse.json({
       success: true,
       items: validatedItems,
