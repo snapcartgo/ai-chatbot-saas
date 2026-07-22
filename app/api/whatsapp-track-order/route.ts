@@ -9,15 +9,15 @@ const supabase = createClient(supabaseUrl, supabaseAnonKey);
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    // Support both payload keys
-const phone_number = body.phone_number || body.phone;
-const { order_id } = body;
+    // Support both payload keys from request body
+    const phoneNumber = body.phone || body.phone_number;
+    const { order_id } = body;
 
-    if (!order_id && !phone_number) {
+    if (!order_id && !phoneNumber) {
       return NextResponse.json(
         {
           status: "error",
-          message: "Please provide either order_id or phone_number.",
+          message: "Please provide either order_id or phone number.",
         },
         { status: 400 }
       );
@@ -28,11 +28,15 @@ const { order_id } = body;
 
     if (order_id) {
       query = query.eq("id", order_id);
-    } else if (phone_number) {
-      query = query.eq("phone_number", phone_number);
+    } else if (phoneNumber) {
+      // Query strictly against the 'phone' column in Supabase
+      query = query.eq("phone", phoneNumber);
     }
 
-    const { data: order, error } = await query.order("created_at", { ascending: false }).limit(1).single();
+    const { data: order, error } = await query
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .single();
 
     if (error || !order) {
       return NextResponse.json(
@@ -44,9 +48,14 @@ const { order_id } = body;
       );
     }
 
-    // 2. Generate tracking URL if AWB / tracking number exists from Shiprocket
-    const trackingUrl = order.tracking_number
-      ? `https://shiprocket.co/tracking/${order.tracking_number}`
+    // Clean tracking number if present
+    const cleanTrackingNumber = order.tracking_number
+      ? String(order.tracking_number).trim()
+      : null;
+
+    // 2. Generate tracking URL if tracking number exists
+    const trackingUrl = cleanTrackingNumber
+      ? `https://shiprocket.co/tracking/${cleanTrackingNumber}`
       : null;
 
     // 3. Return full order status details directly from the 'orders' table
@@ -62,7 +71,7 @@ const { order_id } = body;
           order_status: order.order_status || "Active",
           payment_method: order.payment_method || null,
           courier_name: order.courier_name || null,
-          tracking_number: order.tracking_number || null,
+          tracking_number: cleanTrackingNumber,
           tracking_url: trackingUrl,
         },
       },
