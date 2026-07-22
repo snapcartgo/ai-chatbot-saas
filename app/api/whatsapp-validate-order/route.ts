@@ -77,65 +77,67 @@ if (!sessionId) {
       return NextResponse.json({ success: false, message: "No products provided." }, { status: 400 });
     }
 
-    const { data: existingCartRows, error: cartLookupError } = await supabase
+    const { data: existingCartRow, error: cartLookupError } = await supabase
   .from("cart_sessions")
   .select("*")
-  .eq("session_id", sessionId);
+  .eq("session_id", sessionId)
+  .maybeSingle();
 
-console.log("--> Existing cart rows found:", existingCartRows?.length || 0);
+console.log("--> Existing cart row found:", !!existingCartRow);
 
 if (cartLookupError) {
   console.error("Cart lookup error:", cartLookupError);
 }
 
-    let finalItemsToProcess: any[] = [];
+let finalItemsToProcess: any[] = [];
 
-    // Check if the previous turn explicitly stopped to collect attributes
-    const isMidwayAttributeCollection = 
-      !isBuyIntent &&
-      existingCartRows && 
-      existingCartRows.length > 0 && 
-      existingCartRows.some((r: any) => r.current_step === "collect_attributes");
+const storedCartItems = Array.isArray(existingCartRow?.cart_items)
+  ? existingCartRow.cart_items
+  : [];
 
-    // 🟢 CASE 1: BUY INTENT or MIDWAY ATTRIBUTE COLLECTION -> Preserve DB History
-    if ((isBuyIntent || isMidwayAttributeCollection) && existingCartRows && existingCartRows.length > 0) {
-      const dbMap = new Map<string, any>();
+const isMidwayAttributeCollection =
+  !isBuyIntent &&
+  existingCartRow &&
+  storedCartItems.length > 0 &&
+  existingCartRow.current_step === "collect_attributes";
 
-      existingCartRows.forEach((dbItem: any) => {
-        const key = normalizeProductName(dbItem.product_name) || dbItem.product_name;
-        dbMap.set(key, {
-          product_id: dbItem.product_id,
-          product_name: dbItem.product_name,
-          quantity: dbItem.quantity || 1,
-          selected_attributes: dbItem.selected_attributes || {},
+if ((isBuyIntent || isMidwayAttributeCollection) && storedCartItems.length > 0) {
+  const dbMap = new Map<string, any>();
+
+  storedCartItems.forEach((dbItem: any) => {
+    const key = normalizeProductName(dbItem.product_name) || dbItem.product_name;
+    dbMap.set(key, {
+      product_id: dbItem.product_id,
+      product_name: dbItem.product_name,
+      quantity: dbItem.quantity || 1,
+      selected_attributes: dbItem.selected_attributes || {},
+    });
+  });
+
+  if (Array.isArray(items)) {
+    items.forEach((incomingItem: any) => {
+      const incomingKey = normalizeProductName(incomingItem.product_name) || incomingItem.product_name;
+
+      if (dbMap.has(incomingKey)) {
+        const existing = dbMap.get(incomingKey);
+        dbMap.set(incomingKey, {
+          ...existing,
+          quantity: incomingItem.quantity || existing.quantity || 1,
+          selected_attributes: {
+            ...(existing.selected_attributes || {}),
+            ...(incomingItem.selected_attributes || {}),
+          },
         });
-      });
-
-      if (Array.isArray(items)) {
-        items.forEach((incomingItem: any) => {
-          const incomingKey = normalizeProductName(incomingItem.product_name) || incomingItem.product_name;
-          
-          if (dbMap.has(incomingKey)) {
-            const existing = dbMap.get(incomingKey);
-            dbMap.set(incomingKey, {
-              ...existing,
-              selected_attributes: {
-                ...(existing.selected_attributes || {}),
-                ...(incomingItem.selected_attributes || {}),
-              },
-            });
-          } else {
-            dbMap.set(incomingKey, { ...incomingItem });
-          }
-        });
+      } else {
+        dbMap.set(incomingKey, { ...incomingItem });
       }
+    });
+  }
 
-      finalItemsToProcess = Array.from(dbMap.values());
-    } 
-    // 🟢 CASE 2: FRESH NEW ORDER REQUEST -> Start Clean with ONLY incoming items!
-    else {
-      finalItemsToProcess = items.map((item: any) => ({ ...item }));
-    }
+  finalItemsToProcess = Array.from(dbMap.values());
+} else {
+  finalItemsToProcess = items.map((item: any) => ({ ...item }));
+}
     
     const isMultiProductSession = finalItemsToProcess.length > 1;
 
@@ -334,12 +336,7 @@ if (cartLookupError) {
     grandShipping = grandSubtotal >= 999 ? 0 : 40; 
 
     // SAVE COMPLETE WORKING CART BACK TO SUPABASE
-    await supabase
-  .from("cart_sessions")
-  .delete()
-  .eq("session_id", sessionId);
-
-for (const item of finalItemsToProcess) {
+    const normalizedCartItems = finalItemsToProcess.map((item: any) => {
   const normalizedSelectedAttributes = Object.entries(item.selected_attributes || {}).reduce(
     (acc: any, [key, value]) => {
       if (value !== null && value !== undefined && value !== "") {
@@ -350,18 +347,45 @@ for (const item of finalItemsToProcess) {
     {}
   );
 
-  await supabase
-    .from("cart_sessions")
-    .upsert({
+  return {
+    product_id: item.product_id || null,
+    product_name: item.product_name,
+    quantity: item.quantity || 1,
+    selected_attributes: normalizedSelectedAttributes,
+  };
+});
+
+console.log("normalizedCartItems before save:", JSON.stringify(normalizedCartItems, null, 2));
+
+const firstItem = normalizedCartItems[0] || null;
+
+const { error: cartSaveError } = await supabase
+  .from("cart_sessions")
+  .upsert(
+    {
       session_id: sessionId,
-      product_id: item.product_id || item.product_name || "draft_item",
-      product_name: item.product_name,
-      quantity: item.quantity || 1,
-      selected_attributes: normalizedSelectedAttributes,
+      product_id: firstItem?.product_id || firstItem?.product_name || "draft_item",
+      product_name: firstItem?.product_name || "multi_item_cart",
+      quantity: normalizedCartItems.reduce(
+        (sum: number, item: any) => sum + (Number(item.quantity) || 1),
+        0
+      ),
+      selected_attributes: firstItem?.selected_attributes || {},
+      cart_items: normalizedCartItems,
+      cart_status: missingProducts.length > 0 ? "pending" : "done",
       current_flow: "whatsapp_ecommerce",
       current_step: missingProducts.length > 0 ? "collect_attributes" : "checkout",
       updated_at: new Date().toISOString(),
-    });
+    },
+    { onConflict: "session_id" }
+  );
+
+if (cartSaveError) {
+  console.error("Cart save error:", cartSaveError);
+  return NextResponse.json(
+    { success: false, message: "Failed to save cart state." },
+    { status: 500 }
+  );
 }
 
     // 🔴 PROMPT USER FOR MISSING OR INVALID ATTRIBUTES
