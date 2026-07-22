@@ -241,6 +241,51 @@ function buildAttributesFromMeta(meta: MetaProduct): Record<string, unknown> | n
   return Object.keys(attributes).length > 0 ? attributes : null;
 }
 
+async function uploadMetaImage(
+  imageUrl: string,
+  userId: string,
+  retailerId: string
+): Promise<string | null> {
+  try {
+    const response = await fetch(imageUrl);
+
+    if (!response.ok) {
+      console.error("Failed to download image");
+      return null;
+    }
+
+    const buffer = Buffer.from(await response.arrayBuffer());
+
+    const contentType =
+      response.headers.get("content-type") || "image/jpeg";
+
+    const extension = contentType.split("/")[1] || "jpg";
+
+    const fileName = `${userId}/${retailerId}.${extension}`;
+
+    const { error } = await supabase.storage
+      .from("product-images")
+      .upload(fileName, buffer, {
+        contentType,
+        upsert: true,
+      });
+
+    if (error) {
+      console.error(error);
+      return null;
+    }
+
+    const { data } = supabase.storage
+      .from("product-images")
+      .getPublicUrl(fileName);
+
+    return data.publicUrl;
+  } catch (err) {
+    console.error(err);
+    return null;
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     console.log("Starting sync-meta-products");
@@ -394,13 +439,23 @@ export async function POST(req: NextRequest) {
       const freshAllowedOptions = buildAllowedOptionsFromMeta(metaProduct);
 
       // Find this block inside your for (const metaProduct of allProducts) loop:
+      let imageUrl: string | null = null;
+
+if (metaProduct.image_url) {
+  imageUrl = await uploadMetaImage(
+    metaProduct.image_url,
+    userId,
+    retailerId
+  );
+}
+
       const payload: ProductInsertRow = {
         user_id: userId,
         name: String(metaProduct.name || retailerId).trim(),
         description: metaProduct.description ? String(metaProduct.description).trim() : null,
         price: parsedPrice.amount,
         category: parseMetaCategory(metaProduct) || existing?.category || null,
-        image_url: metaProduct.image_url ? String(metaProduct.image_url).trim() : null,
+        image_url: imageUrl,
         product_url: metaProduct.url ? String(metaProduct.url).trim() : null,
         stock: mapAvailabilityToStock(metaProduct.availability),
         website_url: metaProduct.url ? String(metaProduct.url).trim() : existing?.website_url || null,
