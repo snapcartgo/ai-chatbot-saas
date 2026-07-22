@@ -513,6 +513,10 @@ export default function ChatWidget({
 
     setMessages(newMessages);
     setUserInput("");
+    const textarea = document.querySelector("textarea");
+if (textarea) {
+  textarea.style.height = "auto";
+}
     setEnterpriseImage(null);
     setIsLoading(true);
 

@@ -2,8 +2,9 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 
+// Initialize Supabase Client using env variables
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!; // Service role to handle secure upserts
 
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
@@ -19,7 +20,7 @@ export async function POST(request: Request) {
       );
     }
 
-    // Upsert configurations matching the user_id without using updated_at
+    // Upsert configurations matching the user_id
     const { error } = await supabase
       .from('whatsapp_configs')
       .upsert(
@@ -27,6 +28,7 @@ export async function POST(request: Request) {
           user_id,
           meta_catalog_id,
           meta_access_token,
+          updated_at: new Date().toISOString(),
         },
         { onConflict: 'user_id' }
       );
