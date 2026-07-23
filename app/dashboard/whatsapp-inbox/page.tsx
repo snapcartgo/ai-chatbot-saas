@@ -64,6 +64,7 @@ export default function WhatsAppInboxPage() {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [typedMessage, setTypedMessage] = useState("");
   const [loading, setLoading] = useState(true);
+  const [aiMode, setAiMode] = useState<"active" | "human">("active");
 
   // ⚡ Template Feature State
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -177,6 +178,24 @@ export default function WhatsAppInboxPage() {
     };
     loadTemplates();
   }, [supabase]);
+
+  useEffect(() => {
+  if (!activeSessionId) return;
+
+  const loadAiMode = async () => {
+    const { data } = await supabase
+      .from("conversations")
+      .select("ai_mode")
+      .eq("conversation_id", activeSessionId)
+      .single();
+
+    if (data) {
+      setAiMode(data.ai_mode || "active");
+    }
+  };
+
+  loadAiMode();
+}, [activeSessionId]);
 
   const activeChatMessages = activeSessionId ? whatsappGroups[activeSessionId] : [];
 
@@ -312,6 +331,36 @@ export default function WhatsAppInboxPage() {
     }
   };
 
+  const handleTakeOver = async () => {
+  if (!activeSessionId) return;
+
+  const { error } = await supabase
+    .from("conversations")
+    .update({
+      ai_mode: "human",
+    })
+    .eq("conversation_id", activeSessionId);
+
+  if (!error) {
+    setAiMode("human");
+  }
+};
+// 👇 Then add this immediately after
+const handleResumeAI = async () => {
+  if (!activeSessionId) return;
+
+  const { error } = await supabase
+    .from("conversations")
+    .update({
+      ai_mode: "active",
+    })
+    .eq("conversation_id", activeSessionId);
+
+  if (!error) {
+    setAiMode("active");
+  }
+};
+
   return (
     <div className="flex h-[calc(100vh-64px)] bg-[#0b141a] text-white overflow-hidden rounded-xl border border-gray-800 m-2">
       
@@ -356,10 +405,34 @@ export default function WhatsAppInboxPage() {
           <>
             {/* Header */}
             <div className="p-4 bg-[#202c33] border-b border-gray-800">
-              <h4 className="font-bold text-sm text-white">
-                Chatting with: {currentCleanPhone}
-              </h4>
-            </div>
+              <div className="p-4 bg-[#202c33] border-b border-gray-800">
+  <div className="flex items-center justify-between">
+
+    <h4 className="font-bold text-sm text-white">
+      Chatting with: {currentCleanPhone}
+    </h4>
+
+    {aiMode === "active" ? (
+      <button
+        onClick={handleTakeOver}
+        className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded text-xs"
+      >
+        Take Over
+      </button>
+    ) : (
+      <button
+        onClick={handleResumeAI}
+        className="bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded text-xs"
+      >
+        Resume AI
+      </button>
+    )}
+
+  </div>
+</div>
+</div>
+
+              
 
             {/* Message Stream */}
             <div className="flex-1 p-6 overflow-y-auto flex flex-col bg-[#0b141a]">
