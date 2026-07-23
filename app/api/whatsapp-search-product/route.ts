@@ -1,6 +1,114 @@
 import { NextResponse } from 'next/server';
 import { createSupabaseServerClient } from '../../../lib/supabaseServer';
 
+function getTermAliases(term: string) {
+  const normalized = term.toLowerCase().trim();
+
+  if (normalized === "t-shirt") {
+    return ["t-shirt", "tshirt", "shirt", "tee", "tees"];
+  }
+
+  if (normalized === "jeans") {
+    return ["jeans", "jean", "denim", "pant", "pants"];
+  }
+
+  if (normalized === "electronics") {
+    return ["electronics", "electronic", "earbud", "earbuds", "headphone", "headphones", "watch"];
+  }
+
+  if (normalized === "chair") {
+    return ["chair", "chairs"];
+  }
+
+  if (normalized === "table") {
+    return ["table", "tables"];
+  }
+
+  if (normalized === "bed") {
+    return ["bed", "beds"];
+  }
+
+  return [normalized];
+}
+
+function detectColorForTerm(cleanQuery: string, explicitColorsFound: string[], term: string) {
+  const aliases = getTermAliases(term).map(escapeRegExp);
+
+  for (const color of explicitColorsFound) {
+    const safeColor = escapeRegExp(color);
+
+    const colorBeforeRegex = new RegExp(
+      `\\b${safeColor}\\s+(${aliases.join("|")})\\b`,
+      "i"
+    );
+
+    const colorAfterRegex = new RegExp(
+      `\\b(${aliases.join("|")})\\s+${safeColor}\\b`,
+      "i"
+    );
+
+    if (colorBeforeRegex.test(cleanQuery) || colorAfterRegex.test(cleanQuery)) {
+      return color;
+    }
+  }
+
+  return undefined;
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+function matchesSearchTerm(item: any, term: string) {
+  const cleanTerm = term.toLowerCase().trim();
+  const name = String(item?.name || '').toLowerCase();
+  const desc = String(item?.description || '').toLowerCase();
+  const cat = String(item?.category || '').toLowerCase();
+  const color = String(item?.color || '').toLowerCase();
+
+  if (cleanTerm === "t-shirt") {
+    return (
+      name.includes("t-shirt") ||
+      name.includes("tshirt") ||
+      name.includes("shirt") ||
+      name.includes("tee") ||
+      desc.includes("t-shirt") ||
+      desc.includes("shirt") ||
+      cat.includes("t-shirt") ||
+      cat.includes("clothing")
+    );
+  }
+
+  if (cleanTerm === "jeans") {
+    return (
+      name.includes("jean") ||
+      name.includes("jeans") ||
+      name.includes("pant") ||
+      desc.includes("denim") ||
+      cat.includes("jeans") ||
+      cat.includes("clothing")
+    );
+  }
+
+  if (cleanTerm === "electronics") {
+    return (
+      name.includes("earbud") ||
+      name.includes("headphone") ||
+      name.includes("watch") ||
+      desc.includes("electronic") ||
+      desc.includes("bluetooth") ||
+      cat.includes("electronic")
+    );
+  }
+
+  return (
+    name.includes(cleanTerm) ||
+    desc.includes(cleanTerm) ||
+    cat.includes(cleanTerm) ||
+    color.includes(cleanTerm)
+  );
+}
+
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -212,7 +320,13 @@ export async function GET(request: Request) {
       }
 
       let rawCatalogProducts = metaData.data || [];
-      let products = [...rawCatalogProducts];
+let products = [...rawCatalogProducts];
+
+if (!isMetaGenericSearch && individualProductTerms.length > 0) {
+  products = products.filter((item: any) =>
+    individualProductTerms.some((term: string) => matchesSearchTerm(item, term))
+  );
+}
 
       // Post-Processing validation filter for dynamic price filters
       if (products.length > 0 && (maxPriceFilter !== null || exactPriceFilter !== null || minPriceFilter !== null)) {
@@ -253,33 +367,16 @@ export async function GET(request: Request) {
         const fallbackData = await fallbackResponse.json();
         
         if (fallbackResponse.ok && fallbackData.data) {
-          const allCatalogProducts = fallbackData.data;
+  const allCatalogProducts = fallbackData.data;
 
-          if (isMetaGenericSearch) {
-            products = allCatalogProducts;
-          } else if (individualProductTerms.length > 0) {
-            // STRICTLY filter ONLY items matching the product type (e.g., ONLY Jeans)
-            products = allCatalogProducts.filter((item: any) => {
-              const name = (item.name || '').toLowerCase();
-              const desc = (item.description || '').toLowerCase();
-              const cat = (item.category || '').toLowerCase();
-
-              return individualProductTerms.some((term: string) => {
-                const cleanTerm = term.toLowerCase();
-                if (cleanTerm === "jeans") {
-                  return name.includes("jean") || name.includes("pant") || desc.includes("denim") || cat.includes("jeans") || cat.includes("clothing");
-                }
-                if (cleanTerm === "t-shirt") {
-                  return name.includes("shirt") || name.includes("tee") || desc.includes("cotton") || cat.includes("t-shirt");
-                }
-                if (cleanTerm === "electronics") {
-                  return name.includes("earbud") || name.includes("headphone") || cat.includes("electronic");
-                }
-                return name.includes(cleanTerm) || desc.includes(cleanTerm) || cat.includes(cleanTerm);
-              });
-            });
-          }
-        }
+  if (isMetaGenericSearch) {
+    products = allCatalogProducts;
+  } else if (individualProductTerms.length > 0) {
+    products = allCatalogProducts.filter((item: any) =>
+      individualProductTerms.some((term: string) => matchesSearchTerm(item, term))
+    );
+  }
+}
       }
 
       // If STILL no relevant category products exist, return a clean text response
@@ -299,14 +396,10 @@ export async function GET(request: Request) {
       // DEDICATED STOCK QUERY OVERRIDE (WITH MISSING ITEMS DETECTOR)
       // =========================================================================
       if (isStockQuery) {
-        // 1. Build requirement pairs from query
-        const searchPairs = individualProductTerms.map(term => {
-          const matchedColor = explicitColorsFound.find(color => {
-            const regex = new RegExp(`${color}\\s+(${term}|${term.replace('-', '')}|shirt|jeans|pant|chair|table)`, 'i');
-            return regex.test(cleanQuery);
-          });
-          return { term, color: matchedColor };
-        });
+        const searchPairs = individualProductTerms.map((term) => {
+  const matchedColor = detectColorForTerm(cleanQuery, explicitColorsFound, term);
+  return { term, color: matchedColor };
+});
 
         const inStockItems: any[] = [];
         const missingItems: string[] = [];
@@ -388,14 +481,10 @@ export async function GET(request: Request) {
       }));
 
       // Build requirement pairs for standard search evaluation
-      const searchPairs: { term: string; color?: string }[] = individualProductTerms.map(term => {
-        const matchedColor = explicitColorsFound.find(color => {
-          const regex = new RegExp(`${color}\\s+(${term}|${term.replace('-', '')}|shirt|jeans|pant|chair|table)`, 'i');
-          return regex.test(cleanQuery);
-        });
-
-        return { term, color: matchedColor };
-      });
+      const searchPairs: { term: string; color?: string }[] = individualProductTerms.map((term) => {
+  const matchedColor = detectColorForTerm(cleanQuery, explicitColorsFound, term);
+  return { term, color: matchedColor };
+});
 
       // Prepare unconstrained products set (ignoring price filters)
       let unconstrainedProducts: any[] = rawCatalogProducts;
