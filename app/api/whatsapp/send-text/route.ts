@@ -11,11 +11,11 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
 
-    const phoneNumberId = String(body.phone_number_id || "").trim();
     const recipientNumber = String(body.recipient_number || "").trim();
     const message = String(body.message || "").trim();
+    const phoneNumberId = String(body.phone_number_id || "").trim();
 
-    if (!phoneNumberId || !recipientNumber || !message) {
+    if (!recipientNumber || !message || !phoneNumberId) {
       return NextResponse.json(
         { error: "Missing required fields" },
         { status: 400 }
