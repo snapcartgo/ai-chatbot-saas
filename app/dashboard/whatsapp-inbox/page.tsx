@@ -346,7 +346,7 @@ export default function WhatsAppInboxPage() {
 
       const realMetaPhoneId = configData.wa_phone_number_id;
 
-      const response = await fetch("/api/whatsapp/send", {
+      const response = await fetch("/api/whatsapp/send-text", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
