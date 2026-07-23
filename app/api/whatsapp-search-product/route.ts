@@ -100,24 +100,36 @@ export async function GET(request: Request) {
         }
       }
 
-      // Strip structural noise words, stock keywords, and color tags
+      // Strip fluff words, stop words, stock keywords, color tags, and typos
+      const stopWords = ["show", "me", "find", "get", "look", "for", "i", "want", "need", "please", "and", "or", "with"];
       const colorAdjectives = ["white", "black", "blue", "red", "green", "grey", "gray", "yellow", "olive"];
+      const categoryNoiseWords = ["product", "products", "produt", "produts", "item", "items", "thing", "things"];
       
       let queryWords = cleanQuery.split(/\s+/).filter((word: string) => word.length > 0);
-      
       const explicitColorsFound = queryWords.filter((word: string) => colorAdjectives.includes(word));
-      let itemWords = queryWords.filter((word: string) => !colorAdjectives.includes(word) && !genericWords.includes(word) && !stockKeywords.includes(word));
+      
+      let itemWords = queryWords.filter((word: string) => 
+        !colorAdjectives.includes(word) && 
+        !genericWords.includes(word) && 
+        !stockKeywords.includes(word) &&
+        !stopWords.includes(word) &&
+        !categoryNoiseWords.includes(word)
+      );
 
+      // Synonym & Variation Normalization
       itemWords = itemWords.map((word: string) => {
-        if (word === "shirts" || word === "tshirt" || word === "tshirts") return "t-shirt";
-        if (word === "jeans" || word === "jean") return "jeans";
+        if (word === "shirts" || word === "tshirt" || word === "tshirts" || word === "tee" || word === "tees") return "t-shirt";
+        if (word === "jeans" || word === "jean" || word === "denim") return "jeans";
         if (word === "chairs") return "chair";
         if (word === "tables") return "table";
         if (word === "beds") return "bed";
+        if (word === "electronic" || word === "electronics") return "electronics";
         return word;
       });
 
-      const finalSearchTerm = itemWords.join(" ") || cleanQuery;
+      // Split into unique individual product terms (e.g., ["jeans", "t-shirt"])
+      const individualProductTerms = Array.from(new Set(itemWords));
+      const finalSearchTerm = individualProductTerms.join(" ") || cleanQuery;
 
       // Step A2: Try local database index lookup securely
       let matchedRetailerIds: string[] = [];
@@ -127,12 +139,20 @@ export async function GET(request: Request) {
           const supabase = await createSupabaseServerClient();
           let localQuery = supabase.from('products').select('retailer_id').eq('user_id', user_id);
           
-          if (finalSearchTerm.length > 0 && !isMetaGenericSearch) {
-            localQuery = localQuery.or(`name.ilike.%${finalSearchTerm}%,description.ilike.%${finalSearchTerm}%,category.ilike.%${finalSearchTerm}%`);
+          if (individualProductTerms.length > 0 && !isMetaGenericSearch) {
+            const orConditions = individualProductTerms.map(
+              term => `name.ilike.%${term}%,description.ilike.%${term}%,category.ilike.%${term}%`
+            ).join(',');
+            
+            localQuery = localQuery.or(orConditions);
           }
 
           if (explicitColorsFound.length > 0) {
-            localQuery = localQuery.ilike('color', `%${explicitColorsFound[0]}%`);
+            const colorConditions = explicitColorsFound.map(
+              c => `color.ilike.%${c}%,name.ilike.%${c}%,description.ilike.%${c}%`
+            ).join(',');
+            
+            localQuery = localQuery.or(colorConditions);
           } else if (color && color !== "null") {
             localQuery = localQuery.ilike('color', `%${color.trim()}%`);
           }
@@ -191,7 +211,8 @@ export async function GET(request: Request) {
         throw new Error(metaData.error?.message || "Meta Catalog API failure.");
       }
 
-      let products = metaData.data || [];
+      let rawCatalogProducts = metaData.data || [];
+      let products = [...rawCatalogProducts];
 
       // Post-Processing validation filter for dynamic price filters
       if (products.length > 0 && (maxPriceFilter !== null || exactPriceFilter !== null || minPriceFilter !== null)) {
@@ -209,48 +230,59 @@ export async function GET(request: Request) {
         });
       }
 
-      // Broad expression handling fallback logic
-      if (products.length === 0 && isMetaGenericSearch) {
-        const fallbackUrl = `https://graph.facebook.com/v20.0/${metaCatalogId}/products?fields=id,name,retailer_id,price,image_url,color,description,url,category,availability&access_token=${metaAccessToken}`;
-        const fallbackResponse = await fetch(fallbackUrl);
-        const fallbackData = await fallbackResponse.json();
-        products = fallbackData.data || [];
-      }
+      // Filter by requested color AND product term if specific search was made
+      if (products.length > 0 && !isMetaGenericSearch && explicitColorsFound.length > 0) {
+        const strictColorMatch = products.filter((item: any) => {
+          const name = (item.name || '').toLowerCase();
+          const desc = (item.description || '').toLowerCase();
+          const pColor = (item.color || '').toLowerCase();
 
-      // Alternate color option lookup loop fallback
-      if (products.length === 0 && !isMetaGenericSearch && finalSearchTerm) {
-        const colorFallbackUrl = 
-          `https://graph.facebook.com/v20.0/${metaCatalogId}/products` +
-          `?fields=id,name,retailer_id,price,image_url,color,description,url,category,availability` +
-          `&q=${encodeURIComponent(finalSearchTerm)}` +
-          `&access_token=${metaAccessToken}`;
+          return explicitColorsFound.some(c => pColor.includes(c) || name.includes(c) || desc.includes(c));
+        });
 
-        const colorFallbackResponse = await fetch(colorFallbackUrl);
-        const colorFallbackData = await colorFallbackResponse.json();
-        
-        if (colorFallbackResponse.ok && colorFallbackData.data) {
-          products = colorFallbackData.data;
+        // If the specific requested color exists, use strictly colored products
+        if (strictColorMatch.length > 0) {
+          products = strictColorMatch;
         }
       }
 
-      // Strict token search post-filter
-      if (products.length > 0 && !isMetaGenericSearch && finalSearchTerm) {
-        products = products.filter((item: any) => {
-          const name = (item.name || '').toLowerCase();
-          const desc = (item.description || '').toLowerCase();
-          const cat = (item.category || '').toLowerCase();
-          
-          const cleanSearchToken = finalSearchTerm.toLowerCase();
-          
-          if (cleanSearchToken === "t-shirt") {
-            return name.includes("t-shirt") || name.includes("tshirt") || name.includes("shirt") || 
-                   desc.includes("t-shirt") || desc.includes("tshirt") || desc.includes("shirt");
+      // STRICT FALLBACK: If requested color/item combo returned 0 results, match ONLY requested product terms (e.g. Jeans only)
+      if (products.length === 0 || (!isMetaGenericSearch && explicitColorsFound.length > 0 && !products.some(p => explicitColorsFound.some(c => (p.color || '').toLowerCase().includes(c))))) {
+        const fallbackUrl = `https://graph.facebook.com/v20.0/${metaCatalogId}/products?fields=id,name,retailer_id,price,image_url,color,description,url,category,availability&access_token=${metaAccessToken}`;
+        const fallbackResponse = await fetch(fallbackUrl);
+        const fallbackData = await fallbackResponse.json();
+        
+        if (fallbackResponse.ok && fallbackData.data) {
+          const allCatalogProducts = fallbackData.data;
+
+          if (isMetaGenericSearch) {
+            products = allCatalogProducts;
+          } else if (individualProductTerms.length > 0) {
+            // STRICTLY filter ONLY items matching the product type (e.g., ONLY Jeans)
+            products = allCatalogProducts.filter((item: any) => {
+              const name = (item.name || '').toLowerCase();
+              const desc = (item.description || '').toLowerCase();
+              const cat = (item.category || '').toLowerCase();
+
+              return individualProductTerms.some((term: string) => {
+                const cleanTerm = term.toLowerCase();
+                if (cleanTerm === "jeans") {
+                  return name.includes("jean") || name.includes("pant") || desc.includes("denim") || cat.includes("jeans") || cat.includes("clothing");
+                }
+                if (cleanTerm === "t-shirt") {
+                  return name.includes("shirt") || name.includes("tee") || desc.includes("cotton") || cat.includes("t-shirt");
+                }
+                if (cleanTerm === "electronics") {
+                  return name.includes("earbud") || name.includes("headphone") || cat.includes("electronic");
+                }
+                return name.includes(cleanTerm) || desc.includes(cleanTerm) || cat.includes(cleanTerm);
+              });
+            });
           }
-          
-          return name.includes(cleanSearchToken) || desc.includes(cleanSearchToken) || cat.includes(cleanSearchToken);
-        });
+        }
       }
 
+      // If STILL no relevant category products exist, return a clean text response
       if (products.length === 0) {
         return NextResponse.json({
           messaging_product: "whatsapp",
@@ -258,22 +290,82 @@ export async function GET(request: Request) {
           to: userPhone,
           type: "text",
           text: {
-            body: `We couldn't find any items matching "${(q || '').trim()}" inside our catalog right now.`
+            body: `Sorry, we don't have "${(q || '').trim()}" in stock right now, and no similar items were found in our store.`
           }
         });
       }
 
       // =========================================================================
-      // DEDICATED STOCK QUERY OVERRIDE (RETURNS TEXT ONLY)
+      // DEDICATED STOCK QUERY OVERRIDE (WITH MISSING ITEMS DETECTOR)
       // =========================================================================
       if (isStockQuery) {
-        const topItem = products[0];
-        const isAvailable = topItem?.availability === 'in stock' || topItem?.availability === 'in_stock';
-        const productName = topItem?.name || (q || '').trim();
+        // 1. Build requirement pairs from query
+        const searchPairs = individualProductTerms.map(term => {
+          const matchedColor = explicitColorsFound.find(color => {
+            const regex = new RegExp(`${color}\\s+(${term}|${term.replace('-', '')}|shirt|jeans|pant|chair|table)`, 'i');
+            return regex.test(cleanQuery);
+          });
+          return { term, color: matchedColor };
+        });
 
-        const stockText = isAvailable
-          ? `✅ Yes, *${productName}* is available in stock!`
-          : `❌ Sorry, *${productName}* is currently out of stock.`;
+        const inStockItems: any[] = [];
+        const missingItems: string[] = [];
+
+        for (const pair of searchPairs) {
+          const formattedTerm = pair.term.charAt(0).toUpperCase() + pair.term.slice(1);
+          const pairLabel = pair.color 
+            ? `${pair.color.charAt(0).toUpperCase() + pair.color.slice(1)} ${formattedTerm}`
+            : formattedTerm;
+
+          const matchedProduct = products.find((p: any) => {
+            const name = (p.name || '').toLowerCase();
+            const desc = (p.description || '').toLowerCase();
+            const cat = (p.category || '').toLowerCase();
+            const pColor = (p.color || '').toLowerCase();
+            const isAvail = p.availability === 'in stock' || p.availability === 'in_stock';
+
+            let matchesTerm = name.includes(pair.term) || desc.includes(pair.term) || cat.includes(pair.term);
+            if (pair.term === "t-shirt") {
+              matchesTerm = matchesTerm || name.includes("shirt") || desc.includes("shirt");
+            }
+
+            const matchesColor = !pair.color || pColor.includes(pair.color) || name.includes(pair.color);
+
+            return matchesTerm && matchesColor && isAvail;
+          });
+
+          if (matchedProduct) {
+            inStockItems.push(matchedProduct);
+          } else {
+            missingItems.push(pairLabel);
+          }
+        }
+
+        let stockText = "";
+
+        if (missingItems.length > 0) {
+          stockText += `❌ *${missingItems.join(', ')}* is currently out of stock.`;
+        }
+
+        if (inStockItems.length > 0) {
+          const formattedInStock = inStockItems.map((item: any) => {
+            const attrs = [];
+            if (item.color) attrs.push(item.color);
+            if (item.size) attrs.push(item.size);
+            const attrString = attrs.length > 0 ? ` (${attrs.join(', ')})` : '';
+            return `• *${item.name}*${attrString}`;
+          });
+
+          const uniqueItemList = Array.from(new Set(formattedInStock)).join('\n');
+          
+          if (stockText.length > 0) {
+            stockText += `\n\n✅ However, we have these available options in stock:\n\n${uniqueItemList}`;
+          } else {
+            stockText = `✅ The following items are available in stock:\n\n${uniqueItemList}`;
+          }
+        } else if (missingItems.length === 0) {
+          stockText = `❌ Sorry, the requested items are currently out of stock.`;
+        }
 
         return NextResponse.json({
           messaging_product: "whatsapp",
@@ -289,52 +381,117 @@ export async function GET(request: Request) {
       // =========================================================================
       // STANDARD PRODUCT SEARCH (RETURNS INTERACTIVE CATALOG CARD)
       // =========================================================================
-      let processedProducts: any[] = [];
-      if (isMetaGenericSearch) {
-        const uniqueCategories = new Set<string>();
-        
-        for (const item of products) {
-          let itemCategory = (item.category || '').trim().toLowerCase();
-          const itemName = (item.name || '').toLowerCase();
-
-          if (itemName.includes('earbud') || itemName.includes('tshirt') || itemName.includes('t-shirt')) {
-            continue;
-          }
-          
-          if (!itemCategory) {
-            if (itemName.includes('jean') || itemName.includes('pant')) itemCategory = 'jeans';
-            else if (itemName.includes('shirt') || itemName.includes('top')) itemCategory = 'clothing';
-            else if (itemName.includes('chair') || itemName.includes('table') || itemName.includes('bed')) itemCategory = 'furniture';
-            else itemCategory = 'general_' + item.retailer_id; 
-          }
-          
-          if (!uniqueCategories.has(itemCategory)) {
-            uniqueCategories.add(itemCategory);
-            processedProducts.push(item);
-          }
-          
-          if (processedProducts.length === 8) break;
-        }
-      } else {
-        processedProducts = products.slice(0, 30);
-      }
+      let processedProducts: any[] = products.slice(0, 30);
 
       const multiProductItemsArray = processedProducts.map((item: any) => ({
         product_retailer_id: item.retailer_id
       }));
 
-      const hasMatchedRequestedColor = explicitColorsFound.length === 0 || products.some((p: any) => 
-        (p.color || '').toLowerCase().includes(explicitColorsFound[0]) || 
-        (p.name || '').toLowerCase().includes(explicitColorsFound[0])
-      );
+      // Build requirement pairs for standard search evaluation
+      const searchPairs: { term: string; color?: string }[] = individualProductTerms.map(term => {
+        const matchedColor = explicitColorsFound.find(color => {
+          const regex = new RegExp(`${color}\\s+(${term}|${term.replace('-', '')}|shirt|jeans|pant|chair|table)`, 'i');
+          return regex.test(cleanQuery);
+        });
+
+        return { term, color: matchedColor };
+      });
+
+      // Prepare unconstrained products set (ignoring price filters)
+      let unconstrainedProducts: any[] = rawCatalogProducts;
+
+      if (maxPriceFilter !== null || minPriceFilter !== null || exactPriceFilter !== null) {
+        try {
+          const unconstrainedTerm = individualProductTerms.join(" ");
+          const unconstrainedUrl = `https://graph.facebook.com/v20.0/${metaCatalogId}/products?fields=id,name,retailer_id,price,image_url,color,description,url,category,availability&q=${encodeURIComponent(unconstrainedTerm)}&access_token=${metaAccessToken}`;
+          
+          const fullRes = await fetch(unconstrainedUrl);
+          const fullData = await fullRes.json();
+          
+          if (fullRes.ok && fullData.data && fullData.data.length > 0) {
+            unconstrainedProducts = fullData.data;
+          } else {
+            const fullCatalogUrl = `https://graph.facebook.com/v20.0/${metaCatalogId}/products?fields=id,name,retailer_id,price,image_url,color,description,url,category,availability&access_token=${metaAccessToken}`;
+            const fallbackRes = await fetch(fullCatalogUrl);
+            const fallbackData = await fallbackRes.json();
+            if (fallbackRes.ok && fallbackData.data) {
+              unconstrainedProducts = fallbackData.data;
+            }
+          }
+        } catch (e) {
+          console.error("Unconstrained fetch error:", e);
+        }
+      }
+
+      let priceFilteredOutPairs: { pairLabel: string; actualPrice?: string }[] = [];
+      let trulyMissingPairs: string[] = [];
+
+      const isClothingTerm = (term: string) => ["clothing", "clothes", "apparel", "wear"].includes(term.toLowerCase());
+      const isElectronicsTerm = (term: string) => ["electronics", "electronic", "gadget", "gadgets", "tech"].includes(term.toLowerCase());
+
+      for (const pair of searchPairs) {
+        const formattedTerm = pair.term.charAt(0).toUpperCase() + pair.term.slice(1);
+        const pairLabel = pair.color 
+          ? `${pair.color.charAt(0).toUpperCase() + pair.color.slice(1)} ${formattedTerm}`
+          : formattedTerm;
+
+        const matchesProduct = (p: any) => {
+          const name = (p.name || '').toLowerCase();
+          const desc = (p.description || '').toLowerCase();
+          const cat = (p.category || '').toLowerCase();
+          const pColor = (p.color || '').toLowerCase();
+
+          let matchesTerm = name.includes(pair.term) || desc.includes(pair.term) || cat.includes(pair.term);
+          
+          if (isClothingTerm(pair.term)) {
+            matchesTerm = matchesTerm || cat.includes("clothing") || name.includes("shirt") || name.includes("jean") || name.includes("pant") || desc.includes("denim");
+          } else if (isElectronicsTerm(pair.term)) {
+            matchesTerm = matchesTerm || cat.includes("electronic") || name.includes("earbud") || name.includes("headphone") || name.includes("watch") || desc.includes("electronic") || desc.includes("bluetooth");
+          } else if (pair.term === "t-shirt") {
+            matchesTerm = matchesTerm || name.includes("shirt") || desc.includes("shirt");
+          }
+
+          const matchesColor = !pair.color || pColor.includes(pair.color) || name.includes(pair.color);
+
+          return matchesTerm && matchesColor;
+        };
+
+        const itemInCatalog = unconstrainedProducts.find(matchesProduct);
+        const existsUnderPrice = products.some(matchesProduct);
+
+        if (!itemInCatalog) {
+          trulyMissingPairs.push(pairLabel);
+        } else if (!existsUnderPrice) {
+          priceFilteredOutPairs.push({
+            pairLabel,
+            actualPrice: itemInCatalog.price || ''
+          });
+        }
+      }
 
       let bodyText = "";
+
       if (isMetaGenericSearch) {
         bodyText = "Here are the top categories currently available in our store:";
-      } else if (hasMatchedRequestedColor) {
+      } else if (trulyMissingPairs.length === 0 && priceFilteredOutPairs.length === 0) {
         bodyText = `Here is what we found matching your request for "${(q || '').trim()}":`;
       } else {
-        bodyText = `We don't have "${(q || '').trim()}" in stock, but here are some other options you might like:`;
+        const explanations: string[] = [];
+
+        if (trulyMissingPairs.length > 0) {
+          explanations.push(`We don't have ${trulyMissingPairs.join(', ')} in stock`);
+        }
+
+        if (priceFilteredOutPairs.length > 0) {
+          const budgetLabel = priceConditionStr !== "null" ? priceConditionStr : `under ₹${maxPriceFilter}`;
+          const priceItemsStr = priceFilteredOutPairs.map(p => 
+            p.actualPrice ? `${p.pairLabel} (${p.actualPrice})` : p.pairLabel
+          ).join(', ');
+
+          explanations.push(`${priceItemsStr} is not available ${budgetLabel}`);
+        }
+
+        bodyText = `${explanations.join(', and ')}. Here are the available options in our collection:`;
       }
 
       const footerText = "Tap view options below to see all items";
@@ -426,11 +583,12 @@ export async function GET(request: Request) {
       ) {
         isGenericSearch = true;
       } else {
+        const stopWords = ["show", "me", "find", "get", "look", "for", "i", "want", "need", "please"];
         const colorAdjectives = ["white", "black", "blue", "red", "green", "grey", "gray", "yellow", "olive"];
-        let queryWords = cleanQuery.split(/\s+/).filter((word: string) => !colorAdjectives.includes(word));
+        let queryWords = cleanQuery.split(/\s+/).filter((word: string) => !colorAdjectives.includes(word) && !stopWords.includes(word));
         
         queryWords = queryWords.map((word: string) => {
-          if (word === "shirts" || word === "tshirt" || word === "tshirts") return "t-shirt";
+          if (word === "shirts" || word === "tshirt" || word === "tshirts" || word === "tee" || word === "tees") return "t-shirt";
           if (word === "chairs") return "chair";
           if (word === "tables") return "table";
           if (word === "beds") return "bed";
