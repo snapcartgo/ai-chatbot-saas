@@ -89,31 +89,13 @@ export async function POST(req: Request) {
       return new Response("EVENT_RECEIVED", { status: 200 });
     }
 
-    const cleanPhone = normalizePhone(customerPhone);
-const conversationId = `conv_${cleanPhone}`;
-
-const { data: conversation } = await supabase
-  .from("conversations")
-  .select("ai_mode")
-  .eq("conversation_id", conversationId)
-  .single();
-
-    if (conversation?.ai_mode === "human") {
-  console.log("Human takeover active. Skipping AI.");
-
-  return new Response("EVENT_RECEIVED", {
-    status: 200,
-  });
-}
-
-    
-
     // ACCESSIBLE GLOBAL VARIABLE SCOPING FOR BOTH BLOCKS
     const metaAccessToken = String(
       config.whatsapp_access_token || config.meta_access_token || ""
     ).trim();
 
-    
+    const cleanPhone = normalizePhone(customerPhone);
+    const conversationId = `conv_${cleanPhone}`;
 
     // Safe DB Insert Block
     try {
