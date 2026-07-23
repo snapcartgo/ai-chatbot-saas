@@ -11,31 +11,24 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
 
-    const recipientNumber = String(body.recipient_number || "").trim();
-    const message = String(body.message || "").trim();
-    const phoneNumberId = String(body.phone_number_id || "").trim();
+const recipientNumber = String(body.recipient_number || "").trim();
+const message = String(body.message || "").trim();
 
-    if (!recipientNumber || !message || !phoneNumberId) {
-      return NextResponse.json(
-        { error: "Missing required fields" },
-        { status: 400 }
-      );
-    }
+const { data: config } = await supabase
+  .from("whatsapp_configs")
+  .select("wa_phone_number_id, meta_access_token")
+  .limit(1)
+  .single();
 
-    const { data: config, error } = await supabase
-      .from("whatsapp_configs")
-      .select("meta_access_token")
-      .eq("wa_phone_number_id", phoneNumberId)
-      .single();
+if (!config) {
+  return NextResponse.json(
+    { error: "Configuration not found" },
+    { status: 404 }
+  );
+}
 
-    if (error || !config) {
-      return NextResponse.json(
-        { error: "WhatsApp configuration not found" },
-        { status: 404 }
-      );
-    }
-
-    const token = config.meta_access_token;
+const phoneNumberId = config.wa_phone_number_id;
+const token = config.meta_access_token;
 
     const response = await axios.post(
       `https://graph.facebook.com/v24.0/${phoneNumberId}/messages`,
