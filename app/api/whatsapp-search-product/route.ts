@@ -1,6 +1,11 @@
 import { NextResponse } from 'next/server';
 import { createSupabaseServerClient } from '../../../lib/supabaseServer';
 
+// Helper function to safely escape user inputs for Regular Expression generation (Fixes CodeQL ReDoS)
+function escapeRegExp(str: string) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -230,24 +235,16 @@ export async function GET(request: Request) {
         });
       }
 
-      // Filter by requested color AND product term if specific search was made
-      if (products.length > 0 && !isMetaGenericSearch && explicitColorsFound.length > 0) {
-        const strictColorMatch = products.filter((item: any) => {
-          const name = (item.name || '').toLowerCase();
-          const desc = (item.description || '').toLowerCase();
-          const pColor = (item.color || '').toLowerCase();
-
-          return explicitColorsFound.some(c => pColor.includes(c) || name.includes(c) || desc.includes(c));
-        });
-
-        // If the specific requested color exists, use strictly colored products
-        if (strictColorMatch.length > 0) {
-          products = strictColorMatch;
-        }
+      // Broad expression handling fallback logic
+      if (products.length === 0 && isMetaGenericSearch) {
+        const fallbackUrl = `https://graph.facebook.com/v20.0/${metaCatalogId}/products?fields=id,name,retailer_id,price,image_url,color,description,url,category,availability&access_token=${metaAccessToken}`;
+        const fallbackResponse = await fetch(fallbackUrl);
+        const fallbackData = await fallbackResponse.json();
+        products = fallbackData.data || [];
       }
 
-      // STRICT FALLBACK: If requested color/item combo returned 0 results, match ONLY requested product terms (e.g. Jeans only)
-      if (products.length === 0 || (!isMetaGenericSearch && explicitColorsFound.length > 0 && !products.some(p => explicitColorsFound.some(c => (p.color || '').toLowerCase().includes(c))))) {
+      // Alternate category-scoped lookup if specific requested item/color returned 0 items
+      if (products.length === 0 && !isMetaGenericSearch && individualProductTerms.length > 0) {
         const fallbackUrl = `https://graph.facebook.com/v20.0/${metaCatalogId}/products?fields=id,name,retailer_id,price,image_url,color,description,url,category,availability&access_token=${metaAccessToken}`;
         const fallbackResponse = await fetch(fallbackUrl);
         const fallbackData = await fallbackResponse.json();
@@ -255,34 +252,24 @@ export async function GET(request: Request) {
         if (fallbackResponse.ok && fallbackData.data) {
           const allCatalogProducts = fallbackData.data;
 
-          if (isMetaGenericSearch) {
-            products = allCatalogProducts;
-          } else if (individualProductTerms.length > 0) {
-            // STRICTLY filter ONLY items matching the product type (e.g., ONLY Jeans)
-            products = allCatalogProducts.filter((item: any) => {
-              const name = (item.name || '').toLowerCase();
-              const desc = (item.description || '').toLowerCase();
-              const cat = (item.category || '').toLowerCase();
+          // Filter only RELEVANT items in the same product family
+          products = allCatalogProducts.filter((item: any) => {
+            const name = (item.name || '').toLowerCase();
+            const desc = (item.description || '').toLowerCase();
+            const cat = (item.category || '').toLowerCase();
 
-              return individualProductTerms.some((term: string) => {
-                const cleanTerm = term.toLowerCase();
-                if (cleanTerm === "jeans") {
-                  return name.includes("jean") || name.includes("pant") || desc.includes("denim") || cat.includes("jeans") || cat.includes("clothing");
-                }
-                if (cleanTerm === "t-shirt") {
-                  return name.includes("shirt") || name.includes("tee") || desc.includes("cotton") || cat.includes("t-shirt");
-                }
-                if (cleanTerm === "electronics") {
-                  return name.includes("earbud") || name.includes("headphone") || cat.includes("electronic");
-                }
-                return name.includes(cleanTerm) || desc.includes(cleanTerm) || cat.includes(cleanTerm);
-              });
+            return individualProductTerms.some((term: string) => {
+              const cleanTerm = term.toLowerCase();
+              return name.includes(cleanTerm) || desc.includes(cleanTerm) || cat.includes(cleanTerm) ||
+                     (cleanTerm === "jeans" && (name.includes("pant") || cat.includes("clothing"))) ||
+                     (cleanTerm === "t-shirt" && (name.includes("shirt") || cat.includes("clothing"))) ||
+                     (cleanTerm === "electronics" && (name.includes("earbud") || cat.includes("electronic")));
             });
-          }
+          });
         }
       }
 
-      // If STILL no relevant category products exist, return a clean text response
+      // If STILL no relevant category products exist, output text instead of showing unrelated products
       if (products.length === 0) {
         return NextResponse.json({
           messaging_product: "whatsapp",
@@ -290,7 +277,7 @@ export async function GET(request: Request) {
           to: userPhone,
           type: "text",
           text: {
-            body: `Sorry, we don't have "${(q || '').trim()}" in stock right now, and no similar items were found in our store.`
+            body: `Sorry, we don't have "${(q || '').trim()}" in stock right now, and no similar items are available in that category.`
           }
         });
       }
@@ -299,10 +286,14 @@ export async function GET(request: Request) {
       // DEDICATED STOCK QUERY OVERRIDE (WITH MISSING ITEMS DETECTOR)
       // =========================================================================
       if (isStockQuery) {
-        // 1. Build requirement pairs from query
+        // 1. Build requirement pairs from query safely using escapeRegExp
         const searchPairs = individualProductTerms.map(term => {
+          const safeTerm = escapeRegExp(term);
+          const safeCleanTerm = escapeRegExp(term.replace('-', ''));
+
           const matchedColor = explicitColorsFound.find(color => {
-            const regex = new RegExp(`${color}\\s+(${term}|${term.replace('-', '')}|shirt|jeans|pant|chair|table)`, 'i');
+            const safeColor = escapeRegExp(color);
+            const regex = new RegExp(`${safeColor}\\s+(${safeTerm}|${safeCleanTerm}|shirt|jeans|pant|chair|table)`, 'i');
             return regex.test(cleanQuery);
           });
           return { term, color: matchedColor };
@@ -387,10 +378,14 @@ export async function GET(request: Request) {
         product_retailer_id: item.retailer_id
       }));
 
-      // Build requirement pairs for standard search evaluation
+      // Build requirement pairs for standard search evaluation safely using escapeRegExp
       const searchPairs: { term: string; color?: string }[] = individualProductTerms.map(term => {
+        const safeTerm = escapeRegExp(term);
+        const safeCleanTerm = escapeRegExp(term.replace('-', ''));
+
         const matchedColor = explicitColorsFound.find(color => {
-          const regex = new RegExp(`${color}\\s+(${term}|${term.replace('-', '')}|shirt|jeans|pant|chair|table)`, 'i');
+          const safeColor = escapeRegExp(color);
+          const regex = new RegExp(`${safeColor}\\s+(${safeTerm}|${safeCleanTerm}|shirt|jeans|pant|chair|table)`, 'i');
           return regex.test(cleanQuery);
         });
 
