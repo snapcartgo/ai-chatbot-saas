@@ -84,6 +84,8 @@ export async function POST(req: Request) {
       .eq("wa_phone_number_id", phoneNumberId)
       .single();
 
+    // ... existing code above ...
+
     if (configErr || !config) {
       console.error("Config lookup failed:", configErr);
       return new Response("EVENT_RECEIVED", { status: 200 });
@@ -97,7 +99,7 @@ export async function POST(req: Request) {
     const cleanPhone = normalizePhone(customerPhone);
     const conversationId = `conv_${cleanPhone}`;
 
-    // Safe DB Insert Block
+    // Safe DB Insert Block (Inserts user message to Supabase)
     try {
       const userPayload: any = {
         id: crypto.randomUUID(), 
@@ -123,10 +125,29 @@ export async function POST(req: Request) {
       console.error("❌ CODE RUNTIME CRASH DURING INSERT:", dbCatchErr);
     }
 
+    // =========================================================================
+    // 🔴 ADD HUMAN HANDOFF CHECK HERE
+    // =========================================================================
+    const { data: activeHandoff } = await supabase
+      .from("human_handoffs") // <-- Adjust table name to match your DB schema (e.g., conversations or leads)
+      .select("status")
+      .eq("conversation_id", conversationId) // or .eq("phone", cleanPhone)
+      .eq("status", "active") // or checking is_human_handoff = true
+      .single();
+
+    if (activeHandoff) {
+      console.log(`ℹ️ Conversation ${conversationId} is currently assigned to a HUMAN AGENT. Skipping AI response.`);
+      // Return 200 to Meta so it acknowledges message delivery, but do NOT call n8n or send an AI reply
+      return new Response("EVENT_RECEIVED", { status: 200 });
+    }
+    // =========================================================================
+
     const N8N_WEBHOOK = process.env.N8N_WHATSAPP_WEBHOOK_URL || "";
 
     let aiResponse = "";
     let n8nData: any = null;
+
+    // ... rest of your existing n8n and Meta sending logic below ...
 
     if (N8N_WEBHOOK) {
       try {
