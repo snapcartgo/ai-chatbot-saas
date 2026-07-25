@@ -78,66 +78,72 @@ if (!sessionId) {
     }
 
     const { data: existingCartRow, error: cartLookupError } = await supabase
-  .from("cart_sessions")
-  .select("*")
-  .eq("session_id", sessionId)
-  .maybeSingle();
+      .from("cart_sessions")
+      .select("*")
+      .eq("session_id", sessionId)
+      .maybeSingle();
 
-console.log("--> Existing cart row found:", !!existingCartRow);
+    console.log("--> Existing cart row found:", !!existingCartRow);
 
-if (cartLookupError) {
-  console.error("Cart lookup error:", cartLookupError);
-}
+    if (cartLookupError) {
+      console.error("Cart lookup error:", cartLookupError);
+    }
 
-let finalItemsToProcess: any[] = [];
+    const storedCartItems: any[] = Array.isArray(existingCartRow?.cart_items)
+      ? existingCartRow.cart_items
+      : [];
 
-const storedCartItems = Array.isArray(existingCartRow?.cart_items)
-  ? existingCartRow.cart_items
-  : [];
+    let finalItemsToProcess: any[] = [];
 
-const isMidwayAttributeCollection =
-  !isBuyIntent &&
-  existingCartRow &&
-  storedCartItems.length > 0 &&
-  existingCartRow.current_step === "collect_attributes";
+    // Check if user is asking for NEW products or continuing an attribute selection flow
+    if (Array.isArray(items) && items.length > 0) {
+      const isCollectingAttributes = 
+        !isBuyIntent && 
+        existingCartRow && 
+        storedCartItems.length > 0 && 
+        existingCartRow.current_step === "collect_attributes";
 
-if ((isBuyIntent || isMidwayAttributeCollection) && storedCartItems.length > 0) {
-  const dbMap = new Map<string, any>();
-
-  storedCartItems.forEach((dbItem: any) => {
-    const key = normalizeProductName(dbItem.product_name) || dbItem.product_name;
-    dbMap.set(key, {
-      product_id: dbItem.product_id,
-      product_name: dbItem.product_name,
-      quantity: dbItem.quantity || 1,
-      selected_attributes: dbItem.selected_attributes || {},
-    });
-  });
-
-  if (Array.isArray(items)) {
-    items.forEach((incomingItem: any) => {
-      const incomingKey = normalizeProductName(incomingItem.product_name) || incomingItem.product_name;
-
-      if (dbMap.has(incomingKey)) {
-        const existing = dbMap.get(incomingKey);
-        dbMap.set(incomingKey, {
-          ...existing,
-          quantity: incomingItem.quantity || existing.quantity || 1,
-          selected_attributes: {
-            ...(existing.selected_attributes || {}),
-            ...(incomingItem.selected_attributes || {}),
-          },
+      // Check if incoming items contain products NOT present in current stored cart
+      const userMentionedNewProduct = items.some(incomingItem => {
+        const incomingKey = normalizeProductName(incomingItem.product_name) || incomingItem.product_name;
+        return !storedCartItems.some(dbItem => {
+          const dbKey = normalizeProductName(dbItem.product_name) || dbItem.product_name;
+          return dbKey === incomingKey;
         });
-      } else {
-        dbMap.set(incomingKey, { ...incomingItem });
-      }
-    });
-  }
+      });
 
-  finalItemsToProcess = Array.from(dbMap.values());
-} else {
-  finalItemsToProcess = items.map((item: any) => ({ ...item }));
-}
+      if (isCollectingAttributes && !userMentionedNewProduct) {
+        // 🟡 User is answering attribute questions for existing items in cart
+        const dbMap = new Map<string, any>();
+
+        storedCartItems.forEach((dbItem: any) => {
+          const key = normalizeProductName(dbItem.product_name) || dbItem.product_name;
+          dbMap.set(key, { ...dbItem });
+        });
+
+        items.forEach((incomingItem: any) => {
+          const incomingKey = normalizeProductName(incomingItem.product_name) || incomingItem.product_name;
+          if (dbMap.has(incomingKey)) {
+            const existing = dbMap.get(incomingKey);
+            dbMap.set(incomingKey, {
+              ...existing,
+              quantity: incomingItem.quantity || existing.quantity || 1,
+              selected_attributes: {
+                ...(existing.selected_attributes || {}),
+                ...(incomingItem.selected_attributes || {}),
+              },
+            });
+          }
+        });
+
+        finalItemsToProcess = Array.from(dbMap.values());
+      } else {
+        // 🟢 User wants brand new products! Drop old cart memory (e.g., Adivasi Oil) completely.
+        finalItemsToProcess = items.map((item: any) => ({ ...item }));
+      }
+    } else {
+      finalItemsToProcess = storedCartItems;
+    }
     
     const isMultiProductSession = finalItemsToProcess.length > 1;
 
