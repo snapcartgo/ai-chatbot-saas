@@ -22,6 +22,8 @@ export default function DashboardPage() {
   const [phoneNumber, setPhoneNumber] = useState("");
   const [chatbotCategory, setChatbotCategory] = useState("booking");
   const [isSavingPhone, setIsSavingPhone] = useState(false);
+  const [showDemo, setShowDemo] = useState(false);
+  const [selectedVideo, setSelectedVideo] = useState("");
 
   useEffect(() => {
     async function initDashboard() {
@@ -133,9 +135,9 @@ export default function DashboardPage() {
   // Next.js function that opens Laravel and manually pre-fills the email field directly from the DOM
   const handleLaravelRedirectAndFill = (e: React.MouseEvent) => {
     e.preventDefault();
-    
+
     const targetUrl = "https://marketing.woodpetra.in/auth/register/vendor";
-    
+
     // 1. Open Laravel in a new window tab
     const newWindow = window.open(targetUrl, "_blank");
 
@@ -143,19 +145,24 @@ export default function DashboardPage() {
       // 2. Wait briefly for the Laravel page elements to load completely
       const checkInterval = setInterval(() => {
         try {
-          if (newWindow.document && newWindow.document.readyState === "complete") {
+          if (
+            newWindow.document &&
+            newWindow.document.readyState === "complete"
+          ) {
             // 3. Find the email input element by its ID or name attributes
-            const emailInput = 
-              newWindow.document.getElementById("email") as HTMLInputElement || 
-              newWindow.document.querySelector('input[name="email"]') as HTMLInputElement;
+            const emailInput =
+              (newWindow.document.getElementById("email") as HTMLInputElement) ||
+              (newWindow.document.querySelector(
+                'input[name="email"]'
+              ) as HTMLInputElement);
 
             if (emailInput) {
               // 4. Inject the Next.js user email directly into the Laravel field
               emailInput.value = userEmail;
-              
+
               // Trigger input events so any reactive frameworks or validations acknowledge the change
-              emailInput.dispatchEvent(new Event('input', { bubbles: true }));
-              
+              emailInput.dispatchEvent(new Event("input", { bubbles: true }));
+
               clearInterval(checkInterval); // Done filling, clear the check
             }
           }
@@ -221,12 +228,46 @@ export default function DashboardPage() {
   const conversionRate =
     stats.leads > 0 ? ((stats.bookings / stats.leads) * 100).toFixed(1) : "0.0";
 
+  function getVideoUrl(video: string) {
+    switch (video) {
+      case "WEBSITE_INSTALL":
+        return "https://youtu.be/PmV0MV4fEOM";
+
+      case "WEBSITE_BOOKING":
+        return "https://www.youtube.com/embed/YOUR_VIDEO_ID_2";
+
+      case "WEBSITE_ECOMMERCE":
+        return "https://www.youtube.com/embed/YOUR_VIDEO_ID_3";
+
+      case "WHATSAPP_INSTALL":
+        return "https://www.youtube.com/embed/YOUR_VIDEO_ID_4";
+
+      case "WHATSAPP_BOOKING":
+        return "https://www.youtube.com/embed/YOUR_VIDEO_ID_5";
+
+      case "WHATSAPP_ECOMMERCE":
+        return "https://www.youtube.com/embed/YOUR_VIDEO_ID_6";
+
+      default:
+        return "";
+    }
+  }
+
   return (
     <main className="min-h-screen bg-gray-50 p-4 md:p-8 text-gray-900">
       <div className="max-w-7xl mx-auto">
-        <h1 className="text-3xl font-bold text-gray-800 mb-8">
-          Agency Dashboard
-        </h1>
+        <div className="flex items-center justify-between mb-8">
+          <h1 className="text-3xl font-bold text-gray-800">
+            Agency Dashboard
+          </h1>
+
+          <button
+            onClick={() => setShowDemo(true)}
+            className="inline-flex items-center gap-2 rounded-lg border border-blue-600 px-4 py-2 text-blue-600 font-semibold hover:bg-blue-50"
+          >
+            ▶ Watch Demo
+          </button>
+        </div>
 
         {loading ? (
           <p className="text-gray-500 text-lg animate-pulse">
@@ -326,71 +367,172 @@ export default function DashboardPage() {
           </div>
 
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 flex flex-col">
-  <h2 className="text-xl font-bold mb-2 text-gray-800">
-    WhatsApp Onboarding
-  </h2>
-  <p className="text-sm text-gray-600 mb-6">
-    Connect your official Meta WhatsApp Business Account to enable
-    automated AI messaging.
-  </p>
+            <h2 className="text-xl font-bold mb-2 text-gray-800">
+              WhatsApp Onboarding
+            </h2>
+            <p className="text-sm text-gray-600 mb-6">
+              Connect your official Meta WhatsApp Business Account to enable
+              automated AI messaging.
+            </p>
 
-  <div className="space-y-4 mt-auto">
-    {/* 1. Phone Number Input */}
-    <div>
-      <label className="block text-xs font-semibold text-gray-600 mb-1">
-        Actual WhatsApp Phone Number
-      </label>
-      <input
-        value={phoneNumber}
-        onChange={(e) => setPhoneNumber(e.target.value)}
-        placeholder="e.g. +14155238886"
-        className="w-full border rounded-lg p-3 text-sm text-gray-900 bg-white focus:outline-none"
-      />
-    </div>
+            <div className="space-y-4 mt-auto">
+              {/* 1. Phone Number Input */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">
+                  Actual WhatsApp Phone Number
+                </label>
+                <input
+                  value={phoneNumber}
+                  onChange={(e) => setPhoneNumber(e.target.value)}
+                  placeholder="e.g. +14155238886"
+                  className="w-full border rounded-lg p-3 text-sm text-gray-900 bg-white focus:outline-none"
+                />
+              </div>
 
-    {/* 2. Chatbot Category Dropdown Selector */}
-    <div>
-      <label className="block text-xs font-semibold text-gray-600 mb-1">
-        Chatbot Category
-      </label>
-      <select
-        value={chatbotCategory}
-        onChange={(e) => setChatbotCategory(e.target.value)}
-        className="w-full border rounded-lg p-3 text-sm text-gray-900 bg-white focus:outline-none appearance-none"
-        style={{ backgroundImage: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%236B7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'></polyline></svg>")`, backgroundPosition: 'right 12px center', backgroundRepeat: 'no-repeat', backgroundSize: '16px' }}
-      >
-        <option value="booking">Booking</option>
-        <option value="ecommerce">E-commerce</option>
-      </select>
-    </div>
+              {/* 2. Chatbot Category Dropdown Selector */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">
+                  Chatbot Category
+                </label>
+                <select
+                  value={chatbotCategory}
+                  onChange={(e) => setChatbotCategory(e.target.value)}
+                  className="w-full border rounded-lg p-3 text-sm text-gray-900 bg-white focus:outline-none appearance-none"
+                  style={{
+                    backgroundImage: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%236B7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'></polyline></svg>")`,
+                    backgroundPosition: "right 12px center",
+                    backgroundRepeat: "no-repeat",
+                    backgroundSize: "16px",
+                  }}
+                >
+                  <option value="booking">Booking</option>
+                  <option value="ecommerce">E-commerce</option>
+                </select>
+              </div>
 
-    {/* 3. Combined Save Button */}
-    <button
-      onClick={saveManualPhoneNumber}
-      disabled={isSavingPhone}
-      className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg p-3 text-sm transition-colors whitespace-nowrap mb-2"
-    >
-      {isSavingPhone ? "Saving Settings..." : "Save Configuration Settings"}
-    </button>
+              {/* 3. Combined Save Button */}
+              <button
+                onClick={saveManualPhoneNumber}
+                disabled={isSavingPhone}
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg p-3 text-sm transition-colors whitespace-nowrap mb-2"
+              >
+                {isSavingPhone
+                  ? "Saving Settings..."
+                  : "Save Configuration Settings"}
+              </button>
 
-    <div className="border-t border-gray-100 my-2 pt-2"></div>
+              <div className="border-t border-gray-100 my-2 pt-2"></div>
 
-    {/* 4. Connect WhatsApp Action */}
-    {userId ? (
-      <WhatsAppSetupButton clientId={userId} />
-    ) : (
-      <div className="h-12 w-full bg-gray-100 animate-pulse rounded-lg flex items-center justify-center text-gray-400 text-sm">
-        Loading user session...
-      </div>
-    )}
+              {/* 4. Connect WhatsApp Action */}
+              {userId ? (
+                <WhatsAppSetupButton clientId={userId} />
+              ) : (
+                <div className="h-12 w-full bg-gray-100 animate-pulse rounded-lg flex items-center justify-center text-gray-400 text-sm">
+                  Loading user session...
+                </div>
+              )}
 
-    <p className="text-[10px] text-gray-400 mt-1 text-center">
-      Requires Meta Business Verification for full message volume.
-    </p>
-  </div>
-</div>
+              <p className="text-[10px] text-gray-400 mt-1 text-center">
+                Requires Meta Business Verification for full message volume.
+              </p>
+            </div>
+          </div>
         </div>
       </div>
+
+      {showDemo && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl p-6 w-full max-w-6xl max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-2xl font-bold">Woodpetra Demo Center</h2>
+
+              <button
+                onClick={() => {
+                  setShowDemo(false);
+                  setSelectedVideo("");
+                }}
+                className="text-2xl"
+              >
+                ✕
+              </button>
+            </div>
+
+            {!selectedVideo ? (
+              <>
+                <h3 className="text-lg font-semibold mb-3">
+                  🌐 Website AI Chatbot
+                </h3>
+
+                <div className="space-y-3 mb-8">
+                  <button
+                    onClick={() => setSelectedVideo("WEBSITE_INSTALL")}
+                    className="w-full text-left border rounded-lg p-4 hover:bg-gray-50"
+                  >
+                    ▶ Website Installation
+                  </button>
+
+                  <button
+                    onClick={() => setSelectedVideo("WEBSITE_BOOKING")}
+                    className="w-full text-left border rounded-lg p-4 hover:bg-gray-50"
+                  >
+                    ▶ Website Booking Chatbot
+                  </button>
+
+                  <button
+                    onClick={() => setSelectedVideo("WEBSITE_ECOMMERCE")}
+                    className="w-full text-left border rounded-lg p-4 hover:bg-gray-50"
+                  >
+                    ▶ Website E-commerce Chatbot
+                  </button>
+                </div>
+
+                <h3 className="text-lg font-semibold mb-3">
+                  📱 WhatsApp AI Chatbot
+                </h3>
+
+                <div className="space-y-3">
+                  <button
+                    onClick={() => setSelectedVideo("WHATSAPP_INSTALL")}
+                    className="w-full text-left border rounded-lg p-4 hover:bg-gray-50"
+                  >
+                    ▶ WhatsApp Installation
+                  </button>
+
+                  <button
+                    onClick={() => setSelectedVideo("WHATSAPP_BOOKING")}
+                    className="w-full text-left border rounded-lg p-4 hover:bg-gray-50"
+                  >
+                    ▶ WhatsApp Booking Chatbot
+                  </button>
+
+                  <button
+                    onClick={() => setSelectedVideo("WHATSAPP_ECOMMERCE")}
+                    className="w-full text-left border rounded-lg p-4 hover:bg-gray-50"
+                  >
+                    ▶ WhatsApp E-commerce Chatbot
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={() => setSelectedVideo("")}
+                  className="mb-4 text-blue-600"
+                >
+                  ← Back to Demo List
+                </button>
+
+                <iframe
+                  width="100%"
+                  height="550"
+                  src={getVideoUrl(selectedVideo)}
+                  allowFullScreen
+                />
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </main>
   );
 }
