@@ -210,9 +210,9 @@ export async function GET(request: Request) {
 
       // Strip fluff words, stop words, stock keywords, color tags, and typos
       const stopWords = ["show", "me", "find", "get", "look", "for", "i", "want", "need", "please", "and", "or", "with"];
-      const colorAdjectives = ["white", "black", "blue", "red", "green", "grey", "gray", "yellow", "olive"];
-      const categoryNoiseWords = ["product", "products", "produt", "produts", "item", "items", "thing", "things"];
-      
+const colorAdjectives = ["white", "black", "blue", "red", "green", "grey", "gray", "yellow", "olive"];
+const categoryNoiseWords = ["product", "products", "produt", "produts", "item", "items", "thing", "things"];
+
       let queryWords = cleanQuery.split(/\s+/).filter((word: string) => word.length > 0);
       const explicitColorsFound = queryWords.filter((word: string) => colorAdjectives.includes(word));
       
@@ -243,44 +243,46 @@ export async function GET(request: Request) {
       let matchedRetailerIds: string[] = [];
       
       if (user_id && user_id !== "null") {
-        try {
-          const supabase = await createSupabaseServerClient();
-          let localQuery = supabase.from('products').select('retailer_id').eq('user_id', user_id);
-          
-          if (individualProductTerms.length > 0 && !isMetaGenericSearch) {
-            const orConditions = individualProductTerms.map(
-              term => `name.ilike.%${term}%,description.ilike.%${term}%,category.ilike.%${term}%`
-            ).join(',');
-            
-            localQuery = localQuery.or(orConditions);
-          }
+  try {
+    const supabase = await createSupabaseServerClient();
+    let localQuery = supabase.from('products').select('retailer_id').eq('user_id', user_id);
 
-          if (explicitColorsFound.length > 0) {
-            const colorConditions = explicitColorsFound.map(
-              c => `color.ilike.%${c}%,name.ilike.%${c}%,description.ilike.%${c}%`
-            ).join(',');
-            
-            localQuery = localQuery.or(colorConditions);
-          } else if (color && color !== "null") {
-            localQuery = localQuery.ilike('color', `%${color.trim()}%`);
-          }
+    if (individualProductTerms.length > 0 && !isMetaGenericSearch) {
+      const orConditions = individualProductTerms.map(
+        term => `name.ilike.%${term}%,description.ilike.%${term}%,category.ilike.%${term}%`
+      ).join(',');
 
-          if (maxPriceFilter !== null && minPriceFilter !== null) {
-            localQuery = localQuery.gte('price', minPriceFilter).lte('price', maxPriceFilter);
-          } else if (maxPriceFilter !== null) {
-            localQuery = localQuery.lte('price', maxPriceFilter);
-          } else if (exactPriceFilter !== null) {
-            localQuery = localQuery.eq('price', exactPriceFilter);
-          }
+      localQuery = localQuery.or(orConditions);
+    }
 
-          const { data: localProducts } = await localQuery;
-          if (localProducts && localProducts.length > 0) {
-            matchedRetailerIds = localProducts.map((p: any) => p.retailer_id).filter((id: string) => !!id);
-          }
-        } catch (dbErr) {
-          console.error("Database bypass active:", dbErr);
-        }
-      }
+    if (explicitColorsFound.length > 0) {
+      const colorConditions = explicitColorsFound.map(
+        c => `color.ilike.%${c}%,name.ilike.%${c}%,description.ilike.%${c}%`
+      ).join(',');
+
+      localQuery = localQuery.or(colorConditions);
+    } else if (color && color !== "null") {
+      localQuery = localQuery.ilike('color', `%${color.trim()}%`);
+    }
+
+    if (maxPriceFilter !== null && minPriceFilter !== null) {
+      localQuery = localQuery.gte('price', minPriceFilter).lte('price', maxPriceFilter);
+    } else if (maxPriceFilter !== null) {
+      localQuery = localQuery.lte('price', maxPriceFilter);
+    } else if (exactPriceFilter !== null) {
+      localQuery = localQuery.eq('price', exactPriceFilter);
+    }
+
+    // 🚀 EXECUTE THE QUERY HERE (AFTER ALL FILTERS ARE ADDED)
+    const { data: localProducts } = await localQuery;
+
+    if (localProducts && localProducts.length > 0) {
+      matchedRetailerIds = localProducts.map((p: any) => p.retailer_id).filter((id: string) => !!id);
+    }
+  } catch (dbErr) {
+    console.error("Database bypass active:", dbErr);
+  }
+}
 
       // Step A3: Compile filter conditions for Meta Catalog
       let metaFilterObject: any = {};
@@ -301,10 +303,11 @@ export async function GET(request: Request) {
       }
 
       // Build Meta URL with availability field included
-      let metaUrl =
-        `https://graph.facebook.com/v20.0/${metaCatalogId}/products` +
-        `?fields=id,name,retailer_id,price,image_url,color,description,url,category,availability` +
-        `&access_token=${metaAccessToken}`;
+      // Location: Step A3 Meta API Fetch URL
+let metaUrl =
+  `https://graph.facebook.com/v20.0/${metaCatalogId}/products` +
+  `?fields=id,name,retailer_id,price,image_url,color,description,url,category,availability` + // 👈 Add new requested Meta fields here
+  `&access_token=${metaAccessToken}`;
 
       if (Object.keys(metaFilterObject).length > 0) {
         metaUrl += `&filter=${encodeURIComponent(JSON.stringify(metaFilterObject))}`;
@@ -321,6 +324,8 @@ export async function GET(request: Request) {
 
       let rawCatalogProducts = metaData.data || [];
 let products = [...rawCatalogProducts];
+
+// 👈 ADD CUSTOM IN-MEMORY FILTERS OR SORTING HERE
 
 if (!isMetaGenericSearch && individualProductTerms.length > 0) {
   products = products.filter((item: any) =>
