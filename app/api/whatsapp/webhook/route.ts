@@ -226,44 +226,93 @@ export async function POST(req: Request) {
     if (metaAccessToken) {
       const metaUrl = `https://graph.facebook.com/v20.0/${phoneNumberId}/messages`;
 
+      // -----------------------------------------------------------------
+      // 1. EXTRACT AND SEND BODY_TEXT FIRST
+      // -----------------------------------------------------------------
+      let textBody = aiResponse;
+
+      // Check if n8n returned an array with a `body_text` property
+      if (!textBody && Array.isArray(n8nData) && n8nData.length > 0) {
+        textBody = n8nData[0]?.body_text || n8nData[0]?.reply || "";
+      } else if (!textBody && typeof n8nData === "object") {
+        textBody = n8nData?.body_text || n8nData?.reply || n8nData?.text?.body || "";
+      }
+
+      // If textBody exists, send it to Meta
+      if (textBody) {
+        const textPayload = {
+          messaging_product: "whatsapp",
+          to: customerPhone,
+          type: "text",
+          text: { body: textBody },
+        };
+
+        const textRes = await fetch(metaUrl, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${metaAccessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(textPayload),
+        });
+
+        console.log("Text message status:", textRes.status);
+
+        // Save text message to Supabase
+        await supabase.from("messages").insert([
+          {
+            conversation_id: conversationId,
+            role: "assistant",
+            content: textBody,
+            channel: "whatsapp",
+            phone_number: cleanPhone,
+            bot_id: config.chatbot_id,
+            user_id: config.user_id,
+          },
+        ]);
+      }
+
+      // -----------------------------------------------------------------
+      // 2. SEND PRODUCT IMAGES
+      // -----------------------------------------------------------------
       if (Array.isArray(n8nData) && n8nData.length > 0) {
         let combinedAssistantContent = "";
-        let firstProductImageUrl = ""; 
+        let firstProductImageUrl = "";
 
         for (const product of n8nData) {
-  if (!product.image_url) continue;
-  
-  if (!firstProductImageUrl) {
-    firstProductImageUrl = product.image_url;
-  }
+          if (!product.image_url) continue;
 
-  // Extract link dynamically from n8n response fields
-  const productLink = product.product_url || product.website_url || "";
-  const linkText = productLink ? `\nLink: ${productLink}` : "";
+          if (!firstProductImageUrl) {
+            firstProductImageUrl = product.image_url;
+          }
 
-  const assistantText = `${product.name}\nSKU: ${product.retailer_id || ""}\nPrice: ${product.price}${linkText}`;
-  combinedAssistantContent += `[Sent Image: ${assistantText}]\n`;
+          const productLink = product.product_url || product.website_url || "";
+          const linkText = productLink ? `\nLink: ${productLink}` : "";
+          const assistantText = `${product.name || ""}\nSKU: ${product.retailer_id || ""}\nPrice: ${product.price || ""}${linkText}`.trim();
 
-  const payload = {
-    messaging_product: "whatsapp",
-    to: customerPhone,
-    type: "image",
-    image: {
-      link: product.image_url,
-      caption: assistantText,
-    },
-  };
+          combinedAssistantContent += `[Sent Image: ${assistantText}]\n`;
 
-  const metaRes = await fetch(metaUrl, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${metaAccessToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  });
-  console.log("Status product sent:", metaRes.status);
-}
+          const imagePayload = {
+            messaging_product: "whatsapp",
+            to: customerPhone,
+            type: "image",
+            image: {
+              link: product.image_url,
+              caption: assistantText,
+            },
+          };
+
+          const metaRes = await fetch(metaUrl, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${metaAccessToken}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(imagePayload),
+          });
+
+          console.log("Status product sent:", metaRes.status);
+        }
 
         if (combinedAssistantContent) {
           await supabase.from("messages").insert([
@@ -275,66 +324,26 @@ export async function POST(req: Request) {
               phone_number: cleanPhone,
               bot_id: config.chatbot_id,
               user_id: config.user_id,
-              image_url: firstProductImageUrl 
+              image_url: firstProductImageUrl,
             },
           ]);
         }
-
       } else if (n8nData?.image_url) {
-  // Extract link dynamically from n8n response fields
-  const productLink = n8nData.product_url || n8nData.website_url || "";
-  const linkText = productLink ? `\nLink: ${productLink}` : "";
-
-  const assistantText = `${n8nData.name}\nPrice: ${n8nData.price}${linkText}`;
-
-  const payload = {
-    messaging_product: "whatsapp",
-    to: customerPhone,
-    type: "image",
-    image: {
-      link: n8nData.image_url,
-      caption: assistantText,
-    },
-  };
-
-  await fetch(metaUrl, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${metaAccessToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  });
-
-  await supabase.from("messages").insert([
-    {
-      conversation_id: conversationId,
-      role: "assistant",
-      content: `[Sent Image: ${assistantText}]`,
-      channel: "whatsapp",
-      phone_number: cleanPhone,
-      bot_id: config.chatbot_id,
-      user_id: config.user_id,
-      image_url: n8nData.image_url 
-    },
-  ]);
-} else if (aiResponse || n8nData?.type === "text") {
-
-        const textBody =
-          aiResponse ||
-          n8nData?.text?.body ||
-          "Sorry, we couldn't find any matching products.";
+        const productLink = n8nData.product_url || n8nData.website_url || "";
+        const linkText = productLink ? `\nLink: ${productLink}` : "";
+        const assistantText = `${n8nData.name || ""}\nPrice: ${n8nData.price || ""}${linkText}`.trim();
 
         const payload = {
           messaging_product: "whatsapp",
           to: customerPhone,
-          type: "text",
-          text: {
-            body: textBody,
+          type: "image",
+          image: {
+            link: n8nData.image_url,
+            caption: assistantText,
           },
         };
 
-        const metaRes = await fetch(metaUrl, {
+        await fetch(metaUrl, {
           method: "POST",
           headers: {
             Authorization: `Bearer ${metaAccessToken}`,
@@ -343,17 +352,16 @@ export async function POST(req: Request) {
           body: JSON.stringify(payload),
         });
 
-        console.log("Text message status:", metaRes.status);
-
         await supabase.from("messages").insert([
           {
             conversation_id: conversationId,
             role: "assistant",
-            content: textBody,
+            content: `[Sent Image: ${assistantText}]`,
             channel: "whatsapp",
             phone_number: cleanPhone,
             bot_id: config.chatbot_id,
-            user_id: config.user_id
+            user_id: config.user_id,
+            image_url: n8nData.image_url,
           },
         ]);
       }
