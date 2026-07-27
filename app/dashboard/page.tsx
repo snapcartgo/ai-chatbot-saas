@@ -234,10 +234,10 @@ export default function DashboardPage() {
         return "https://youtu.be/PmV0MV4fEOM";
 
       case "WEBSITE_BOOKING":
-        return "https://www.youtube.com/embed/YOUR_VIDEO_ID_2";
+        return "https://youtu.be/UYhfhYjapKA";
 
       case "WEBSITE_ECOMMERCE":
-        return "https://www.youtube.com/embed/YOUR_VIDEO_ID_3";
+        return "https://youtu.be/I2O6OZDRCSA";
 
       case "WHATSAPP_INSTALL":
         return "https://www.youtube.com/embed/YOUR_VIDEO_ID_4";
@@ -246,7 +246,7 @@ export default function DashboardPage() {
         return "https://www.youtube.com/embed/YOUR_VIDEO_ID_5";
 
       case "WHATSAPP_ECOMMERCE":
-        return "https://www.youtube.com/embed/YOUR_VIDEO_ID_6";
+        return "https://youtu.be/zf6vedneHX8";
 
       default:
         return "";
