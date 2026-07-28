@@ -44,6 +44,11 @@ export async function POST(req: Request) {
     console.log("Message ID:", messageId);
     const customerPhone = message.from;
     const messageType = message?.type; 
+    // 🟢 NEW: Extract context (replied/quoted message info)
+    const context = message?.context;
+const quotedMessageId = context?.id || null;
+const referredProductSku = context?.referred_product?.product_retailer_id || null;
+let quotedText = "";
 
     // Extract Media Information Along With Text & Audio
     let userMessage = "";
@@ -147,23 +152,48 @@ export async function POST(req: Request) {
     let aiResponse = "";
     let n8nData: any = null;
 
-    // ... rest of your existing n8n and Meta sending logic below ...
-
     if (N8N_WEBHOOK) {
       try {
         const parsedUrl = new URL(N8N_WEBHOOK);
 
         if (parsedUrl.protocol === "https:") {
           let resolvedMediaUrl = "";
-          
-          // 🟢 CRITICAL SSRF SECURITY FIX FOR CODEQL
-          // Only allow pure numeric/alphanumeric WhatsApp Media IDs
+
+          // 🟢 1. FETCH QUOTED TEXT (Supports both Supabase UUID 'id' and 'whatsapp_message_id')
+          let quotedText = "";
+
+if (quotedMessageId) {
+  // 1. First try looking up by primary key 'id'
+  const { data: byId } = await supabase
+    .from("messages")
+    .select("content")
+    .eq("id", quotedMessageId)
+    .maybeSingle();
+
+  if (byId?.content) {
+    quotedText = byId.content;
+  } else {
+    // 2. If not found by 'id', try looking up by 'whatsapp_message_id'
+    const { data: byWaId } = await supabase
+      .from("messages")
+      .select("content")
+      .eq("whatsapp_message_id", quotedMessageId)
+      .maybeSingle();
+
+    if (byWaId?.content) {
+      quotedText = byWaId.content;
+    }
+  }
+}
+
+console.log("FOUND QUOTED TEXT:", quotedText); // 👈 Added log to debug in your VS Code terminal
+
+          // 🟢 2. SSRF SECURITY CHECK FOR MEDIA
           const matches = mediaId ? mediaId.match(/^[a-zA-Z0-9]+$/) : null;
-          
+
           if (matches && metaAccessToken) {
-            const sanitizedMediaId = matches[0]; // Extracted safe token
+            const sanitizedMediaId = matches[0];
             try {
-              // Build standard URL target structure
               const metaMediaUrl = new URL("https://graph.facebook.com/v20.0/");
               metaMediaUrl.pathname = `/v20.0/${sanitizedMediaId}`;
 
@@ -177,6 +207,7 @@ export async function POST(req: Request) {
             }
           }
 
+          // 🟢 3. CALL N8N WEBHOOK WITH ALL QUOTED METADATA
           console.log("Calling n8n for:", message.id);
           const response = await fetch(N8N_WEBHOOK, {
             method: "POST",
@@ -194,7 +225,10 @@ export async function POST(req: Request) {
               role: "user",
               message_type: messageType,
               media_id: mediaId,
-              media_url: resolvedMediaUrl 
+              media_url: resolvedMediaUrl,
+              quoted_message_id: quotedMessageId,
+              quoted_text: quotedText,
+              referred_product_sku: referredProductSku,
             }),
           });
 
