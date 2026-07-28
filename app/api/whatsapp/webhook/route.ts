@@ -282,28 +282,31 @@ console.log("FOUND QUOTED TEXT:", quotedText); // 👈 Added log to debug in you
         };
 
         const textRes = await fetch(metaUrl, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${metaAccessToken}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(textPayload),
-        });
+  method: "POST",
+  headers: {
+    Authorization: `Bearer ${metaAccessToken}`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify(textPayload),
+});
 
-        console.log("Text message status:", textRes.status);
+// 🟢 Extract wamid from Meta's response
+const metaResponseJson = await textRes.json();
+const sentWamid = metaResponseJson?.messages?.[0]?.id || null;
 
-        // Save text message to Supabase
-        await supabase.from("messages").insert([
-          {
-            conversation_id: conversationId,
-            role: "assistant",
-            content: textBody,
-            channel: "whatsapp",
-            phone_number: cleanPhone,
-            bot_id: config.chatbot_id,
-            user_id: config.user_id,
-          },
-        ]);
+// Save to Supabase WITH whatsapp_message_id
+await supabase.from("messages").insert([
+  {
+    conversation_id: conversationId,
+    role: "assistant",
+    content: textBody,
+    channel: "whatsapp",
+    phone_number: cleanPhone,
+    bot_id: config.chatbot_id,
+    user_id: config.user_id,
+    whatsapp_message_id: sentWamid, // 👈 ADD THIS FIELD
+  },
+]);
       }
 
       // -----------------------------------------------------------------
@@ -337,30 +340,32 @@ console.log("FOUND QUOTED TEXT:", quotedText); // 👈 Added log to debug in you
           };
 
           const metaRes = await fetch(metaUrl, {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${metaAccessToken}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify(imagePayload),
-          });
+  method: "POST",
+  headers: {
+    Authorization: `Bearer ${metaAccessToken}`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify(imagePayload),
+});
 
-          console.log("Status product sent:", metaRes.status);
-        }
+// 🟢 Extract wamid from Meta's response
+const metaImageJson = await metaRes.json();
+const sentImageWamid = metaImageJson?.messages?.[0]?.id || null;
 
-        if (combinedAssistantContent) {
-          await supabase.from("messages").insert([
-            {
-              conversation_id: conversationId,
-              role: "assistant",
-              content: combinedAssistantContent.trim(),
-              channel: "whatsapp",
-              phone_number: cleanPhone,
-              bot_id: config.chatbot_id,
-              user_id: config.user_id,
-              image_url: firstProductImageUrl,
-            },
-          ]);
+// Save image message to Supabase
+await supabase.from("messages").insert([
+  {
+    conversation_id: conversationId,
+    role: "assistant",
+    content: combinedAssistantContent.trim(),
+    channel: "whatsapp",
+    phone_number: cleanPhone,
+    bot_id: config.chatbot_id,
+    user_id: config.user_id,
+    image_url: firstProductImageUrl,
+    whatsapp_message_id: sentImageWamid, // 👈 ADD THIS FIELD
+  },
+]);
         }
       } else if (n8nData?.image_url) {
         const productLink = n8nData.product_url || n8nData.website_url || "";
