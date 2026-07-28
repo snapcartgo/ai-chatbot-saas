@@ -302,9 +302,8 @@ if (!sessionId) {
       // Check 2: Check for MISSING required attributes (Size / Color)
       const requiredFields = (Array.isArray(product.required_fields) && product.required_fields.length > 0)
         ? product.required_fields 
-        : (product.attributes?.size ? ["size"] : []);
+        : (product.attributes?.size || products.some(p => p.attributes?.size) ? ["size"] : []);
 
-      const availableOptions = product.allowed_options || product.attributes || {};
       const missingFields: string[] = [];
 
       for (const field of requiredFields) {
@@ -315,6 +314,37 @@ if (!sessionId) {
       }
 
       if (missingFields.length > 0 && !isBuyIntent) {
+        // 🛠️ Aggregate choices across ALL matched product variants for this search query
+        const totalAvailableOptions: Record<string, string[]> = { color: [], size: [] };
+
+        products.forEach((p: any) => {
+          const opts = p.allowed_options || p.attributes || {};
+          Object.entries(opts).forEach(([key, val]) => {
+            if (!val || String(val).toLowerCase() === "null") return;
+            const cleanKey = key.toLowerCase().trim();
+            const valuesArray = Array.isArray(val) ? val : String(val).split(",").map(v => v.trim());
+
+            valuesArray.forEach(strVal => {
+              const cleanVal = String(strVal).toLowerCase().trim();
+              if (!cleanVal) return;
+
+              if (cleanKey === "size" || /^(m|l|xl|s|xs|xxl|30|32|34|36|38|40|42)$/i.test(cleanVal)) {
+                if (!totalAvailableOptions.size.includes(strVal)) totalAvailableOptions.size.push(strVal);
+              } else if (cleanKey === "color" || /^(black|white|blue|red|green|yellow|pink|grey)$/i.test(cleanVal)) {
+                if (!totalAvailableOptions.color.includes(strVal)) totalAvailableOptions.color.push(strVal);
+              } else {
+                if (!totalAvailableOptions[cleanKey]) totalAvailableOptions[cleanKey] = [];
+                if (!totalAvailableOptions[cleanKey].includes(strVal)) totalAvailableOptions[cleanKey].push(strVal);
+              }
+            });
+          });
+        });
+
+        // Fallback to original product options if no combined list was constructed
+        const availableOptions = (totalAvailableOptions.color.length > 0 || totalAvailableOptions.size.length > 0)
+          ? totalAvailableOptions
+          : (product.allowed_options || product.attributes || {});
+
         missingProducts.push({
           product_name: product.name,
           error_type: "missing_attributes",
