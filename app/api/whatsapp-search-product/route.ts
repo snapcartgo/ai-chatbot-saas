@@ -4,27 +4,74 @@ import { createSupabaseServerClient } from '../../../lib/supabaseServer';
 function getTermAliases(term: string) {
   const normalized = term.toLowerCase().trim();
 
-  if (normalized === "t-shirt") {
-    return ["t-shirt", "t-shirts", "tshirt", "shirt", "tee", "tees"];
+  // T-Shirts
+  if (
+    normalized === "t-shirt" ||
+    normalized === "t-shirts" ||
+    normalized === "tshirt" ||
+    normalized === "tshirts" ||
+    normalized === "shirt" ||
+    normalized === "shirts" ||
+    normalized === "tee" ||
+    normalized === "tees"
+  ) {
+    return ["t-shirt", "t-shirts", "tshirt", "tshirts", "shirt", "shirts", "tee", "tees"];
   }
 
-  if (normalized === "jeans") {
-    return ["jeans", "jean", "denim", "pant", "pants"];
+  // Caps / Hats
+  if (
+    normalized === "cap" ||
+    normalized === "caps" ||
+    normalized === "hat" ||
+    normalized === "hats"
+  ) {
+    return ["cap", "caps", "hat", "hats"];
   }
 
-  if (normalized === "electronics") {
-    return ["electronics", "electronic", "earbud", "earbuds", "headphone", "headphones", "watch"];
+  // Earbuds / Headphones
+  if (
+    normalized === "earbud" ||
+    normalized === "earbuds" ||
+    normalized === "headphone" ||
+    normalized === "headphones" ||
+    normalized === "earphone" ||
+    normalized === "earphones" ||
+    normalized === "airpod" ||
+    normalized === "airpods"
+  ) {
+    return ["earbud", "earbuds", "headphone", "headphones", "earphone", "earphones", "airpod", "airpods"];
   }
 
-  if (normalized === "chair") {
+  // Jeans / Pants / Denim
+  if (
+    normalized === "jeans" ||
+    normalized === "jean" ||
+    normalized === "denim" ||
+    normalized === "pant" ||
+    normalized === "pants" ||
+    normalized === "trouser" ||
+    normalized === "trousers"
+  ) {
+    return ["jeans", "jean", "denim", "pant", "pants", "trouser", "trousers"];
+  }
+
+  // Electronics
+  if (normalized === "electronics" || normalized === "electronic") {
+    return ["electronics", "electronic", "earbud", "earbuds", "headphone", "headphones", "watch", "watches"];
+  }
+
+  // Chairs
+  if (normalized === "chair" || normalized === "chairs") {
     return ["chair", "chairs"];
   }
 
-  if (normalized === "table") {
+  // Tables
+  if (normalized === "table" || normalized === "tables") {
     return ["table", "tables"];
   }
 
-  if (normalized === "bed") {
+  // Beds
+  if (normalized === "bed" || normalized === "beds") {
     return ["bed", "beds"];
   }
 
@@ -415,24 +462,22 @@ export async function GET(request: Request) {
           console.log(JSON.stringify(products, null, 2));
 
           const matchedProduct = products.find((p: any) => {
-            console.log("Checking Product:", p.name);
-            console.log("Category:", p.category);
-            console.log("Availability:", p.availability);
-            const name = (p.name || '').toLowerCase();
-            const desc = (p.description || '').toLowerCase();
-            const cat = (p.category || '').toLowerCase();
-            const pColor = (p.color || '').toLowerCase();
-            const isAvail = p.availability === 'in stock' || p.availability === 'in_stock';
+  const name = (p.name || '').toLowerCase();
+  const desc = (p.description || '').toLowerCase();
+  const cat = (p.category || '').toLowerCase();
+  const pColor = (p.color || '').toLowerCase();
+  const isAvail = p.availability === 'in stock' || p.availability === 'in_stock';
 
-            let matchesTerm = name.includes(pair.term) || desc.includes(pair.term) || cat.includes(pair.term);
-            if (pair.term === "t-shirt") {
-              matchesTerm = matchesTerm || name.includes("shirt") || desc.includes("shirt");
-            }
+  // Dynamic alias match for caps, earbuds, jeans, t-shirts, etc.
+  const termAliases = getTermAliases(pair.term);
+  const matchesTerm = termAliases.some(alias => 
+    name.includes(alias) || desc.includes(alias) || cat.includes(alias)
+  );
 
-            const matchesColor = !pair.color || pColor.includes(pair.color) || name.includes(pair.color);
+  const matchesColor = !pair.color || pColor.includes(pair.color) || name.includes(pair.color);
 
-            return matchesTerm && matchesColor && isAvail;
-          });
+  return matchesTerm && matchesColor && isAvail;
+});
 
           if (matchedProduct) {
             inStockItems.push(matchedProduct);
