@@ -1,8 +1,12 @@
+// Replace this import:
+// import { createClient } from "@/utils/supabase/server";
+
+// With the standard JS client (or service role client):
 import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
+  process.env.SUPABASE_SERVICE_ROLE_KEY! // Use Service Role Key to bypass RLS in webhooks
 );
 
 function normalizePhone(value: string | null | undefined) {
@@ -43,19 +47,24 @@ export async function POST(req: Request) {
 
     console.log("Message ID:", messageId);
     const customerPhone = message.from;
-    const messageType = message?.type; 
-    // 🟢 NEW: Extract context (replied/quoted message info)
+    const messageType = message?.type;
+    
+    // Extract context (replied/quoted message info)
     const context = message?.context;
-const quotedMessageId = context?.id || null;
-const referredProductSku = context?.referred_product?.product_retailer_id || null;
-let quotedText = "";
+    const quotedMessageId = context?.id || null;
+    const referredProductSku = context?.referred_product?.product_retailer_id || null;
+    let quotedText = "";
 
-    // Extract Media Information Along With Text & Audio
+    // Extract Message Content
     let userMessage = "";
+    
     let mediaId = "";
 
     if (messageType === "text") {
       userMessage = message.text?.body || "";
+    } else if (messageType === "interactive") {
+      
+    
     } else if (messageType === "image") {
       userMessage = message.image?.caption || "User sent an image";
       mediaId = message.image?.id || "";
@@ -71,6 +80,55 @@ let quotedText = "";
         message.interactive?.button_reply?.title ||
         "Unsupported message";
     }
+
+// -------------------------------------------------------------
+    // AI MODE CHECK & HUMAN HANDOFF
+    // -------------------------------------------------------------
+    let aiMode = "active";
+    let dbConversationId = null; // 👈 Renamed from conversationId
+
+    try {
+      let { data: conversation } = await supabase
+        .from("conversations")
+        .select("id, ai_mode")
+        .eq("phone", customerPhone)
+        .maybeSingle();
+
+      if (conversation) {
+        aiMode = conversation.ai_mode;
+        dbConversationId = conversation.id;
+      } else {
+        const { data: newConv } = await supabase
+          .from("conversations")
+          .insert({ phone: customerPhone, ai_mode: "active" })
+          .select("id, ai_mode")
+          .single();
+          
+        if (newConv) {
+          aiMode = newConv.ai_mode;
+          dbConversationId = newConv.id;
+        }
+      }
+
+      // Save customer message to messages table
+      if (dbConversationId) {
+        await supabase.from("messages").insert({
+          conversation_id: dbConversationId,
+          sender: "customer",
+          content: userMessage,
+          whatsapp_message_id: messageId,
+        });
+      }
+    } catch (dbError) {
+      console.error("Supabase check failed:", dbError);
+    }
+
+    // Stop execution if human has taken over
+    if (aiMode === "human") {
+      console.log(`[HANDOFF ACTIVE] Message logged, bypassing AI for ${customerPhone}`);
+      return new Response("EVENT_RECEIVED", { status: 200 });
+    }
+    
 
     const phoneNumberId = value.metadata?.phone_number_id;
 
