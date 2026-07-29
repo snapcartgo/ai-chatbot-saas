@@ -66,13 +66,52 @@ function matchesSearchTerm(item: any, term: string) {
   const cat = String(item?.category || '').toLowerCase();
   const color = String(item?.color || '').toLowerCase();
 
-  const aliases = getTermAliases(cleanTerm);
+  if (cleanTerm === "tshirt") {
+    return (
+      name.includes("t-shirt") ||
+      name.includes("tshirt") ||
+      name.includes("shirt") ||
+      name.includes("tee") ||
+      desc.includes("t-shirt") ||
+      desc.includes("shirt") ||
+      cat.includes("t-shirt") ||
+      cat.includes("clothing")||
+      name.includes("jean") ||
+      name.includes("jeans") ||
+      name.includes("pant") ||
+      desc.includes("denim") ||
+      cat.includes("jeans") ||
+      cat.includes("clothing")
+    );
+  }
 
-  return aliases.some(alias => 
-    name.includes(alias) || 
-    desc.includes(alias) || 
-    cat.includes(alias) || 
-    color.includes(alias)
+  if (cleanTerm === "jeans") {
+    return (
+      name.includes("jean") ||
+      name.includes("jeans") ||
+      name.includes("pant") ||
+      desc.includes("denim") ||
+      cat.includes("jeans") ||
+      cat.includes("clothing")
+    );
+  }
+
+  if (cleanTerm === "electronics") {
+    return (
+      name.includes("earbud") ||
+      name.includes("headphone") ||
+      name.includes("watch") ||
+      desc.includes("electronic") ||
+      desc.includes("bluetooth") ||
+      cat.includes("electronic")
+    );
+  }
+
+  return (
+    name.includes(cleanTerm) ||
+    desc.includes(cleanTerm) ||
+    cat.includes(cleanTerm) ||
+    color.includes(cleanTerm)
   );
 }
 
@@ -214,24 +253,20 @@ export async function GET(request: Request) {
       console.log("Final Search:", finalSearchTerm);
 
       // Step A2: Try local database index lookup securely
-      // Step A2: Try local database index lookup securely using alias expansions
       let matchedRetailerIds: string[] = [];
       
       if (user_id && user_id !== "null") {
         try {
           const supabase = await createSupabaseServerClient();
-          let localQuery = supabase.from('products').select('retailer_id,name,description,category,product_type').eq('user_id', user_id);
+          let localQuery = supabase.from('products').select('retailer_id,name,category,product_type').eq('user_id', user_id);
 
           if (individualProductTerms.length > 0 && !isMetaGenericSearch) {
-            const searchConditions = individualProductTerms.flatMap(term => {
-              const aliases = getTermAliases(term);
-              return aliases.flatMap(alias => [
-                `name.ilike.%${alias}%`,
-                `description.ilike.%${alias}%`,
-                `category.ilike.%${alias}%`,
-                `product_type.ilike.%${alias}%`
-              ]);
-            });
+            const searchConditions = individualProductTerms.flatMap(term => [
+              `name.ilike.%${term}%`,
+              `description.ilike.%${term}%`,
+              `category.ilike.%${term}%`,
+              `product_type.ilike.%${term}%`
+            ]);
 
             localQuery = localQuery.or(searchConditions.join(","));
           }
@@ -481,29 +516,6 @@ export async function GET(request: Request) {
       // =========================================================================
       // STANDARD PRODUCT SEARCH (RETURNS INTERACTIVE CATALOG CARD)
       // =========================================================================
-      // Include price_query in the intent check
-const priceQueryParam = (price_query && price_query !== "null") ? price_query.trim().toLowerCase() : "";
-const combinedPriceText = `${cleanQuery} ${priceQueryParam}`;
-
-const isLowestPriceQuery = /\b(lowest|cheapest|min|least\s+expensive)\b/i.test(combinedPriceText);
-const isHighestPriceQuery = /\b(highest|most\s+expensive|max|pricier|top\s+end)\b/i.test(combinedPriceText);
-
-if (products.length > 0 && (isLowestPriceQuery || isHighestPriceQuery)) {
-  products.sort((a: any, b: any) => {
-    const priceA = parseFloat(String(a.price || '0').replace(/[^0-9.]/g, '')) || 0;
-    const priceB = parseFloat(String(b.price || '0').replace(/[^0-9.]/g, '')) || 0;
-
-    return isLowestPriceQuery ? priceA - priceB : priceB - priceA;
-  });
-
-  // Filter to keep only the absolute lowest/highest price item(s)
-  const targetPrice = parseFloat(String(products[0].price || '0').replace(/[^0-9.]/g, ''));
-  products = products.filter((p: any) => {
-    const itemPrice = parseFloat(String(p.price || '0').replace(/[^0-9.]/g, ''));
-    return itemPrice === targetPrice;
-  });
-}
-     
       let processedProducts: any[] = products.slice(0, 30);
 
       const multiProductItemsArray = processedProducts.map((item: any) => ({
