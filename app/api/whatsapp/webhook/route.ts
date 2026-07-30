@@ -425,7 +425,58 @@ await supabase.from("messages").insert([
   },
 ]);
         }
-      } else if (n8nData?.image_url) {
+      } 
+      // -----------------------------------------------------------------
+// 3. SEND AUDIO / VOICE NOTE
+// -----------------------------------------------------------------
+let rawAudioId = n8nData?.media_id || (Array.isArray(n8nData) && n8nData[0]?.media_id) || "";
+// Clean out any accidental '=' or whitespace from n8n expression bugs
+const cleanAudioId = String(rawAudioId).replace(/[^0-9]/g, "");
+
+const n8nAudioUrl = n8nData?.audio_url || (Array.isArray(n8nData) && n8nData[0]?.audio_url) || "";
+
+if (cleanAudioId || n8nAudioUrl) {
+  const audioPayload = {
+    messaging_product: "whatsapp",
+    to: customerPhone,
+    type: "audio",
+    audio: cleanAudioId 
+      ? { id: cleanAudioId } 
+      : { link: String(n8nAudioUrl).trim() },
+  };
+
+  const audioRes = await fetch(metaUrl, {
+    
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${metaAccessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(audioPayload),
+  });
+
+  const metaAudioJson = await audioRes.json();
+  console.log("META AUDIO RESPONSE:", JSON.stringify(metaAudioJson, null, 2));
+
+  const sentAudioWamid = metaAudioJson?.messages?.[0]?.id || null;
+
+  if (sentAudioWamid) {
+    await supabase.from("messages").insert([
+      {
+        conversation_id: conversationId,
+        role: "assistant",
+        content: "[Sent Audio]",
+        channel: "whatsapp",
+        phone_number: cleanPhone,
+        bot_id: config.chatbot_id,
+        user_id: config.user_id,
+        whatsapp_message_id: sentAudioWamid,
+      },
+    ]);
+  }
+}
+      
+      else if (n8nData?.image_url) {
         const productLink = n8nData.product_url || n8nData.website_url || "";
         const linkText = productLink ? `\nLink: ${productLink}` : "";
         const assistantText = `${n8nData.name || ""}\nPrice: ${n8nData.price || ""}${linkText}`.trim();

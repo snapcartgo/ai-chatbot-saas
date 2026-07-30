@@ -29,26 +29,39 @@ export default function UploadProductsPage() {
         transformHeader: (header) => header.trim(),
       });
 
-      const products = (parsed.data as any[]).map((row) => ({
-        name: row.name?.trim() || "",
-        description: row.description?.trim() || "",
-        price: Number(row.price ?? 0),
-        category: row.category?.trim() || "",
-        image_url: row.image_url?.trim() || "",
-        website_url: row.website_url?.trim() || "",
-        product_url: row.product_url?.trim() || "",
-        color: row.color?.trim() || "",
-        size: row.size?.trim() || "",
-        stock: Number(row.stock ?? 0),
-        payment_link: row.payment_link?.trim() || "",
-        currency: row.currency?.trim() || "INR",
-        sku: row.sku?.trim() || "",
-        // Adding the attributes column safely
-        attributes: typeof row.attributes === 'string' && row.attributes.trim() !== ""
-          ? JSON.parse(row.attributes)
-          : {},
-        user_id: user.id,
-      }));
+     
+
+      const products = (parsed.data as any[]).map((row) => {
+  console.log("Current row:", row);
+  console.log("Currency:", row.currency);
+
+  return {
+    name: row.name?.trim() || "",
+    description: row.description?.trim() || "",
+    price: Number(row.price ?? 0),
+    category: row.category?.trim() || "",
+    image_url: row.image_url?.trim() || "",
+    website_url: row.website_url?.trim() || "",
+    product_url: row.product_url?.trim() || "",
+    color: row.color?.trim() || "",
+    size: row.size?.trim() || "",
+    stock: Number(row.stock ?? 0),
+    payment_link: row.payment_link?.trim() || "",
+    currency: row.currency?.trim() || "INR",
+    sku: row.sku?.trim() || "",
+    required_fields:
+      typeof row.required_fields === "string" &&
+      row.required_fields.trim() !== ""
+        ? JSON.parse(row.required_fields)
+        : [],
+    attributes:
+      typeof row.attributes === "string" &&
+      row.attributes.trim() !== ""
+        ? JSON.parse(row.attributes)
+        : {},
+    user_id: user.id,
+  };
+});
 
       console.log("Products to insert:", products);
 
@@ -101,12 +114,23 @@ export default function UploadProductsPage() {
       </div>
 
       <div className="mt-8 rounded-xl border bg-gray-50 p-4">
-        <p className="font-semibold mb-2">Example CSV format</p>
-        <pre className="text-sm overflow-auto">
-          {`name,price,category,attributes
-"Oak Desk",299,furniture,"{""material"": ""Wood""}"`}
-        </pre>
-      </div>
+  <p className="font-semibold mb-2">Example CSV format</p>
+
+  <pre className="text-sm overflow-auto">
+    {`name,description,price,category,image_url,website_url,product_url,stock,currency,payment_link,sku,color,size,required_fields,attributes
+"Tiger Eye Bracelet","Natural Tiger Eye Bracelet",799,"Bracelets","https://example.com/images/tiger.jpg","https://woodpetra.in","https://woodpetra.in/products/tiger-eye",25,"INR","","TE-001","Brown","8mm","[""color"",""size""]","{""color"":[""Brown""],""size"":[""8mm""]}"`}
+  </pre>
+</div>
+
+<div className="mt-6 flex justify-center">
+  <a
+    href="/product-template.csv"
+    download
+    className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-6 py-3 text-white font-medium shadow-md transition hover:bg-blue-700 hover:shadow-lg"
+  >
+    📥 Download CSV Template
+  </a>
+</div>
     </div>
   );
 }
