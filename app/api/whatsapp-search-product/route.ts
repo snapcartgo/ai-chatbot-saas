@@ -60,6 +60,17 @@ function getTermAliases(term: string) {
     return ["electronics", "electronic", "earbud", "earbuds", "headphone", "headphones", "watch", "watches"];
   }
 
+  // ADD THIS BLOCK: Clothing / Apparel
+  if (
+    normalized === "clothing" ||
+    normalized === "clothes" ||
+    normalized === "apparel" ||
+    normalized === "wear" ||
+    normalized === "wearables"
+  ) {
+    return ["clothing", "clothes", "apparel", "t-shirt", "tshirts", "tshirt", "shirt", "shirts", "jeans", "jean", "pant", "pants", "denim"];
+  }
+
   // Chairs
   if (normalized === "chair" || normalized === "chairs") {
     return ["chair", "chairs"];
@@ -271,6 +282,7 @@ export async function GET(request: Request) {
       itemWords = itemWords.map((word: string) => {
         if (word === "shirts" || word === "tshirt" || word === "tshirts" || word === "tee" || word === "tees") return "t-shirt";
         if (word === "jeans" || word === "jean" || word === "denim") return "jeans";
+        if (word === "clothing" || word === "clothes" || word === "apparel") return "clothing"; // ADD THIS LINE
         if (word === "chairs") return "chair";
         if (word === "tables") return "table";
         if (word === "beds") return "bed";
