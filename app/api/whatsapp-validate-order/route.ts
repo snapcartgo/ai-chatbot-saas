@@ -89,9 +89,31 @@ if (!sessionId) {
       console.error("Cart lookup error:", cartLookupError);
     }
 
-    const storedCartItems: any[] = Array.isArray(existingCartRow?.cart_items)
+    // ⏱️ SESSION EXPIRATION CHECK (30 Minutes / 1800000 ms)
+    let isSessionExpired = false;
+    if (existingCartRow?.updated_at) {
+      const lastUpdated = new Date(existingCartRow.updated_at).getTime();
+      const now = new Date().getTime();
+      const diffMinutes = (now - lastUpdated) / (1000 * 60);
+
+      if (diffMinutes > 30) {
+        console.log(`--> Session ${sessionId} expired (${diffMinutes.toFixed(1)} mins old). Starting fresh.`);
+        isSessionExpired = true;
+      }
+    }
+
+    // Only load stored items if the session has NOT expired
+    const storedCartItems: any[] = (!isSessionExpired && Array.isArray(existingCartRow?.cart_items))
       ? existingCartRow.cart_items
       : [];
+
+    console.log("--> Existing cart row found:", !!existingCartRow);
+
+    if (cartLookupError) {
+      console.error("Cart lookup error:", cartLookupError);
+    }
+
+    
 
     let finalItemsToProcess: any[] = [];
 
