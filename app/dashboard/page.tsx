@@ -243,10 +243,10 @@ export default function DashboardPage() {
         return "https://youtu.be/Yg6-1YrfE4M";
 
       case "WHATSAPP_BOOKING":
-        return "https://www.youtube.com/embed/YOUR_VIDEO_ID_5";
+        return "https://youtu.be/CXEvf8PWE1k";
 
       case "WHATSAPP_ECOMMERCE":
-        return "https://youtu.be/zf6vedneHX8";
+        return "https://youtu.be/1THQ-sfKRIw";
 
       default:
         return "";

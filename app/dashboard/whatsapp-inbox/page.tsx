@@ -7,7 +7,7 @@ type MessageRow = {
   id: string;
   conversation_id: string | null;
   bot_id?: string | null;
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "human_agent" | string;
   content: string | null;
   created_at: string | null;
   channel?: string | null;
@@ -335,7 +335,7 @@ export default function WhatsAppInboxPage() {
 
       const { data: configData, error: configError } = await supabase
         .from("whatsapp_configs")
-        .select("wa_phone_number_id")
+        .select("wa_phone_number_id, user_id")
         .eq("chatbot_id", activeBotId)
         .maybeSingle();
 
@@ -346,14 +346,17 @@ export default function WhatsAppInboxPage() {
 
       const realMetaPhoneId = configData.wa_phone_number_id;
 
+      // 1. Send text to API route (The API route handles sending to Meta AND logging to DB)
       const response = await fetch("/api/whatsapp/send-text", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          wa_phone_number_id: realMetaPhoneId,
           phone_number_id: realMetaPhoneId,
           recipient_number: currentCleanPhone,
           to: currentCleanPhone,
           message: messageText,
+          user_id: configData.user_id,
         }),
       });
 
@@ -362,29 +365,10 @@ export default function WhatsAppInboxPage() {
         return;
       }
 
-      const { data: inserted, error: insertError } = await supabase
-        .from("messages")
-        .insert({
-          conversation_id: activeSessionId,
-          bot_id: activeBotId,
-          role: "assistant",
-          content: messageText,
-          channel: "whatsapp",
-        })
-        .select()
-        .single();
+      // 🟢 DO NOT INSERT INTO SUPABASE HERE. 
+      // The API route already logged it as "human_agent", and your Supabase Realtime 
+      // listener will automatically refresh the chat view cleanly.
 
-      if (insertError) {
-        console.error("Manual message insert error:", insertError.message);
-        return;
-      }
-
-      if (inserted) {
-        setWhatsappGroups((prev) => ({
-          ...prev,
-          [activeSessionId]: [...(prev[activeSessionId] || []), inserted],
-        }));
-      }
     } catch (error) {
       console.error("Send message error:", error);
     }
@@ -512,51 +496,54 @@ export default function WhatsAppInboxPage() {
 
             <div className="flex-1 p-6 overflow-y-auto flex flex-col bg-[#0b141a]">
               {activeChatMessages.map((msg, index) => {
-                const isProductImage = msg.content?.startsWith("[Sent Image:");
-                const formattedTime = formatMessageTime(msg.created_at);
+  const isProductImage = msg.content?.startsWith("[Sent Image:");
+  const formattedTime = formatMessageTime(msg.created_at);
 
-                const currentDateText = formatDateBadge(msg.created_at);
-                const previousDateText =
-                  index > 0
-                    ? formatDateBadge(activeChatMessages[index - 1]?.created_at || null)
-                    : "";
+  const currentDateText = formatDateBadge(msg.created_at);
+  const previousDateText =
+    index > 0
+      ? formatDateBadge(activeChatMessages[index - 1]?.created_at || null)
+      : "";
 
-                const showDateBadge = currentDateText !== previousDateText;
+  const showDateBadge = currentDateText !== previousDateText;
 
-                return (
-                  <div key={msg.id} className="contents">
-                    {showDateBadge && currentDateText && (
-                      <div className="flex justify-center my-4 select-none w-full">
-                        <span className="bg-[#182229] text-gray-400 text-[11px] px-2.5 py-1 rounded-md shadow-sm border border-gray-800/40">
-                          {currentDateText}
-                        </span>
-                      </div>
-                    )}
+  // 🟢 CHECK FOR BOTH "assistant" AND "human_agent"
+  const isOutbound = msg.role === "assistant" || msg.role === "human_agent";
 
-                    <div
-                      className={`p-2.5 rounded-lg text-xs max-w-[70%] shadow relative flex flex-col gap-1 mb-4 ${
-                        msg.role === "assistant"
-                          ? "bg-[#005c4b] text-white ml-auto self-end"
-                          : "bg-[#202c33] text-white self-start"
-                      }`}
-                    >
-                      {isProductImage ? (
-                        <ProductMessageBubble msg={msg} />
-                      ) : (
-                        <p className="whitespace-pre-line pr-10">{msg.content || ""}</p>
-                      )}
+  return (
+    <div key={msg.id} className="contents">
+      {showDateBadge && currentDateText && (
+        <div className="flex justify-center my-4 select-none w-full">
+          <span className="bg-[#182229] text-gray-400 text-[11px] px-2.5 py-1 rounded-md shadow-sm border border-gray-800/40">
+            {currentDateText}
+          </span>
+        </div>
+      )}
 
-                      <span
-                        className={`text-[9px] select-none text-right block mt-auto self-end ${
-                          msg.role === "assistant" ? "text-gray-300" : "text-gray-400"
-                        }`}
-                      >
-                        {formattedTime}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
+      <div
+        className={`p-2.5 rounded-lg text-xs max-w-[70%] shadow relative flex flex-col gap-1 mb-4 ${
+          isOutbound
+            ? "bg-[#005c4b] text-white ml-auto self-end"  // 🟢 Outbound (Right side green)
+            : "bg-[#202c33] text-white self-start"        // 🔘 Inbound (Left side grey)
+        }`}
+      >
+        {isProductImage ? (
+          <ProductMessageBubble msg={msg} />
+        ) : (
+          <p className="whitespace-pre-line pr-10">{msg.content || ""}</p>
+        )}
+
+        <span
+          className={`text-[9px] select-none text-right block mt-auto self-end ${
+            isOutbound ? "text-gray-300" : "text-gray-400"
+          }`}
+        >
+          {formattedTime}
+        </span>
+      </div>
+    </div>
+  );
+})}
 
               <div ref={messagesEndRef} />
             </div>

@@ -368,64 +368,55 @@ await supabase.from("messages").insert([
       }
 
       // -----------------------------------------------------------------
-      // 2. SEND PRODUCT IMAGES
-      // -----------------------------------------------------------------
-      if (Array.isArray(n8nData) && n8nData.length > 0) {
-        let combinedAssistantContent = "";
-        let firstProductImageUrl = "";
+// 2. SEND PRODUCT IMAGES (FIXED)
+// -----------------------------------------------------------------
+if (Array.isArray(n8nData) && n8nData.length > 0) {
+  for (const product of n8nData) {
+    if (!product.image_url) continue;
 
-        for (const product of n8nData) {
-          if (!product.image_url) continue;
+    // 1. Build text specific ONLY to this item
+    const productLink = product.product_url || product.website_url || "";
+    const linkText = productLink ? `\nLink: ${productLink}` : "";
+    const assistantText = `${product.name || ""}\nSKU: ${product.retailer_id || ""}\nPrice: ${product.price || ""}${linkText}`.trim();
 
-          if (!firstProductImageUrl) {
-            firstProductImageUrl = product.image_url;
-          }
+    const imagePayload = {
+      messaging_product: "whatsapp",
+      to: customerPhone,
+      type: "image",
+      image: {
+        link: product.image_url,
+        caption: assistantText,
+      },
+    };
 
-          const productLink = product.product_url || product.website_url || "";
-          const linkText = productLink ? `\nLink: ${productLink}` : "";
-          const assistantText = `${product.name || ""}\nSKU: ${product.retailer_id || ""}\nPrice: ${product.price || ""}${linkText}`.trim();
+    const metaRes = await fetch(metaUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${metaAccessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(imagePayload),
+    });
 
-          combinedAssistantContent += `[Sent Image: ${assistantText}]\n`;
+    const metaImageJson = await metaRes.json();
+    const sentImageWamid = metaImageJson?.messages?.[0]?.id || null;
 
-          const imagePayload = {
-            messaging_product: "whatsapp",
-            to: customerPhone,
-            type: "image",
-            image: {
-              link: product.image_url,
-              caption: assistantText,
-            },
-          };
-
-          const metaRes = await fetch(metaUrl, {
-  method: "POST",
-  headers: {
-    Authorization: `Bearer ${metaAccessToken}`,
-    "Content-Type": "application/json",
-  },
-  body: JSON.stringify(imagePayload),
-});
-
-// 🟢 Extract wamid from Meta's response
-const metaImageJson = await metaRes.json();
-const sentImageWamid = metaImageJson?.messages?.[0]?.id || null;
-
-// Save image message to Supabase
-await supabase.from("messages").insert([
-  {
-    conversation_id: conversationId,
-    role: "assistant",
-    content: combinedAssistantContent.trim(),
-    channel: "whatsapp",
-    phone_number: cleanPhone,
-    bot_id: config.chatbot_id,
-    user_id: config.user_id,
-    image_url: firstProductImageUrl,
-    whatsapp_message_id: sentImageWamid, // 👈 ADD THIS FIELD
-  },
-]);
-        }
-      } 
+    // 2. Insert unique record per product directly into Supabase
+    await supabase.from("messages").insert([
+      {
+        conversation_id: conversationId,
+        role: "assistant",
+        content: `[Sent Image: ${assistantText}]`, // ✅ Unique text per item
+        channel: "whatsapp",
+        phone_number: cleanPhone,
+        bot_id: config.chatbot_id,
+        user_id: config.user_id,
+        image_url: product.image_url,              // ✅ Unique URL per item
+        whatsapp_message_id: sentImageWamid,
+      },
+    ]);
+  }
+}
       // -----------------------------------------------------------------
 // 3. SEND AUDIO / VOICE NOTE
 // -----------------------------------------------------------------

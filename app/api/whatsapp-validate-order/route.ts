@@ -214,6 +214,27 @@ if (!sessionId) {
         }
       }
 
+      // 🆕 ADD THIS CHECK: If user queried a broad category, return options in that category!
+      if (products && products.length > 0) {
+        const isCategorySearch = products.some((p: any) => 
+          p.category && p.category.toLowerCase().trim() === search
+        ) && !products.some((p: any) => 
+          p.name && p.name.toLowerCase().trim() === search
+        );
+
+        if (isCategorySearch) {
+          // Unique product names in this category
+          const categoryProducts = Array.from(new Set(products.map((p: any) => p.name)));
+          const productListStr = categoryProducts.map((name, i) => `${i + 1}. *${name}*`).join("\n");
+
+          return NextResponse.json({
+            success: false,
+            requires_selection: true,
+            message: `We have the following options available in the *${product_name}* category:\n\n${productListStr}\n\nPlease let us know which product you would like to order!`
+          });
+        }
+      }
+
       if (productError || !products || products.length === 0) {
         missingProducts.push({
           product_name: product_name,
@@ -268,33 +289,37 @@ if (!sessionId) {
 
       // Check 1: User specified an INVALID variant choice
       if (!variantMatched && !isBuyIntent && Object.keys(cleanIncomingAttributes).length > 0) {
-        const totalAvailableOptions: Record<string, string[]> = { color: [], size: [] };
-        
+        // Collect all available variants for this product search
+        const availableVariants: Array<Record<string, string>> = [];
+
         products.forEach((p: any) => {
           if (p.attributes) {
-            Object.entries(p.attributes).forEach(([key, val]) => {
-              if (!val || String(val).toLowerCase() === "null") return;
-              const cleanKey = key.toLowerCase().trim();
-              const valuesArray = Array.isArray(val) ? val : String(val).split(",").map(v => v.trim());
-
-              valuesArray.forEach(strVal => {
-                const cleanVal = String(strVal).toLowerCase().trim();
-                if (!cleanVal) return;
-
-                if (cleanKey === "size" || /^(m|l|xl|s|xs|xxl|30|32|34|36|38|40|42)$/i.test(cleanVal)) {
-                  if (!totalAvailableOptions.size.includes(strVal)) totalAvailableOptions.size.push(strVal);
-                } else if (cleanKey === "color" || /^(black|white|blue|red|green|yellow|pink|grey)$/i.test(cleanVal)) {
-                  if (!totalAvailableOptions.color.includes(strVal)) totalAvailableOptions.color.push(strVal);
+            const variantObj: Record<string, string> = {};
+            Object.entries(p.attributes).forEach(([k, v]) => {
+              if (v !== null && v !== undefined && String(v).toLowerCase() !== "null") {
+                const cleanKey = k.toLowerCase().trim();
+                const valStr = Array.isArray(v) ? v.join(", ") : String(v).trim();
+                if (valStr) {
+                  variantObj[cleanKey] = valStr;
                 }
-              });
+              }
             });
+
+            if (Object.keys(variantObj).length > 0) {
+              const isDuplicate = availableVariants.some(existing => 
+                JSON.stringify(existing) === JSON.stringify(variantObj)
+              );
+              if (!isDuplicate) {
+                availableVariants.push(variantObj);
+              }
+            }
           }
         });
 
         missingProducts.push({
           product_name: product.name,
           error_type: "invalid_variant",
-          available_options: totalAvailableOptions
+          available_variants: availableVariants // Add variants list here!
         });
         continue; 
       }
@@ -314,42 +339,39 @@ if (!sessionId) {
       }
 
       if (missingFields.length > 0 && !isBuyIntent) {
-        // 🛠️ Aggregate choices across ALL matched product variants for this search query
-        const totalAvailableOptions: Record<string, string[]> = { color: [], size: [] };
+        // 🛠️ Extract exact available variant combinations across all matching products
+        const availableVariants: Array<Record<string, string>> = [];
 
         products.forEach((p: any) => {
-          const opts = p.allowed_options || p.attributes || {};
-          Object.entries(opts).forEach(([key, val]) => {
-            if (!val || String(val).toLowerCase() === "null") return;
-            const cleanKey = key.toLowerCase().trim();
-            const valuesArray = Array.isArray(val) ? val : String(val).split(",").map(v => v.trim());
-
-            valuesArray.forEach(strVal => {
-              const cleanVal = String(strVal).toLowerCase().trim();
-              if (!cleanVal) return;
-
-              if (cleanKey === "size" || /^(m|l|xl|s|xs|xxl|30|32|34|36|38|40|42)$/i.test(cleanVal)) {
-                if (!totalAvailableOptions.size.includes(strVal)) totalAvailableOptions.size.push(strVal);
-              } else if (cleanKey === "color" || /^(black|white|blue|red|green|yellow|pink|grey)$/i.test(cleanVal)) {
-                if (!totalAvailableOptions.color.includes(strVal)) totalAvailableOptions.color.push(strVal);
-              } else {
-                if (!totalAvailableOptions[cleanKey]) totalAvailableOptions[cleanKey] = [];
-                if (!totalAvailableOptions[cleanKey].includes(strVal)) totalAvailableOptions[cleanKey].push(strVal);
+          if (p.attributes) {
+            const variantObj: Record<string, string> = {};
+            Object.entries(p.attributes).forEach(([k, v]) => {
+              if (v !== null && v !== undefined && String(v).toLowerCase() !== "null") {
+                const cleanKey = k.toLowerCase().trim();
+                const valStr = Array.isArray(v) ? v.join(", ") : String(v).trim();
+                if (valStr) {
+                  variantObj[cleanKey] = valStr;
+                }
               }
             });
-          });
-        });
 
-        // Fallback to original product options if no combined list was constructed
-        const availableOptions = (totalAvailableOptions.color.length > 0 || totalAvailableOptions.size.length > 0)
-          ? totalAvailableOptions
-          : (product.allowed_options || product.attributes || {});
+            if (Object.keys(variantObj).length > 0) {
+              // Avoid duplicate variant combinations
+              const isDuplicate = availableVariants.some(existing => 
+                JSON.stringify(existing) === JSON.stringify(variantObj)
+              );
+              if (!isDuplicate) {
+                availableVariants.push(variantObj);
+              }
+            }
+          }
+        });
 
         missingProducts.push({
           product_name: product.name,
           error_type: "missing_attributes",
           missing_fields: missingFields,
-          available_options: availableOptions,
+          available_variants: availableVariants, // Passed directly as structured variants
         });
         continue; 
       }
@@ -426,6 +448,23 @@ if (cartSaveError) {
 
     // 🔴 PROMPT USER FOR MISSING OR INVALID ATTRIBUTES
     if (!isBuyIntent && missingProducts.length > 0) {
+
+      function buildVariantsText(item: any) {
+        const variants = item.available_variants || [];
+        if (variants.length === 0) return "";
+
+        const ignoredKeys = ["currency", "id", "user_id", "created_at", "updated_at", "price"];
+
+        return variants.map((variant: Record<string, string>, idx: number) => {
+          const details = Object.entries(variant)
+            .filter(([key]) => !ignoredKeys.includes(key.toLowerCase().trim()))
+            .map(([key, val]) => `${key.charAt(0).toUpperCase() + key.slice(1)}: _${val}_`)
+            .join(", ");
+          
+          return `\n${idx + 1}. ${details}`;
+        }).join("");
+      }
+
       const completelyNotFound = missingProducts.filter(p => p.error_type === "not_found");
       const invalidVariants = missingProducts.filter(p => p.error_type === "invalid_variant");
 
@@ -451,12 +490,14 @@ if (cartSaveError) {
         let customErrorMessage = "Sorry, those specific combinations are unavailable:\n";
         
         invalidVariants.forEach((item, index) => {
-          const allowedColors = item.available_options?.color?.length ? item.available_options.color.join(" or ") : "";
-          const allowedSizes = item.available_options?.size?.length ? item.available_options.size.join(", ") : "";
-          
           customErrorMessage += `\n*${index + 1}. ${item.product_name}:*`;
-          if (allowedColors) customErrorMessage += `\n   • *Colors:* _${allowedColors}_`;
-          if (allowedSizes) customErrorMessage += `\n   • *Sizes:* _${allowedSizes}_`;
+          
+          const choices = buildVariantsText(item);
+          if (choices) {
+            customErrorMessage += choices;
+          } else {
+            customErrorMessage += "\nNo matching variants found.";
+          }
           customErrorMessage += `\n`;
         });
         
@@ -470,30 +511,10 @@ if (cartSaveError) {
 
       let userFriendlyMessage = "";
 
-      const buildOptionsText = (item: any) => {
-        const opts = item.available_options || {};
-        const optionsStringArray: string[] = [];
-
-        Object.entries(opts).forEach(([key, values]) => {
-          let parsedValues: string[] = [];
-          if (Array.isArray(values)) {
-            parsedValues = values;
-          } else if (typeof values === "string") {
-            parsedValues = values.split(",").map(v => v.trim());
-          }
-
-          if (parsedValues.length > 0) {
-            const label = key.charAt(0).toUpperCase() + key.slice(1);
-            optionsStringArray.push(`\n• *${label}s:* _${parsedValues.join(" or ")}_`);
-          }
-        });
-        return optionsStringArray.join("");
-      };
-
       if (missingProducts.length === 1) {
         const item = missingProducts[0];
         const missingFieldsList = item.missing_fields.join(" and ");
-        const choices = buildOptionsText(item);
+        const choices = buildVariantsText(item);
 
         userFriendlyMessage = `Please reply with your preferred *${missingFieldsList}* option for *${item.product_name}*.`;
         if (choices) {
@@ -509,7 +530,7 @@ if (cartSaveError) {
 
         userFriendlyMessage += `\n\n*AVAILABLE CHOICES:*`;
         missingProducts.forEach((item) => {
-          const choices = buildOptionsText(item);
+          const choices = buildVariantsText(item);
           if (choices) {
             userFriendlyMessage += `\n\n*For ${item.product_name}:*${choices}`;
           }
@@ -523,6 +544,8 @@ if (cartSaveError) {
         message: userFriendlyMessage
       });
     }
+
+      
 
     // 🟢 UNIFIED SUCCESS RESPONSE GENERATION (Supports 1 or multiple items)
     const itemsSummary = validatedItems
