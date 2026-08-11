@@ -153,7 +153,9 @@ export async function POST(req: Request) {
     });
   } catch (err: any) {
     const errorDetails = err.response?.data || err.message;
-    console.error("Meta Send Text Failure:", JSON.stringify(errorDetails, null, 2));
+    
+    // SAFE: Passing a static string as the first parameter prevents CodeQL format string alerts
+    console.error("Meta Send Text Failure:", errorDetails);
 
     return NextResponse.json(
       { error: errorDetails },
