@@ -12,6 +12,7 @@ type MessageRow = {
   created_at: string | null;
   channel?: string | null;
   image_url?: string | null;
+  human_handoff?: boolean | null;
 };
 
 type Template = {
@@ -194,23 +195,25 @@ export default function WhatsAppInboxPage() {
   }, [supabase]);
 
   const loadAiMode = useCallback(
-    async (conversationId: string) => {
-      const { data, error } = await supabase
-        .from("conversation_state")
-        .select("ai_mode")
-        .eq("conversation_id", conversationId)
-        .single();
+  async (conversationId: string) => {
+    const cleanPhone = conversationId.replace("conv_", "");
 
-      if (error) {
-        console.error("AI mode fetch error:", error.message);
-        setAiMode("active");
-        return;
-      }
+    const { data, error } = await supabase
+      .from("conversations")
+      .select("ai_mode")
+      .or(`phone.eq.${cleanPhone},phone_number.eq.${cleanPhone}`)
+      .maybeSingle();
 
-      setAiMode(data?.ai_mode === "human" ? "human" : "active");
-    },
-    [supabase]
-  );
+    if (error) {
+      console.error("AI mode fetch error:", error.message);
+      setAiMode("active");
+      return;
+    }
+
+    setAiMode(data?.ai_mode === "human" ? "human" : "active");
+  },
+  [supabase]
+);
 
   useEffect(() => {
     loadWhatsAppChats();
@@ -218,20 +221,24 @@ export default function WhatsAppInboxPage() {
   }, [loadWhatsAppChats, loadTemplates]);
 
   useEffect(() => {
-  if (!activeSessionId) return;
+    if (!activeSessionId) return;
 
-  const loadAiMode = async () => {
-    const { data } = await supabase
-      .from("conversation_state")
-      .select("ai_mode")
-      .eq("session_id", activeSessionId)
-      .maybeSingle();
+    const fetchCurrentAiMode = async () => {
+      const cleanPhone = activeSessionId.replace("conv_", "");
 
-    setAiMode(data?.ai_mode ?? "active");
-  };
+      const { data } = await supabase
+        .from("conversations")
+        .select("ai_mode")
+        .or(`phone_number.eq.${cleanPhone},phone_number.eq.+${cleanPhone},phone.eq.${cleanPhone},phone.eq.+${cleanPhone}`)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-  loadAiMode();
-}, [activeSessionId]);
+      setAiMode(data?.ai_mode === "human" ? "human" : "active");
+    };
+
+    fetchCurrentAiMode();
+  }, [activeSessionId, supabase]);
 
   useEffect(() => {
     const channel = supabase
@@ -260,6 +267,8 @@ export default function WhatsAppInboxPage() {
   const currentCleanPhone = activeSessionId?.startsWith("conv_")
     ? activeSessionId.replace("conv_", "")
     : activeSessionId || "";
+
+  const isHumanHandoff = activeChatMessages.some((msg) => msg.human_handoff === true);
 
   const handleSendTemplate = async () => {
     if (!selectedTemplate || !activeSessionId) return;
@@ -301,9 +310,20 @@ export default function WhatsAppInboxPage() {
       if (insertError) {
         console.error("Template message insert error:", insertError.message);
       } else if (inserted) {
+        // 🟢 Clear human_handoff flag in DB
+        const formattedConvId = `conv_${currentCleanPhone}`;
+        await supabase
+          .from("messages")
+          .update({ human_handoff: false })
+          .or(`conversation_id.eq.${formattedConvId},conversation_id.eq.${currentCleanPhone}`);
+
+        // 🟢 Update local state immediately
         setWhatsappGroups((prev) => ({
           ...prev,
-          [activeSessionId]: [...(prev[activeSessionId] || []), inserted],
+          [activeSessionId]: [...(prev[activeSessionId] || []), inserted].map((m) => ({
+            ...m,
+            human_handoff: false,
+          })),
         }));
       }
 
@@ -365,6 +385,25 @@ export default function WhatsAppInboxPage() {
         return;
       }
 
+      // 🟢 Clear human_handoff flag in DB
+      const formattedConvId = `conv_${currentCleanPhone}`;
+      await supabase
+        .from("messages")
+        .update({ human_handoff: false })
+        .or(`conversation_id.eq.${formattedConvId},conversation_id.eq.${currentCleanPhone}`);
+
+      // 🟢 Update local state immediately
+      setWhatsappGroups((prev) => {
+        const updated = { ...prev };
+        if (updated[activeSessionId]) {
+          updated[activeSessionId] = updated[activeSessionId].map((m) => ({
+            ...m,
+            human_handoff: false,
+          }));
+        }
+        return updated;
+      });
+
       // 🟢 DO NOT INSERT INTO SUPABASE HERE. 
       // The API route already logged it as "human_agent", and your Supabase Realtime 
       // listener will automatically refresh the chat view cleanly.
@@ -375,42 +414,76 @@ export default function WhatsAppInboxPage() {
   };
 
   const handleTakeOver = async () => {
-  if (!activeSessionId) return;
+    if (!activeSessionId) return;
 
-  const { error } = await supabase
-    .from("conversation_state")
-    .upsert({
-      session_id: activeSessionId,
-      ai_mode: "human",
-      updated_at: new Date().toISOString(),
-    });
+    try {
+      const response = await fetch("/api/whatsapp/toggle-ai-mode", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          phone: currentCleanPhone,
+          mode: "human",
+        }),
+      });
 
-  if (error) {
-    console.error(error);
-    return;
-  }
+      const resData = await response.json();
 
-  setAiMode("human");
-};
+      if (!response.ok) {
+        console.error("Take Over failed:", resData.error);
+        return;
+      }
 
-  const handleResumeAI = async () => {
-  if (!activeSessionId) return;
+      setAiMode("human");
+    } catch (err) {
+      console.error("Take Over error:", err);
+    }
+  };
 
-  const { error } = await supabase
-    .from("conversation_state")
-    .upsert({
-      session_id: activeSessionId,
-      ai_mode: "active",
-      updated_at: new Date().toISOString(),
-    });
+const handleResumeAI = async () => {
+    if (!activeSessionId) return;
 
-  if (error) {
-    console.error(error);
-    return;
-  }
+    try {
+      // 1. Update AI Mode via API Route
+      const response = await fetch("/api/whatsapp/toggle-ai-mode", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          phone: currentCleanPhone,
+          mode: "active",
+        }),
+      });
 
-  setAiMode("active");
-};
+      const resData = await response.json();
+
+      if (!response.ok) {
+        console.error("Resume AI failed:", resData.error);
+        return;
+      }
+
+      // 2. Clear human_handoff flag in messages table
+      const formattedConvId = `conv_${currentCleanPhone}`;
+      await supabase
+        .from("messages")
+        .update({ human_handoff: false })
+        .or(`conversation_id.eq.${formattedConvId},conversation_id.eq.${currentCleanPhone}`);
+
+      // 3. Update React local state for immediate feedback
+      setWhatsappGroups((prev) => {
+        const updated = { ...prev };
+        if (updated[activeSessionId]) {
+          updated[activeSessionId] = updated[activeSessionId].map((m) => ({
+            ...m,
+            human_handoff: false,
+          }));
+        }
+        return updated;
+      });
+
+      setAiMode("active");
+    } catch (err) {
+      console.error("Resume AI error:", err);
+    }
+  };
 
   return (
     <div className="flex h-[calc(100vh-64px)] bg-[#0b141a] text-white overflow-hidden rounded-xl border border-gray-800 m-2">
@@ -420,38 +493,56 @@ export default function WhatsAppInboxPage() {
         </div>
 
         <div className="flex-1 overflow-y-auto divide-y divide-gray-800">
-          {loading ? (
-            <div className="p-4 text-xs text-gray-400 text-center">
-              Loading live streams...
-            </div>
-          ) : Object.keys(whatsappGroups).length === 0 ? (
-            <div className="p-4 text-xs text-gray-500 text-center">
-              No active WhatsApp live chats found.
-            </div>
-          ) : (
-            Object.entries(whatsappGroups).map(([sessionId, msgs]) => {
-              const lastMessage = msgs[msgs.length - 1];
-              const cleanDisplayName = sessionId.startsWith("conv_")
-                ? sessionId.replace("conv_", "")
-                : sessionId;
+  {loading ? (
+    <div className="p-4 text-xs text-gray-400 text-center">
+      Loading live streams...
+    </div>
+  ) : Object.keys(whatsappGroups).length === 0 ? (
+    <div className="p-4 text-xs text-gray-500 text-center">
+      No active WhatsApp live chats found.
+    </div>
+  ) : (
+    Object.entries(whatsappGroups).map(([sessionId, msgs]) => {
+  const lastMessage = msgs[msgs.length - 1];
+  const cleanDisplayName = sessionId.startsWith("conv_")
+    ? sessionId.replace("conv_", "")
+    : sessionId;
 
-              return (
-                <div
-                  key={sessionId}
-                  onClick={() => setActiveSessionId(sessionId)}
-                  className={`p-4 cursor-pointer transition-colors ${
-                    activeSessionId === sessionId ? "bg-[#2a3942]" : "hover:bg-[#202c33]"
-                  }`}
-                >
-                  <div className="font-medium text-sm text-white">{cleanDisplayName}</div>
-                  <div className="text-xs text-gray-400 mt-1 truncate max-w-[220px]">
-                    {lastMessage?.content || "No message content"}
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </div>
+  // 🔴 Show badge ONLY if any message has human_handoff = true
+  const hasPendingHandoff = msgs.some((m) => m.human_handoff === true);
+
+  return (
+    <div
+      key={sessionId}
+      onClick={() => setActiveSessionId(sessionId)}
+      className={`p-4 cursor-pointer transition-colors ${
+        activeSessionId === sessionId ? "bg-[#2a3942]" : "hover:bg-[#202c33]"
+      }`}
+    >
+      <div className="flex items-center justify-between">
+        <span className="font-medium text-sm text-white">
+          {cleanDisplayName}
+        </span>
+
+        {/* 🔴 RED BADGE NEXT TO PHONE NUMBER */}
+        {hasPendingHandoff && (
+          <span 
+            className="flex items-center gap-1 bg-red-600/20 text-red-400 border border-red-500/40 text-[10px] font-bold px-2 py-0.5 rounded-full animate-pulse"
+            title="Customer requested Human Agent"
+          >
+            🔴 Action Needed
+          </span>
+        )}
+      </div>
+
+      <div className="text-xs text-gray-400 mt-1 truncate max-w-[220px]">
+        {lastMessage?.content || "No message content"}
+      </div>
+    </div>
+  );
+})
+  )}
+</div>
       </div>
 
       <div className="w-2/3 flex flex-col bg-[#0b141a]">
@@ -506,8 +597,6 @@ export default function WhatsAppInboxPage() {
       : "";
 
   const showDateBadge = currentDateText !== previousDateText;
-
-  // 🟢 CHECK FOR BOTH "assistant" AND "human_agent"
   const isOutbound = msg.role === "assistant" || msg.role === "human_agent";
 
   return (
@@ -523,8 +612,8 @@ export default function WhatsAppInboxPage() {
       <div
         className={`p-2.5 rounded-lg text-xs max-w-[70%] shadow relative flex flex-col gap-1 mb-4 ${
           isOutbound
-            ? "bg-[#005c4b] text-white ml-auto self-end"  // 🟢 Outbound (Right side green)
-            : "bg-[#202c33] text-white self-start"        // 🔘 Inbound (Left side grey)
+            ? "bg-[#005c4b] text-white ml-auto self-end"
+            : "bg-[#202c33] text-white self-start"
         }`}
       >
         {isProductImage ? (
@@ -533,13 +622,22 @@ export default function WhatsAppInboxPage() {
           <p className="whitespace-pre-line pr-10">{msg.content || ""}</p>
         )}
 
-        <span
-          className={`text-[9px] select-none text-right block mt-auto self-end ${
-            isOutbound ? "text-gray-300" : "text-gray-400"
-          }`}
-        >
-          {formattedTime}
-        </span>
+        <div className="flex items-center justify-end gap-1.5 mt-auto self-end">
+          {/* 🔴 SHOW RED SYMBOL ONLY FOR MESSAGES WITH human_handoff = TRUE */}
+          {msg.human_handoff === true && (
+            <span className="text-[11px]" title="Escalated to Human Handoff">
+              🔴
+            </span>
+          )}
+
+          <span
+            className={`text-[9px] select-none ${
+              isOutbound ? "text-gray-300" : "text-gray-400"
+            }`}
+          >
+            {formattedTime}
+          </span>
+        </div>
       </div>
     </div>
   );

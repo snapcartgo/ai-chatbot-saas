@@ -140,8 +140,9 @@ export async function POST(request: Request) {
     // Check if the specific search returned item(s) that are ALL OUT OF STOCK (stock = 0)
     const matchedItems = data || [];
     const isExactMatchOutOfStock = matchedItems.length > 0 && matchedItems.every(item => getStockCount(item) === 0);
+    const noExactMatchFound = matchedItems.length === 0;
 
-    if (isExactMatchOutOfStock || matchedItems.length === 0) {
+    if (isExactMatchOutOfStock || noExactMatchFound) {
       // Find available alternative products from the same category/store that DO have stock > 0
       let altQuery = supabase.from('products').select('*').eq('user_id', user_id);
 
@@ -153,7 +154,14 @@ export async function POST(request: Request) {
       const inStockAlternatives = (altData || []).filter(item => getStockCount(item) > 0);
 
       // Construct user-friendly messaging
-      let responseMessage = `I'm sorry, right now *${requestedItemName}* is out of stock. As soon as the stock is available, I will let you know!`;
+      let responseMessage = "";
+      
+      // Include color in the unavailable message if a color filter was provided
+      const itemLabel = color ? `${color} ${requestedItemName}` : requestedItemName;
+
+      if (noExactMatchFound || isExactMatchOutOfStock) {
+        responseMessage = `I'm sorry, right now *${itemLabel}* is out of stock. As soon as the stock is available, I will let you know!`;
+      }
 
       if (inStockAlternatives.length > 0) {
         responseMessage += ` In the meantime, we have some other options available in our collection:`;
