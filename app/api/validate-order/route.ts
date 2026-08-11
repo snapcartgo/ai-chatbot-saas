@@ -173,7 +173,18 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      // Fallback baseline assignment pointer if no attributes were requested yet
+      // ⚡ MULTIPLE PRODUCTS DISAMBIGUATION FIX:
+      // If multiple products matched the query and no specific product/attribute was selected yet
+      if (!product && products.length > 1 && Object.keys(mergedAttributes).length === 0) {
+        missingProducts.push({
+          product_name: search,
+          error_type: "multiple_products_found",
+          matching_products: products
+        });
+        continue;
+      }
+
+      // Fallback baseline assignment pointer if only 1 product matched
       if (!product) {
         product = products[0];
       }
@@ -245,24 +256,33 @@ export async function POST(req: NextRequest) {
     // 5. EVALUATE TARGET MISSING/INVALID SELECTION PAYLOADS
     // =========================================================================
     if (missingProducts.length > 0) {
+      const multipleProductsFound = missingProducts.filter(p => p.error_type === "multiple_products_found");
       const completelyNotFound = missingProducts.filter(p => p.error_type === "not_found");
       const invalidVariants = missingProducts.filter(p => p.error_type === "invalid_variant");
       const missingAttributes = missingProducts.filter(p => p.error_type === "missing_attributes");
 
-      if (completelyNotFound.length > 0) {
-        const { data: storeAlternatives } = await supabase
-          .from('products')
-          .select('name')
-          .eq('user_id', user_id)
-          .eq('product_type', 'website')
-          .limit(3);
-        const suggestionsList = storeAlternatives ? storeAlternatives.map(p => p.name).join(", ") : "";
-        const failedNames = completelyNotFound.map(p => `"${p.product_name}"`).join(" and ");
+      // ⚡ HANDLE MULTIPLE MATCHING PRODUCTS
+      if (multipleProductsFound.length > 0) {
+        let multiMessage = "";
+        multipleProductsFound.forEach((item) => {
+          multiMessage += `We found multiple products matching "${item.product_name}". Please select one:\n\n`;
+          item.matching_products.forEach((prod: any, idx: number) => {
+            multiMessage += `${idx + 1}. ${prod.name}\n`;
+            if (prod.attributes) {
+              Object.entries(prod.attributes).forEach(([key, val]) => {
+                const formattedVal = Array.isArray(val) ? val.join(", ") : val;
+                multiMessage += `   - ${key.charAt(0).toUpperCase() + key.slice(1)}: ${formattedVal}\n`;
+              });
+            }
+            multiMessage += `\n`;
+          });
+        });
 
         return NextResponse.json({
           success: false,
           requires_selection: true,
-          message: `The item ${failedNames} is currently not matching our store catalog format. Try: ${suggestionsList}`
+          missing_products: missingProducts,
+          message: multiMessage.trim()
         });
       }
 
@@ -328,6 +348,7 @@ export async function POST(req: NextRequest) {
     // =========================================================================
     // 🔀 SUCCESS INTERCEPTION FOR MULTI-ITEM ORDERS
     // =========================================================================
+    
     if (isMultiProductSession) {
       const itemsSummary = validatedItems
         .map(i => {
@@ -340,12 +361,14 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json({
         success: true,
-        requires_confirmation: true, // 👈 Flag your chatbot workflow/prompt can read
+        requires_confirmation: true,
         items: validatedItems,
         subtotal: grandSubtotal,
         shipping: grandShipping,
         total: grandSubtotal + grandShipping,
-        message: `Great! I've confirmed everything is in stock:\n\n${itemsSummary}\n\nAre you interested to buy these products? Kindly confirm. Yes.`,
+        // ❌ OLD: "Great! I've confirmed everything is in stock... Are you interested to buy these products? Kindly confirm. Yes."
+        // ✅ NEW:
+        message: `Great! All products are available and in stock:\n\n${itemsSummary}\n\nKindly share your Name, Email and Phone Number to proceed with the order.`,
       });
     }
 
