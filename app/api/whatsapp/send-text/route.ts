@@ -43,7 +43,7 @@ export async function POST(req: Request) {
       .maybeSingle();
 
     if (configError || !config) {
-      console.error(`[WhatsApp API Error] Config query failed for user_id ${userId}:`, configError);
+      console.error("[WhatsApp API Error] Config query failed for user_id:", userId, configError);
       return NextResponse.json(
         { error: `WhatsApp configuration not found for customer user_id: ${userId}` },
         { status: 404 }
