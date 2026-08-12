@@ -6,12 +6,13 @@ import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
 interface Product {
-  id: string;
+  product_id: string;
   name: string;
   description: string;
   price: number;
   category: string;
   image_url: string;
+  stock?: string | number | null; // 1. Added stock field to interface
   website_url?: string | null;
   user_id: string | null;
 }
@@ -25,6 +26,7 @@ export default function EditProductPage() {
 
   const [name, setName] = useState("");
   const [price, setPrice] = useState("");
+  const [stock, setStock] = useState(""); // 2. Added state for stock
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState("");
   const [websiteUrl, setWebsiteUrl] = useState("");
@@ -69,7 +71,7 @@ export default function EditProductPage() {
       const { data, error } = await supabase
         .from("products")
         .select("*")
-        .eq("id", productId)
+        .eq("product_id", productId)
         .eq("user_id", user.id)
         .single();
 
@@ -84,6 +86,7 @@ export default function EditProductPage() {
 
       setName(product.name || "");
       setPrice(String(product.price ?? ""));
+      setStock(String(product.stock ?? "20")); // 3. Populate stock state (defaults to 20 if null)
       setDescription(product.description || "");
       setCategory(product.category || "");
       setWebsiteUrl(product.website_url || "");
@@ -157,12 +160,13 @@ export default function EditProductPage() {
         .update({
           name,
           price: Number(price),
+          stock: String(stock), // 4. Save stock to Supabase
           description,
           category,
           image_url: imageUrl,
           website_url: websiteUrl.trim() || null,
         })
-        .eq("id", productId)
+        .eq("product_id", productId)
         .eq("user_id", user.id);
 
       if (updateError) {
@@ -203,7 +207,7 @@ export default function EditProductPage() {
             Edit Product
           </h1>
           <p className="mt-3 text-sm text-gray-500">
-            Update your product details, image, and website link.
+            Update your product details, inventory stock, image, and website link.
           </p>
         </div>
 
@@ -228,15 +232,31 @@ export default function EditProductPage() {
           />
         </div>
 
-        <div>
-          <label className="mb-2 block font-medium text-gray-800">Price</label>
-          <input
-            type="number"
-            placeholder="Enter price"
-            value={price}
-            onChange={(e) => setPrice(e.target.value)}
-            className="w-full rounded-xl border border-gray-300 p-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
+        {/* 5. Grid section combining Price and Stock (Items Left) */}
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+          <div>
+            <label className="mb-2 block font-medium text-gray-800">Price</label>
+            <input
+              type="number"
+              placeholder="Enter price"
+              value={price}
+              onChange={(e) => setPrice(e.target.value)}
+              className="w-full rounded-xl border border-gray-300 p-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          <div>
+            <label className="mb-2 block font-medium text-gray-800">
+              Stock (Items Left)
+            </label>
+            <input
+              type="number"
+              placeholder="Enter stock quantity"
+              value={stock}
+              onChange={(e) => setStock(e.target.value)}
+              className="w-full rounded-xl border border-gray-300 p-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
         </div>
 
         <div>
