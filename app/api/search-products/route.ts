@@ -27,6 +27,10 @@ export async function POST(request: Request) {
     const price_query = searchParams.get('price_query') || searchParams.get('price') || body.price_query || firstItem.price_query || null; 
     const user_id = searchParams.get('user_id') || body.user_id || firstItem.user_id || null; 
 
+    // Extract quantity (default to 1)
+    const rawQuantity = searchParams.get('quantity') || body.quantity || firstItem.quantity || 1;
+    const quantity = parseInt(String(rawQuantity), 10) || 1;
+
     // Dedicated Stock Check Parameter Extraction
     const isStockQueryParam = 
       searchParams.get('is_stock_query') === 'true' || 
@@ -175,20 +179,39 @@ export async function POST(request: Request) {
       });
     }
 
-    // If matching items ARE in stock, filter the carousel to only display in-stock items
+    // Filter matching items that are in stock
     const inStockItems = matchedItems.filter(item => getStockCount(item) > 0);
     const topInStockItem = inStockItems[0] || matchedItems[0];
     const topProductName = topInStockItem.name || topInStockItem.title || requestedItemName;
     const stockNum = getStockCount(topInStockItem);
 
-    let matchMessage = isStockQuery 
-      ? `✅ Yes, *${topProductName}* is available in stock (${stockNum} units available).`
-      : "Here is what we found:";
+    // Attach computed total prices to matched items
+    const enrichedItems = inStockItems.map(item => {
+      const unitPrice = parseFloat(item.price) || 0;
+      return {
+        ...item,
+        quantity_requested: quantity,
+        unit_price: unitPrice,
+        total_price: unitPrice * quantity
+      };
+    });
+
+    let matchMessage = "Here is what we found:";
+
+    if (isStockQuery) {
+      matchMessage = `✅ Yes, *${topProductName}* is available in stock (${stockNum} units available).`;
+    } else if (quantity > 1 && topInStockItem?.price) {
+      const unitPrice = parseFloat(topInStockItem.price);
+      const totalPrice = unitPrice * quantity;
+      matchMessage = `${quantity}x ${topProductName} total: **Rs. ${totalPrice}** (Rs. ${unitPrice} each).`;
+    }
 
     return NextResponse.json({ 
-      data: inStockItems, 
+      data: enrichedItems, 
       success: true, 
       is_stock_check: isStockQuery,
+      quantity: quantity,
+      total_price: enrichedItems[0]?.total_price || 0,
       message: matchMessage 
     });
 
