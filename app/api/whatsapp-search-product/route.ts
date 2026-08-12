@@ -301,6 +301,7 @@ export async function GET(request: Request) {
       });
 
       // Step A2: Try local database index lookup securely using alias expansions
+      // Step A2: Try local database index lookup securely using alias expansions
       let matchedRetailerIds: string[] = [];
       
       if (user_id && user_id !== "null") {
@@ -349,31 +350,13 @@ export async function GET(request: Request) {
       }
 
       // Step A3: Compile filter conditions for Meta Catalog
-      let metaFilterObject: any = {};
-      let usingTextSearchFallback = false;
-
-      if (isMetaGenericSearch) {
-        metaFilterObject = {}; 
-      } else if (matchedRetailerIds.length > 0) {
-        const idConditions = matchedRetailerIds
-          .slice(0, 20)
-          .map((id: string) => ({
-            retailer_id: { i_contains: id }
-          }));
-
-        metaFilterObject = { or: idConditions };
-      } else {
-        usingTextSearchFallback = true;
-      }
-
       let metaUrl =
         `https://graph.facebook.com/v20.0/${metaCatalogId}/products` +
         `?fields=id,name,retailer_id,price,image_url,color,description,url,category,availability` + 
         `&access_token=${metaAccessToken}`;
 
-      if (Object.keys(metaFilterObject).length > 0) {
-        metaUrl += `&filter=${encodeURIComponent(JSON.stringify(metaFilterObject))}`;
-      } else if (usingTextSearchFallback && finalSearchTerm) {
+      // FIX: Use Meta Catalog's native query search if searching by terms instead of narrowing down strictly by database IDs
+      if (!isMetaGenericSearch && finalSearchTerm) {
         metaUrl += `&q=${encodeURIComponent(finalSearchTerm)}`;
       }
 
@@ -493,7 +476,7 @@ export async function GET(request: Request) {
       // DEDICATED STOCK QUERY OVERRIDE
       // =========================================================================
       if (isStockQuery) {
-        const inStockItems: any[] = [];
+        let inStockItems: any[] = [];
         const missingItems: string[] = [];
 
         for (const pair of searchPairs) {
@@ -504,8 +487,8 @@ export async function GET(request: Request) {
 
           const termAliases = getTermAliases(pair.term);
 
-          // 1. Check for exact match (term + requested color)
-          const matchedProduct = products.find((p: any) => {
+          // FIX: Use .filter() instead of .find() to collect ALL matching items for this term
+          const matchedProducts = products.filter((p: any) => {
             const name = (p.name || '').toLowerCase();
             const desc = (p.description || '').toLowerCase();
             const cat = (p.category || '').toLowerCase();
@@ -521,27 +504,37 @@ export async function GET(request: Request) {
             return matchesTerm && matchesColor && isAvail;
           });
 
-          // 2. Category Fallback: Check if item exists in ANY color if specific color is out of stock
-          const categoryFallbackProduct = !matchedProduct ? rawCatalogProducts.find((p: any) => {
-            const name = (p.name || '').toLowerCase();
-            const desc = (p.description || '').toLowerCase();
-            const cat = (p.category || '').toLowerCase();
-            const isAvail = p.availability === 'in stock' || p.availability === 'in_stock';
+          if (matchedProducts.length > 0) {
+            inStockItems.push(...matchedProducts);
+          } else {
+            // Category Fallback: Check if item exists in ANY color if specific color is out of stock
+            const categoryFallbackProducts = rawCatalogProducts.filter((p: any) => {
+              const name = (p.name || '').toLowerCase();
+              const desc = (p.description || '').toLowerCase();
+              const cat = (p.category || '').toLowerCase();
+              const isAvail = p.availability === 'in stock' || p.availability === 'in_stock';
 
-            return termAliases.some(alias => name.includes(alias) || desc.includes(alias) || cat.includes(alias)) && isAvail;
-          }) : null;
+              return termAliases.some(alias => name.includes(alias) || desc.includes(alias) || cat.includes(alias)) && isAvail;
+            });
 
-          if (matchedProduct) {
-            inStockItems.push(matchedProduct);
-          } else if (categoryFallbackProduct) {
-            inStockItems.push(categoryFallbackProduct);
-            if (pair.color) {
+            if (categoryFallbackProducts.length > 0) {
+              inStockItems.push(...categoryFallbackProducts);
+              if (pair.color) {
+                missingItems.push(pairLabel);
+              }
+            } else {
               missingItems.push(pairLabel);
             }
-          } else {
-            missingItems.push(pairLabel);
           }
         }
+
+        // Deduplicate items by ID
+        const uniqueInStockMap = new Map();
+        inStockItems.forEach(item => {
+          if (item.id) uniqueInStockMap.set(item.id, item);
+          else uniqueInStockMap.set(item.name, item);
+        });
+        inStockItems = Array.from(uniqueInStockMap.values());
 
         let stockText = "";
 
