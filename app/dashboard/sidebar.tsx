@@ -21,6 +21,7 @@ export default function Sidebar() {
     { name: "Products", href: "/dashboard/products" },
     { name: "Payment Settings", href: "/dashboard/settings/payments" },
     { name: "Billing", href: "/dashboard/Billing" },
+    { name: "AI Bot & Bot Settings", href: "/dashboard/settings/ai-bot" },
   ];
 
   return (

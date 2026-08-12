@@ -170,11 +170,21 @@ export async function GET(request: Request) {
     const metaCatalogId = request.headers.get('x-catalog-id');
     const metaAccessToken = request.headers.get('x-access-token');
 
-    // Generic word list to capture broad catalog requests
-    const genericWords = [
-      "product", "products", "item", "items", "thing", "things", 
-      "all", "list", "any", "any product", "available products", "available product", "catalog"
-    ];
+    // Replace lines 148-151 with this updated array:
+const genericWords = [
+  // Generic placeholders
+  "something", "anything", "stuff", "thing", "things", "item", "items", 
+  "product", "products", "produt", "produts",
+
+  // Catalog & Collection terms
+  "all", "list", "any", "catalog", "collection", "options", "inventory", 
+  "stock", "store", "shop", "categories", "variety", "everything",
+
+  // Conversational / Broad Phrases
+  "any product", "available products", "available product", "show me", 
+  "what do you have", "what's available", "whats available", "show catalog",
+  "home essentials"
+];
 
     // =========================================================================
     // BRANCH A: WHATSAPP META CATALOG SEARCH ENGINE (MULTI-PRODUCT READY)
@@ -301,7 +311,6 @@ export async function GET(request: Request) {
       });
 
       // Step A2: Try local database index lookup securely using alias expansions
-      // Step A2: Try local database index lookup securely using alias expansions
       let matchedRetailerIds: string[] = [];
       
       if (user_id && user_id !== "null") {
@@ -350,13 +359,31 @@ export async function GET(request: Request) {
       }
 
       // Step A3: Compile filter conditions for Meta Catalog
+      let metaFilterObject: any = {};
+      let usingTextSearchFallback = false;
+
+      if (isMetaGenericSearch) {
+        metaFilterObject = {}; 
+      } else if (matchedRetailerIds.length > 0) {
+        const idConditions = matchedRetailerIds
+          .slice(0, 20)
+          .map((id: string) => ({
+            retailer_id: { i_contains: id }
+          }));
+
+        metaFilterObject = { or: idConditions };
+      } else {
+        usingTextSearchFallback = true;
+      }
+
       let metaUrl =
         `https://graph.facebook.com/v20.0/${metaCatalogId}/products` +
         `?fields=id,name,retailer_id,price,image_url,color,description,url,category,availability` + 
         `&access_token=${metaAccessToken}`;
 
-      // FIX: Use Meta Catalog's native query search if searching by terms instead of narrowing down strictly by database IDs
-      if (!isMetaGenericSearch && finalSearchTerm) {
+      if (Object.keys(metaFilterObject).length > 0) {
+        metaUrl += `&filter=${encodeURIComponent(JSON.stringify(metaFilterObject))}`;
+      } else if (usingTextSearchFallback && finalSearchTerm) {
         metaUrl += `&q=${encodeURIComponent(finalSearchTerm)}`;
       }
 
@@ -476,65 +503,55 @@ export async function GET(request: Request) {
       // DEDICATED STOCK QUERY OVERRIDE
       // =========================================================================
       if (isStockQuery) {
-        let inStockItems: any[] = [];
+        const inStockItems: any[] = [];
         const missingItems: string[] = [];
 
         for (const pair of searchPairs) {
-          const formattedTerm = pair.term.charAt(0).toUpperCase() + pair.term.slice(1);
-          const pairLabel = pair.color 
-            ? `${pair.color.charAt(0).toUpperCase() + pair.color.slice(1)} ${formattedTerm}`
-            : formattedTerm;
+  const formattedTerm = pair.term.charAt(0).toUpperCase() + pair.term.slice(1);
+  const pairLabel = pair.color 
+    ? `${pair.color.charAt(0).toUpperCase() + pair.color.slice(1)} ${formattedTerm}`
+    : formattedTerm;
 
-          const termAliases = getTermAliases(pair.term);
+  const termAliases = getTermAliases(pair.term);
 
-          // FIX: Use .filter() instead of .find() to collect ALL matching items for this term
-          const matchedProducts = products.filter((p: any) => {
-            const name = (p.name || '').toLowerCase();
-            const desc = (p.description || '').toLowerCase();
-            const cat = (p.category || '').toLowerCase();
-            const pColor = (p.color || '').toLowerCase();
-            const isAvail = p.availability === 'in stock' || p.availability === 'in_stock';
+  // 1. Check for ALL matching items (term + requested color)
+  const matchedProducts = products.filter((p: any) => {
+    const name = (p.name || '').toLowerCase();
+    const desc = (p.description || '').toLowerCase();
+    const cat = (p.category || '').toLowerCase();
+    const pColor = (p.color || '').toLowerCase();
+    const isAvail = p.availability === 'in stock' || p.availability === 'in_stock';
 
-            const matchesTerm = termAliases.some(alias => 
-              name.includes(alias) || desc.includes(alias) || cat.includes(alias)
-            );
+    const matchesTerm = termAliases.some(alias => 
+      name.includes(alias) || desc.includes(alias) || cat.includes(alias)
+    );
 
-            const matchesColor = !pair.color || pColor.includes(pair.color) || name.includes(pair.color);
+    const matchesColor = !pair.color || pColor.includes(pair.color) || name.includes(pair.color);
 
-            return matchesTerm && matchesColor && isAvail;
-          });
+    return matchesTerm && matchesColor && isAvail;
+  });
 
-          if (matchedProducts.length > 0) {
-            inStockItems.push(...matchedProducts);
-          } else {
-            // Category Fallback: Check if item exists in ANY color if specific color is out of stock
-            const categoryFallbackProducts = rawCatalogProducts.filter((p: any) => {
-              const name = (p.name || '').toLowerCase();
-              const desc = (p.description || '').toLowerCase();
-              const cat = (p.category || '').toLowerCase();
-              const isAvail = p.availability === 'in stock' || p.availability === 'in_stock';
+  // 2. Category Fallback: Find ALL items in ANY color if specific color is out of stock
+  const categoryFallbackProducts = matchedProducts.length === 0 ? rawCatalogProducts.filter((p: any) => {
+    const name = (p.name || '').toLowerCase();
+    const desc = (p.description || '').toLowerCase();
+    const cat = (p.category || '').toLowerCase();
+    const isAvail = p.availability === 'in stock' || p.availability === 'in_stock';
 
-              return termAliases.some(alias => name.includes(alias) || desc.includes(alias) || cat.includes(alias)) && isAvail;
-            });
+    return termAliases.some(alias => name.includes(alias) || desc.includes(alias) || cat.includes(alias)) && isAvail;
+  }) : [];
 
-            if (categoryFallbackProducts.length > 0) {
-              inStockItems.push(...categoryFallbackProducts);
-              if (pair.color) {
-                missingItems.push(pairLabel);
-              }
-            } else {
-              missingItems.push(pairLabel);
-            }
-          }
-        }
-
-        // Deduplicate items by ID
-        const uniqueInStockMap = new Map();
-        inStockItems.forEach(item => {
-          if (item.id) uniqueInStockMap.set(item.id, item);
-          else uniqueInStockMap.set(item.name, item);
-        });
-        inStockItems = Array.from(uniqueInStockMap.values());
+  if (matchedProducts.length > 0) {
+    inStockItems.push(...matchedProducts);
+  } else if (categoryFallbackProducts.length > 0) {
+    inStockItems.push(...categoryFallbackProducts);
+    if (pair.color) {
+      missingItems.push(pairLabel);
+    }
+  } else {
+    missingItems.push(pairLabel);
+  }
+}
 
         let stockText = "";
 
