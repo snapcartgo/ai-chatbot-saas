@@ -7,9 +7,46 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-async function scrapeProductDetails(productUrl: string) {
+/**
+ * Validates and sanitizes target URLs to protect against SSRF (CodeQL security requirement).
+ * Blocks internal networks (e.g. localhost, 127.0.0.1, private IPs).
+ */
+function validateExternalUrl(urlString: string): URL | null {
   try {
-    const res = await fetch(productUrl, {
+    const parsed = new URL(urlString);
+
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return null;
+    }
+
+    const hostname = parsed.hostname.toLowerCase();
+
+    if (
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname === "0.0.0.0" ||
+      hostname === "::1" ||
+      hostname.endsWith(".local") ||
+      hostname.endsWith(".internal") ||
+      /^10\./.test(hostname) ||
+      /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(hostname) ||
+      /^192\.168\./.test(hostname)
+    ) {
+      return null;
+    }
+
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+async function scrapeProductDetails(productUrl: string) {
+  const validatedUrl = validateExternalUrl(productUrl);
+  if (!validatedUrl) return null;
+
+  try {
+    const res = await fetch(validatedUrl.href, {
       headers: {
         "User-Agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -131,11 +168,16 @@ export async function POST(req: Request) {
     const body = await req.json();
     const { websiteUrl, userId } = body;
 
-    if (!websiteUrl || !userId) {
-      return NextResponse.json({ error: "Missing websiteUrl or userId" }, { status: 400 });
+    if (!websiteUrl || !userId || typeof websiteUrl !== "string") {
+      return NextResponse.json({ error: "Missing or invalid websiteUrl or userId" }, { status: 400 });
     }
 
-    const formattedUrl = websiteUrl.endsWith("/") ? websiteUrl.slice(0, -1) : websiteUrl;
+    const validatedBaseUrl = validateExternalUrl(websiteUrl);
+    if (!validatedBaseUrl) {
+      return NextResponse.json({ error: "Invalid or unauthorized website URL" }, { status: 400 });
+    }
+
+    const formattedUrl = validatedBaseUrl.origin + validatedBaseUrl.pathname.replace(/\/$/, "");
 
     const pageRes = await fetch(formattedUrl, {
       headers: {
@@ -143,6 +185,10 @@ export async function POST(req: Request) {
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
       },
     });
+
+    if (!pageRes.ok) {
+      return NextResponse.json({ error: "Failed to fetch website" }, { status: 400 });
+    }
 
     const html = await pageRes.text();
     const $ = cheerio.load(html);
@@ -160,7 +206,8 @@ export async function POST(req: Request) {
 
       let imgUrl = $card.find("img").first().attr("src") || $card.find("img").first().attr("data-src") || "";
       if (imgUrl && !imgUrl.startsWith("http")) {
-        imgUrl = new URL(imgUrl, formattedUrl).href;
+        const validatedImg = validateExternalUrl(new URL(imgUrl, formattedUrl).href);
+        imgUrl = validatedImg ? validatedImg.href : "";
       }
 
       // Check category badge directly on the product card element
@@ -169,9 +216,13 @@ export async function POST(req: Request) {
       let extractedHref = $card.is("a") ? $card.attr("href") : $card.find("a").attr("href") || $card.closest("a").attr("href");
       let fullProductUrl = formattedUrl;
       if (extractedHref) {
-        fullProductUrl = extractedHref.startsWith("http") ? extractedHref : new URL(extractedHref, formattedUrl).href;
+        const fullHref = extractedHref.startsWith("http") ? extractedHref : new URL(extractedHref, formattedUrl).href;
+        const validHref = validateExternalUrl(fullHref);
+        if (validHref) fullProductUrl = validHref.href;
       } else if (title) {
-        fullProductUrl = `${formattedUrl}/products/${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+        const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+        const validSlugUrl = validateExternalUrl(`${formattedUrl}/products/${slug}`);
+        if (validSlugUrl) fullProductUrl = validSlugUrl.href;
       }
 
       const details = await scrapeProductDetails(fullProductUrl);
@@ -209,6 +260,7 @@ export async function POST(req: Request) {
           product_url: fullProductUrl,
           website_url: fullProductUrl,
           sku: finalSku,
+          stock: "20", // 🔥 STOCK FEATURE INCLUDED
           attributes: details?.attributes || { option: ["Standard"] },
           required_fields: details?.required_fields || [],
           product_type: "website",
@@ -230,7 +282,7 @@ export async function POST(req: Request) {
     return NextResponse.json({
       success: true,
       count: validProducts.length,
-      message: `Successfully synced ${validProducts.length} products with clean SKUs!`,
+      message: `Successfully synced ${validProducts.length} products with stock initialized!`,
     });
   } catch (err: any) {
     console.error("Sync route error:", err);
