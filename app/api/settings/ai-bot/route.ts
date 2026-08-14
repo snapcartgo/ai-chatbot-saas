@@ -1,37 +1,85 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { createServerClient } from "@supabase/ssr";
+import { cookies } from "next/headers";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+// Helper function to resolve the current authenticated user safely from cookies
+async function getAuthenticatedUser() {
+  const cookieStore = await cookies();
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll();
+        },
+        setAll(cookiesToSet) {
+          try {
+            cookiesToSet.forEach(({ name, value, options }) =>
+              cookieStore.set(name, value, options)
+            );
+          } catch {
+            // Safe fallback for Next.js Route Handlers
+          }
+        },
+      },
+    }
+  );
 
-export async function POST(request: Request) {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  return { user, supabase };
+}
+
+// 1. GET: Fetch settings ONLY for the logged-in customer
+export async function GET() {
   try {
-    const body = await request.json();
-    const { user_email, bot_name, openai_model, enable_chatbot, use_history_context, openai_api_key, openai_org_id } = body;
+    const { user, supabase } = await getAuthenticatedUser();
 
-    if (!user_email) {
-      return NextResponse.json({ error: "User email required" }, { status: 400 });
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // 1. Fetch user ID from auth/users or existing database record
-    const { data: userData, error: userError } = await supabase
+    const { data, error } = await supabase
       .from("user_api_keys")
-      .select("user_id")
+      .select("*")
+      .eq("user_id", user.id)
       .maybeSingle();
 
-    // Or resolve user_id via Supabase Admin API
-    const { data: usersList } = await supabase.auth.admin.listUsers();
-    const currentUser = usersList?.users?.find((u) => u.email === user_email);
-
-    if (!currentUser) {
-      return NextResponse.json({ error: "User profile not found" }, { status: 404 });
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // 2. Prepare Payload
+    return NextResponse.json({ data });
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}
+
+// 2. POST: Save/Update settings ONLY for the logged-in customer
+export async function POST(request: Request) {
+  try {
+    const { user, supabase } = await getAuthenticatedUser();
+
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const body = await request.json();
+    const {
+      bot_name,
+      openai_model,
+      enable_chatbot,
+      use_history_context,
+      openai_api_key,
+      openai_org_id,
+    } = body;
+
+    // Build payload dynamically linked strictly to user.id
     const payload: Record<string, any> = {
-      user_id: currentUser.id,
+      user_id: user.id,
       bot_name: bot_name || "Woodpetra AI",
       openai_model: openai_model || "gpt-4o-mini",
       enable_chatbot: enable_chatbot ?? true,
@@ -46,7 +94,6 @@ export async function POST(request: Request) {
       payload.openai_org_id = openai_org_id;
     }
 
-    // 3. Upsert data into Supabase
     const { error: upsertError } = await supabase
       .from("user_api_keys")
       .upsert(payload, { onConflict: "user_id" });
@@ -57,6 +104,9 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ success: true });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message || "Internal server error" }, { status: 500 });
+    return NextResponse.json(
+      { error: err.message || "Internal server error" },
+      { status: 500 }
+    );
   }
 }

@@ -22,76 +22,73 @@ export default function AIBotSettingsPage() {
     openaiModel: "gpt-4o-mini",
   });
 
-  // Fetch settings on mount
+  // Fetch settings on mount using the secure API route
   useEffect(() => {
+    let isMounted = true;
+
     async function loadSettings() {
-      const { data: { session } } = await supabase.auth.getSession();
-      const user = session?.user;
-      
-      if (!user) return;
+      try {
+        const res = await fetch("/api/settings/ai-bot");
+        const result = await res.json();
 
-      const { data } = await supabase
-        .from("user_api_keys")
-        .select("*")
-        .eq("user_id", user.id)
-        .maybeSingle();
-
-      if (data) {
-        setFormData((prev) => ({
-          ...prev,
-          botName: data.bot_name || "Woodpetra AI",
-          openaiApiKey: data.openai_api_key
-            ? "value exist add new to update"
-            : "",
-          openaiOrgId: data.openai_org_id
-            ? "value exist add new to update"
-            : "",
-          openaiModel: data.openai_model || "gpt-4o-mini",
-          enableChatbot: data.enable_chatbot ?? true,
-          useHistoryContext: data.use_history_context ?? true,
-        }));
+        if (res.ok && result.data && isMounted) {
+          setFormData({
+            botName: result.data.bot_name || "Woodpetra AI",
+            openaiApiKey: result.data.openai_api_key || "",
+            openaiOrgId: result.data.openai_org_id || "",
+            openaiModel: result.data.openai_model || "gpt-4o-mini",
+            enableChatbot: result.data.enable_chatbot ?? true,
+            useHistoryContext: result.data.use_history_context ?? true,
+          });
+        }
+      } catch (err) {
+        console.error("Failed to load customer settings:", err);
       }
     }
+
     loadSettings();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
-  e.preventDefault();
-  setLoading(true);
-  setSavedSuccess(false);
+    e.preventDefault();
+    setLoading(true);
+    setSavedSuccess(false);
 
-  try {
-    // Call the server API route directly
-    const res = await fetch("/api/settings/ai-bot", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        user_email: "woodpetra1@gmail.com", // Or grab dynamically from your dashboard layout context
-        bot_name: formData.botName,
-        openai_model: formData.openaiModel,
-        enable_chatbot: formData.enableChatbot,
-        use_history_context: formData.useHistoryContext,
-        openai_api_key: formData.openaiApiKey,
-        openai_org_id: formData.openaiOrgId,
-      }),
-    });
+    try {
+      // Call the multi-tenant server API route directly
+      const res = await fetch("/api/settings/ai-bot", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          bot_name: formData.botName,
+          openai_model: formData.openaiModel,
+          enable_chatbot: formData.enableChatbot,
+          use_history_context: formData.useHistoryContext,
+          openai_api_key: formData.openaiApiKey,
+          openai_org_id: formData.openaiOrgId,
+        }),
+      });
 
-    const result = await res.json();
+      const result = await res.json();
 
-    if (!res.ok || result.error) {
-      alert("Error saving settings: " + (result.error || "Failed to save"));
-    } else {
-      setSavedSuccess(true);
-      setTimeout(() => setSavedSuccess(false), 3000);
+      if (!res.ok || result.error) {
+        alert("Error saving settings: " + (result.error || "Failed to save"));
+      } else {
+        setSavedSuccess(true);
+        setTimeout(() => setSavedSuccess(false), 3000);
+      }
+    } catch (err: any) {
+      alert("Unexpected error: " + err.message);
+    } finally {
+      setLoading(false);
     }
-  } catch (err: any) {
-    alert("Unexpected error: " + err.message);
-  } finally {
-    setLoading(false);
-  }
-};
+  };
 
   return (
     <div className="p-8 bg-gray-50 min-h-screen text-gray-800">

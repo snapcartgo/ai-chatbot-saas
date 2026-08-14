@@ -93,34 +93,49 @@ export async function POST(request: Request) {
 
     if (q) {
       let cleanQuery = q.trim().toLowerCase();
+      
       const genericWords = [
         "product", "products", "item", "items", "thing", "things", 
-        "all", "list", "any", "any product", "available products", "available product"
+        "all", "list", "any", "any product", "available products", "available product",
+        "all products", "all product"
       ];
       
       if (genericWords.includes(cleanQuery)) {
         isGenericSearch = true;
       } else {
+        // Handle comma-separated or "and"-separated multi-product searches
+        const rawItems = cleanQuery
+          .split(/(?:,| and )/g)
+          .map((item: string) => item.trim())
+          .filter(Boolean);
+
         const colorAdjectives = ["white", "black", "blue", "red", "green", "grey", "gray", "yellow", "olive green", "olive"];
         const stockNoiseWords = ["stock", "available", "availability", "in stock", "is", "are", "have", "present", "left", "do", "you"];
 
-        let queryWords = cleanQuery.split(/\s+/).filter((word: string) => 
-          !colorAdjectives.includes(word) && !stockNoiseWords.includes(word)
-        );
-        
-        queryWords = queryWords.map((word: string) => {
-          if (word === "shirts" || word === "tshirt" || word === "tshirts") return "t-shirt";
-          if (word === "chairs") return "chair";
-          if (word === "tables") return "table";
-          if (word === "beds") return "bed";
-          return word;
+        const conditions: string[] = [];
+
+        rawItems.forEach((itemStr: string) => {
+          let queryWords = itemStr.split(/\s+/).filter((word: string) => 
+            !colorAdjectives.includes(word) && !stockNoiseWords.includes(word)
+          );
+          
+          queryWords = queryWords.map((word: string) => {
+            if (word === "shirts" || word === "tshirt" || word === "tshirts") return "t-shirt";
+            if (word === "chairs") return "chair";
+            if (word === "tables") return "table";
+            if (word === "beds") return "bed";
+            return word;
+          });
+
+          const term = queryWords.join(" ");
+          if (term.length > 0) {
+            conditions.push(`name.ilike.%${term}%,description.ilike.%${term}%,category.ilike.%${term}%`);
+          }
         });
 
-        const finalSearchTerm = queryWords.join(" ");
-
-        if (finalSearchTerm.length > 0) {
-          fallbackSearchTerm = finalSearchTerm;
-          query = query.or(`name.ilike.%${finalSearchTerm}%,description.ilike.%${finalSearchTerm}%,category.ilike.%${finalSearchTerm}%`);
+        if (conditions.length > 0) {
+          fallbackSearchTerm = rawItems.join(", ");
+          query = query.or(conditions.join(','));
         } else {
           fallbackSearchTerm = q.trim();
           query = query.or(`name.ilike.%${q.trim()}%,description.ilike.%${q.trim()}%`);
@@ -198,13 +213,18 @@ export async function POST(request: Request) {
 
     let matchMessage = "Here is what we found:";
 
-    if (isStockQuery) {
-      matchMessage = `✅ Yes, *${topProductName}* is available in stock (${stockNum} units available).`;
-    } else if (quantity > 1 && topInStockItem?.price) {
-      const unitPrice = parseFloat(topInStockItem.price);
-      const totalPrice = unitPrice * quantity;
-      matchMessage = `${quantity}x ${topProductName} total: **Rs. ${totalPrice}** (Rs. ${unitPrice} each).`;
-    }
+if (isStockQuery) {
+  matchMessage = `✅ Yes, *${topProductName}* is available in stock (${stockNum} units available).`;
+} else if (price_query || queryLower.includes('price') || queryLower.includes('cost') || quantity > 1) {
+  const unitPrice = parseFloat(topInStockItem?.price || 0);
+  const totalPrice = unitPrice * quantity;
+  
+  if (quantity > 1) {
+    matchMessage = `The total price for ${quantity}x *${topProductName}* is **Rs. ${totalPrice}** (Rs. ${unitPrice} each).`;
+  } else {
+    matchMessage = `The price of *${topProductName}* is **Rs. ${unitPrice}**.`;
+  }
+}
 
     return NextResponse.json({ 
       data: enrichedItems, 
