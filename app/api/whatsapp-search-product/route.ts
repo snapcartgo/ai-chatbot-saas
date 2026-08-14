@@ -179,6 +179,7 @@ const genericWords = [
   // Catalog & Collection terms
   "all", "list", "any", "catalog", "collection", "options", "inventory", 
   "stock", "store", "shop", "categories", "variety", "everything",
+  "latest", "new", "new arrivals", "newest", "trending", "best", "popular", "top", "featured",
 
   // Conversational / Broad Phrases
   "any product", "available products", "available product", "show me", 
@@ -191,7 +192,12 @@ const genericWords = [
     // =========================================================================
     if (metaCatalogId && metaAccessToken) {
       // Join all extracted queries cleanly into a standard space-separated string
-      let queryText = (parsedQueries.length > 0 ? parsedQueries.join(' ') : (q || '')).trim().toLowerCase();
+      let queryText = (parsedQueries.length > 0 ? parsedQueries.join(' ') : (q || ''))
+  .toLowerCase()
+  .replace(/t-shirt/g, 'tshirt')
+  .replace(/[-_?!.,'"]/g, ' ')  // Converts hyphens and dots to spaces
+  .replace(/\s+/g, ' ')         // Removes duplicate spaces
+  .trim();
 
       console.log("Incoming q:", q);
       console.log("Query Text:", queryText);
@@ -216,14 +222,30 @@ const genericWords = [
         });
       }
 
-      // Broad expression matching for incoming n8n/conversational text strings
-      const isMetaGenericSearch = 
-        genericWords.includes(queryText) || 
-        queryText.includes("any product") || 
-        queryText.includes("available products") || 
-        queryText.includes("show me") || 
-        queryText.includes("home essentials");
+      // 1. Dynamic Stopwords, Modifiers & Noise Words
+      const colorAdjectives = ["white", "black", "blue", "red", "green", "grey", "gray", "yellow", "pink", "purple", "orange", "brown", "beige", "olive"];
+      const stopWords = ["show", "me", "find", "get", "look", "for", "i", "want", "need", "please", "and", "or", "with", "this", "one", "do", "you", "have", "option", "options"];
+      const categoryNoiseWords = ["product", "products", "produt", "produts", "item", "items", "thing", "things"];
+      
+      const intentModifiers = [
+        "latest", "leatest", "new", "newest", "new arrival", "new arrivals", 
+        "trending", "popular", "best selling", "bestselling", "bestseller", "bestsellers",
+        "top selling", "top rated", "top", "best", "featured", "all", "store", "shop", "catalog", "collection"
+      ];
 
+      const queryWords = queryText.split(' ').filter((w: string) => w.length > 0);
+
+      // Extract true search terms (keeping keywords like tshirt, shirt, cotton, etc.)
+      const meaningfulTokens = queryWords.filter((w: string) => 
+        !intentModifiers.includes(w) && 
+        !colorAdjectives.includes(w) &&
+        !stockKeywords.includes(w) &&
+        !stopWords.includes(w) &&
+        !categoryNoiseWords.includes(w)
+      );
+
+      // Only generic if the query ONLY contained discovery words like "latest" or "best selling"
+      const isMetaGenericSearch = meaningfulTokens.length === 0;     
       // Step A1: Unify and isolate price statements safely
       let cleanQuery = queryText;
       let rawPrice = (price_query && price_query !== "null" && price_query !== "value") ? price_query.trim().toLowerCase() : "null";
@@ -270,21 +292,30 @@ const genericWords = [
         }
       }
 
-      // Strip fluff words, stop words, stock keywords, color tags, and typos
-      const stopWords = ["show", "me", "find", "get", "look", "for", "i", "want", "need", "please", "and", "or", "with"];
-      const colorAdjectives = ["white", "black", "blue", "red", "green", "grey", "gray", "yellow", "olive"];
-      const categoryNoiseWords = ["product", "products", "produt", "produts", "item", "items", "thing", "things"];
+      
+      const modifierFluff = ["cotton", "premium", "luxury", "casual", "formal", "slim", "fit", "adjustable", "printed", "plain"];
 
       let cleanQueryWithoutCommas = cleanQuery.replace(/,/g, ' ');
-      let queryWords = cleanQueryWithoutCommas.split(/\s+/).filter((word: string) => word.length > 0);
+      const queryTokens = cleanQueryWithoutCommas.split(/\s+/).filter((word: string) => word.length > 0);
 
-      const explicitColorsFound = queryWords.filter((word: string) => colorAdjectives.includes(word));
+      const explicitColorsFound = queryTokens.filter((word: string) => colorAdjectives.includes(word));
 
-      let itemWords = queryWords.filter((word: string) => 
+      // First check if there is a core category word present
+      let coreWords = queryTokens.filter((word: string) => 
         !colorAdjectives.includes(word) && 
         !genericWords.includes(word) && 
-        !stockKeywords.includes(word) &&
-        !stopWords.includes(word) &&
+        !stockKeywords.includes(word) && 
+        !stopWords.includes(word) && 
+        !categoryNoiseWords.includes(word) &&
+        !modifierFluff.includes(word)
+      );
+
+      // If user ONLY typed a modifier (e.g. just "cotton"), fall back to it; otherwise isolate the category
+      let itemWords = coreWords.length > 0 ? coreWords : queryTokens.filter((word: string) => 
+        !colorAdjectives.includes(word) && 
+        !genericWords.includes(word) && 
+        !stockKeywords.includes(word) && 
+        !stopWords.includes(word) && 
         !categoryNoiseWords.includes(word)
       );
 
@@ -300,9 +331,19 @@ const genericWords = [
         return word;
       });
 
+      
       // Split into unique individual product terms (e.g., ["jeans", "t-shirt"])
       const individualProductTerms = Array.from(new Set(itemWords));
+
+      // ---> PASTE IT HERE <---
+      // If the remaining search term is only generic/discovery words, treat as generic collection search
+      const discoveryTerms = ["latest", "new", "newest", "trending", "best", "popular", "top", "featured", "all", "selling", "seller", "bestseller", "bestselling", "rated"];
+      if (individualProductTerms.length > 0 && individualProductTerms.every(term => discoveryTerms.includes(term))) {
+        individualProductTerms.length = 0; // Clear so it loads full catalog
+      }
+
       const finalSearchTerm = individualProductTerms.join(" ") || cleanQuery;
+      
 
       // 🚨 BUILD SEARCH PAIRS EARLY SO IT IS ACCESSIBLE THROUGHOUT THE FUNCTION
       const searchPairs: { term: string; color?: string }[] = individualProductTerms.map((term) => {
@@ -425,78 +466,85 @@ const genericWords = [
 
       // Target-aware color matching
       // Target-aware color matching (FIXED: Don't eliminate terms that don't match strict color)
+      // Target-aware color matching with Category Alternative Fallback
       if (products.length > 0 && !isMetaGenericSearch && explicitColorsFound.length > 0) {
-        const strictColorMatch = products.filter((item: any) => {
-          const name = (item.name || '').toLowerCase();
-          const desc = (item.description || '').toLowerCase();
-          const pColor = (item.color || '').toLowerCase();
+        const finalMatchedProducts: any[] = [];
 
-          return searchPairs.some((pair) => {
-            const aliases = getTermAliases(pair.term);
-            const matchesTerm = aliases.some(alias => name.includes(alias) || desc.includes(alias));
-            
-            if (!matchesTerm) return false;
-            
-            if (pair.color) {
-              return pColor.includes(pair.color) || name.includes(pair.color) || desc.includes(pair.color);
-            }
-            return true;
-          });
-        });
+        for (const pair of searchPairs) {
+          const aliases = getTermAliases(pair.term);
 
-        // Only override products if we actually found color matches without discarding other searched items
-        if (strictColorMatch.length > 0) {
-          products = products.filter(p => {
+          // 1. Find all products in the catalog that belong to this category (e.g., all Jeans or all T-Shirts)
+          const categoryProducts = rawCatalogProducts.filter((p: any) => {
             const name = (p.name || '').toLowerCase();
             const desc = (p.description || '').toLowerCase();
-            const pColor = (p.color || '').toLowerCase();
+            const cat = (p.category || '').toLowerCase();
+            return aliases.some(alias => name.includes(alias) || desc.includes(alias) || cat.includes(alias));
+          });
 
-            // Find matching pair for this product
-            const pair = searchPairs.find(sp => {
-              const aliases = getTermAliases(sp.term);
-              return aliases.some(alias => name.includes(alias) || desc.includes(alias));
-            });
+          if (categoryProducts.length > 0) {
+            if (pair.color) {
+              // 2. Try to find the exact requested color first
+              const exactColorMatches = categoryProducts.filter((p: any) => {
+                const pColor = (p.color || '').toLowerCase();
+                const name = (p.name || '').toLowerCase();
+                return pColor.includes(pair.color!) || name.includes(pair.color!);
+              });
 
-            // If a color was specified for this product term, enforce it
-            if (pair && pair.color) {
-              return pColor.includes(pair.color) || name.includes(pair.color) || desc.includes(pair.color);
+              if (exactColorMatches.length > 0) {
+                finalMatchedProducts.push(...exactColorMatches);
+              } else {
+                // FALLBACK: If requested color (e.g. Red) is NOT available, KEEP other available colors of Jeans
+                finalMatchedProducts.push(...categoryProducts);
+              }
+            } else {
+              // No specific color requested, keep all
+              finalMatchedProducts.push(...categoryProducts);
             }
+          }
+        }
+
+        // Deduplicate and update products array
+        if (finalMatchedProducts.length > 0) {
+          const seenIds = new Set();
+          products = finalMatchedProducts.filter(item => {
+            const id = item.retailer_id || item.id;
+            if (seenIds.has(id)) return false;
+            seenIds.add(id);
             return true;
           });
         }
       }
-
-      // STRICT FALLBACK
-      if (products.length === 0 || (!isMetaGenericSearch && explicitColorsFound.length > 0 && !products.some(p => explicitColorsFound.some(c => (p.color || '').toLowerCase().includes(c))))) {
-        const fallbackUrl = `https://graph.facebook.com/v20.0/${metaCatalogId}/products?fields=id,name,retailer_id,price,image_url,color,description,url,category,availability&access_token=${metaAccessToken}`;
-        const fallbackResponse = await fetch(fallbackUrl);
-        const fallbackData = await fallbackResponse.json();
         
-        if (fallbackResponse.ok && fallbackData.data) {
-          const allCatalogProducts = fallbackData.data;
 
-          if (isMetaGenericSearch) {
-            products = allCatalogProducts;
-          } else if (matchedRetailerIds.length > 0) {
-            products = allCatalogProducts.filter((item: any) =>
-              matchedRetailerIds.includes(item.retailer_id)
-            );
-          } else {
-            products = [];
-          }
-        }
-      }
+      
 
+      // Handle when 0 products match direct search
       if (products.length === 0) {
-        return NextResponse.json({
-          messaging_product: "whatsapp",
-          recipient_type: "individual",
-          to: userPhone,
-          type: "text",
-          text: {
-            body: `Sorry, we don't have "${(q || '').trim()}" in stock right now, and no similar items were found in our store.`
+        const isRelational = /\b(cheaper|cheapest|less|lower|similar|like this|another|option)\b/i.test(q || '');
+
+        // If the user asked for "cheaper" or "similar", show available collection sorted by price instead of failing
+        if (isRelational && rawCatalogProducts.length > 0) {
+          const isCheaper = /\b(cheaper|cheapest|less|lower)\b/i.test(q || '');
+          products = [...rawCatalogProducts];
+          
+          if (isCheaper) {
+            products.sort((a: any, b: any) => {
+              const priceA = parseFloat(String(a.price || '0').replace(/[^0-9.]/g, '')) || 0;
+              const priceB = parseFloat(String(b.price || '0').replace(/[^0-9.]/g, '')) || 0;
+              return priceA - priceB;
+            });
           }
-        });
+        } else {
+          return NextResponse.json({
+            messaging_product: "whatsapp",
+            recipient_type: "individual",
+            to: userPhone,
+            type: "text",
+            text: {
+              body: `Sorry, we don't have "${(q || '').trim()}" in stock right now, and no similar items were found in our store.`
+            }
+          });
+        }
       }
 
       // =========================================================================
@@ -661,13 +709,18 @@ const genericWords = [
       }
 
       let bodyText = "";
-
-      if (isMetaGenericSearch) {
-        bodyText = "Here are the top categories currently available in our store:";
-      } else if (trulyMissingPairs.length === 0 && priceFilteredOutPairs.length === 0) {
-        bodyText = `Here is what we found matching your request for "${(q || '').trim()}":`;
+if (isMetaGenericSearch) {
+      if (/\b(latest|new|newest|new arrivals|fresh)\b/i.test(queryText)) {
+        bodyText = "Here are our latest products and new arrivals:";
+      } else if (/\b(best\s*selling|bestseller|bestsellers|top\s*selling|top\s*rated|trending|popular|best|top)\b/i.test(queryText)) {
+        bodyText = "Here are our most popular and trending items:";
       } else {
-        const explanations: string[] = [];
+        bodyText = "Here are the top categories currently available in our store:";
+      }
+    } else if (trulyMissingPairs.length === 0 && priceFilteredOutPairs.length === 0) {
+      bodyText = `Here is what we found matching your request for "${(q || '').trim()}":`;
+    } else {
+      const explanations: string[] = [];
 
         if (trulyMissingPairs.length > 0) {
           explanations.push(`Sorry, ${trulyMissingPairs.join(', ')} is currently out of stock`);
