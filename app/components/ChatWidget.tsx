@@ -556,15 +556,22 @@ if (textarea) {
       let actionLabel: string | undefined;
 
       // Extract explicit payment link or detect payment patterns
+      // Extract URL directly from reply/message if not passed in dedicated fields
+      const messageBody = typeof data.reply === "string" ? data.reply : typeof data.message === "string" ? data.message : "";
+      const inlineUrl = messageBody.match(/\bhttps?:\/\/[^\s<>"']+/i)?.[0] || null;
+
       const rawPaymentUrl =
         (typeof data.payment_link === "string" && data.payment_link.trim()) ||
         (typeof data.actionUrl === "string" &&
-          (data.actionUrl.includes("/pay") ||
+          (data.actionUrl.includes("rzp.io") ||
+            data.actionUrl.includes("razorpay") ||
+            data.actionUrl.includes("/pay") ||
             data.actionUrl.includes("payu") ||
             data.actionUrl.includes("paypal") ||
             data.actionUrl.includes("payment"))
           ? data.actionUrl.trim()
-          : null);
+          : null) ||
+        (inlineUrl && (inlineUrl.includes("rzp.io") || inlineUrl.includes("razorpay")) ? inlineUrl : null);
 
       const rawProductUrl =
         (typeof data.product_url === "string" && data.product_url.trim()) ||
