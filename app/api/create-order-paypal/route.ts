@@ -21,6 +21,13 @@ export async function POST(req: Request) {
     const parsedPrice = Number(body.price);
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
 
+    // ✅ EXTRACT ADDRESS & QUANTITY
+    const address = body.address ? String(body.address).trim() : null;
+    const city = body.city ? String(body.city).trim() : null;
+    const state = body.state ? String(body.state).trim() : null;
+    const pincode = body.pincode ? String(body.pincode).trim() : null;
+    const quantity = Number(body.quantity) || 1;
+
     const phoneString =
       rawPhone === null || rawPhone === undefined || rawPhone === ""
         ? null
@@ -175,6 +182,12 @@ export async function POST(req: Request) {
       customer_email,
       name,
       phone,
+      // ✅ MAP ADDRESS & QUANTITY TO SUPABASE
+      address,
+      city,
+      state,
+      pincode,
+      quantity,
       payment_link: approvalUrl,
       paypal_data: JSON.stringify(orderData),
       payu_data: null,
