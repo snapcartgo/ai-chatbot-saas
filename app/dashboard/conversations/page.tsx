@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { createClient } from "@/utils/supabase/client";
+
 
 type MessageRow = {
   id: string;
@@ -40,6 +41,26 @@ export default function ConversationsPage() {
   const [activeTab, setActiveTab] = useState<"website" | "whatsapp">("website");
   const [loading, setLoading] = useState(true);
   const [expandedSession, setExpandedSession] = useState<string | null>(null);
+
+  const chatContainerRef = useRef<HTMLDivElement>(null);
+
+const scrollToBottom = (behavior: ScrollBehavior = "smooth") => {
+  if (chatContainerRef.current) {
+    chatContainerRef.current.scrollTo({
+      top: chatContainerRef.current.scrollHeight,
+      behavior,
+    });
+  }
+};
+
+  useEffect(() => {
+    if (expandedSession) {
+      const timeout = setTimeout(() => {
+        scrollToBottom("auto");
+      }, 50);
+      return () => clearTimeout(timeout);
+    }
+  }, [expandedSession]);
 
   useEffect(() => {
     const loadData = async () => {
@@ -228,55 +249,85 @@ export default function ConversationsPage() {
               </div>
 
               {expandedSession === sessionId && (
-                <div
-                  style={{
-                    padding: "20px",
-                    borderTop: "1px solid #e2e8f0",
-                    backgroundColor: "#fdfdfd",
-                  }}
-                >
-                  {msgs.map((m) => (
-                    <div
-                      key={m.id}
-                      style={{
-                        marginBottom: "14px",
-                        textAlign: m.role === "user" ? "right" : "left",
-                      }}
-                    >
+                <div style={{ position: "relative" }}>
+                  <div
+                    ref={chatContainerRef}
+                    style={{
+                      padding: "20px",
+                      borderTop: "1px solid #e2e8f0",
+                      backgroundColor: "#fdfdfd",
+                      maxHeight: "520px",
+                      overflowY: "auto",
+                    }}
+                  >
+                    {msgs.map((m) => (
                       <div
+                        key={m.id}
                         style={{
-                          display: "inline-block",
-                          maxWidth: "78%",
+                          marginBottom: "14px",
+                          textAlign: m.role === "user" ? "right" : "left",
                         }}
                       >
                         <div
                           style={{
                             display: "inline-block",
-                            padding: "10px 15px",
-                            borderRadius: "15px",
-                            fontSize: "14px",
-                            backgroundColor: m.role === "user" ? "#007bff" : "#f1f5f9",
-                            color: m.role === "user" ? "white" : "black",
-                            wordBreak: "break-word",
+                            maxWidth: "78%",
                           }}
                         >
-                          {m.content || "No content"}
-                        </div>
+                          <div
+                            style={{
+                              display: "inline-block",
+                              padding: "10px 15px",
+                              borderRadius: "15px",
+                              fontSize: "14px",
+                              backgroundColor: m.role === "user" ? "#007bff" : "#f1f5f9",
+                              color: m.role === "user" ? "white" : "black",
+                              wordBreak: "break-word",
+                            }}
+                          >
+                            {m.content || "No content"}
+                          </div>
 
-                        <div
-                          style={{
-                            fontSize: "11px",
-                            color: "#64748b",
-                            marginTop: "5px",
-                            paddingLeft: m.role === "user" ? "0" : "4px",
-                            paddingRight: m.role === "user" ? "4px" : "0",
-                          }}
-                        >
-                          {formatDateTime(m.created_at)}
+                          <div
+                            style={{
+                              fontSize: "11px",
+                              color: "#64748b",
+                              marginTop: "5px",
+                              paddingLeft: m.role === "user" ? "0" : "4px",
+                              paddingRight: m.role === "user" ? "4px" : "0",
+                            }}
+                          >
+                            {formatDateTime(m.created_at)}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
+
+                  {/* Jump to bottom button */}
+                  <button
+                    onClick={() => scrollToBottom("smooth")}
+                    title="Jump to latest message"
+                    style={{
+                      position: "absolute",
+                      bottom: "15px",
+                      right: "20px",
+                      backgroundColor: "#007bff",
+                      color: "white",
+                      border: "none",
+                      borderRadius: "50%",
+                      width: "36px",
+                      height: "36px",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontSize: "18px",
+                      boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
+                    }}
+                  >
+                    ↓
+                  </button>
                 </div>
               )}
             </div>

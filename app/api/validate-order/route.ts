@@ -346,40 +346,43 @@ export async function POST(req: NextRequest) {
     }
 
     // =========================================================================
-    // 🔀 SUCCESS INTERCEPTION FOR MULTI-ITEM ORDERS
+    // 🔀 SUCCESS SUMMARY GENERATION (SINGLE & MULTI-ITEM ORDERS)
     // =========================================================================
     
-    if (isMultiProductSession) {
-      const itemsSummary = validatedItems
-        .map(i => {
-          const attrs = Object.entries(i.selected_attributes)
+    const totalAmount = grandSubtotal + grandShipping;
+
+    // Build the formatted list of products with quantity, name, and attributes
+    const itemsSummary = validatedItems
+      .map(i => {
+        let attrStr = "";
+        if (i.selected_attributes && Object.keys(i.selected_attributes).length > 0) {
+          const formattedAttrs = Object.entries(i.selected_attributes)
             .map(([k, v]) => `${k}: ${v}`)
             .join(", ");
-          return `• ${i.product_name}${attrs ? ` (${attrs})` : ""}`;
-        })
-        .join("\n");
+          attrStr = ` (${formattedAttrs})`;
+        }
+        const qtyPrefix = i.quantity > 1 ? `${i.quantity} × ` : "";
+        return `• ${qtyPrefix}${i.product_name}${attrStr}`;
+      })
+      .join("\n");
 
-      return NextResponse.json({
-        success: true,
-        requires_confirmation: true,
-        items: validatedItems,
-        subtotal: grandSubtotal,
-        shipping: grandShipping,
-        total: grandSubtotal + grandShipping,
-        // ❌ OLD: "Great! I've confirmed everything is in stock... Are you interested to buy these products? Kindly confirm. Yes."
-        // ✅ NEW:
-        message: `Great! All products are available and in stock:\n\n${itemsSummary}\n\nKindly share your Name, Email and Phone Number to proceed with the order.`,
-      });
-    }
+    // Unified formatted summary message
+    const formattedMessage = 
+      `🛍️ Order Summary verified successfully!\n\n` +
+      `${itemsSummary}\n\n` +
+      `Subtotal: ₹${grandSubtotal}\n` +
+      `Shipping: ₹${grandShipping}\n` +
+      `Total: ₹${totalAmount}\n\n` +
+      `Kindly share your Name, Email, phone and Delivery Address to complete checkout.`;
 
-    // Default single item direct validation message
     return NextResponse.json({
       success: true,
+      ...(isMultiProductSession ? { requires_confirmation: true } : {}),
       items: validatedItems,
       subtotal: grandSubtotal,
       shipping: grandShipping,
-      total: grandSubtotal + grandShipping,
-      message: "All products are available. Kindly share your Name, Email and Phone Number.",
+      total: totalAmount,
+      message: formattedMessage,
     });
 
   } catch (err: any) {

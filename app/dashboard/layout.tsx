@@ -41,7 +41,7 @@ export default function DashboardLayout({
   }
 
   return (
-    <div className="flex min-h-screen bg-black">
+    <div className="flex h-screen overflow-hidden bg-black">
       
       {/* 🔥 MOBILE MENU BUTTON */}
       <button
@@ -60,28 +60,28 @@ export default function DashboardLayout({
 
       {/* 🔥 SIDEBAR */}
       <aside
-        className={`
-          fixed md:static top-0 left-0 h-full w-64 bg-[#111] text-white border-r border-[#222] z-40
-          transform ${open ? "translate-x-0" : "-translate-x-full"}
-          md:translate-x-0 transition-transform duration-300
-        `}
-      >
+  className={`
+    fixed md:static top-0 left-0 h-full w-64 shrink-0 overflow-y-auto bg-[#111] text-white border-r border-[#222] z-40
+    transform ${open ? "translate-x-0" : "-translate-x-full"}
+    md:translate-x-0 transition-transform duration-300
+  `}
+>
         <Sidebar />
       </aside>
 
       {/* 🔥 MAIN CONTENT */}
-      <main className="flex-1 flex flex-col w-full">
-        
-        {/* USER BAR */}
-        <div className="p-4 md:p-6 border-b border-[#222] text-gray-400 text-sm bg-black">
-          Logged in as: <span className="text-white">{userEmail}</span>
-        </div>
+      <main className="flex-1 flex flex-col h-full overflow-hidden w-full">
+  
+  {/* USER BAR (stays fixed at top) */}
+  <div className="p-4 md:p-6 border-b border-[#222] text-gray-400 text-sm bg-black shrink-0">
+    Logged in as: <span className="text-white">{userEmail}</span>
+  </div>
 
-        {/* PAGE CONTENT */}
-        <div className="flex-1 p-4 md:p-6 bg-gray-100 text-black">
-          {children}
-        </div>
-      </main>
+  {/* PAGE CONTENT (only this area will scroll) */}
+  <div className="flex-1 overflow-y-auto p-4 md:p-6 bg-gray-100 text-black">
+    {children}
+  </div>
+</main>
     </div>
   );
 }

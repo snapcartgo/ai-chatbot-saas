@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
-// Helper function to resolve the current authenticated user safely from cookies
+// Helper function to resolve current authenticated user safely from cookies
 async function getAuthenticatedUser() {
   const cookieStore = await cookies();
   const supabase = createServerClient(
@@ -33,7 +33,7 @@ async function getAuthenticatedUser() {
   return { user, supabase };
 }
 
-// 1. GET: Fetch settings ONLY for the logged-in customer
+// 1. GET: Fetch settings AND BYOK status for the logged-in customer
 export async function GET() {
   try {
     const { user, supabase } = await getAuthenticatedUser();
@@ -42,7 +42,8 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { data, error } = await supabase
+    // Fetch user's saved API key & settings
+    const { data: apiKeyData, error } = await supabase
       .from("user_api_keys")
       .select("*")
       .eq("user_id", user.id)
@@ -52,13 +53,41 @@ export async function GET() {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ data });
+    // Check if user is on a BYOK plan in Website subscriptions
+    const { data: webSub } = await supabase
+      .from("subscriptions")
+      .select("is_byok")
+      .eq("email", user.email)
+      .eq("is_byok", true);
+
+    // Check if user is on a BYOK plan in WhatsApp subscriptions
+    const { data: waSub } = await supabase
+      .from("whatsapp_subscriptions")
+      .select("is_byok")
+      .eq("email", user.email)
+      .eq("is_byok", true);
+
+    const isByok = Boolean(
+      (webSub && webSub.length > 0) || (waSub && waSub.length > 0)
+    );
+
+    return NextResponse.json({
+      data: {
+        bot_name: apiKeyData?.bot_name || "Woodpetra AI",
+        openai_api_key: apiKeyData?.openai_api_key || "",
+        openai_org_id: apiKeyData?.openai_org_id || "",
+        openai_model: apiKeyData?.openai_model || "gpt-4o-mini",
+        enable_chatbot: apiKeyData?.enable_chatbot ?? true,
+        use_history_context: apiKeyData?.use_history_context ?? true,
+        is_byok: isByok,
+      },
+    });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
 
-// 2. POST: Save/Update settings ONLY for the logged-in customer
+// 2. POST: Save/Update settings with BYOK validation
 export async function POST(request: Request) {
   try {
     const { user, supabase } = await getAuthenticatedUser();
@@ -77,22 +106,41 @@ export async function POST(request: Request) {
       openai_org_id,
     } = body;
 
-    // Build payload dynamically linked strictly to user.id
+    // Check BYOK requirement before saving
+    const { data: webSub } = await supabase
+      .from("subscriptions")
+      .select("is_byok")
+      .eq("email", user.email)
+      .eq("is_byok", true);
+
+    const { data: waSub } = await supabase
+      .from("whatsapp_subscriptions")
+      .select("is_byok")
+      .eq("email", user.email)
+      .eq("is_byok", true);
+
+    const isByok = Boolean(
+      (webSub && webSub.length > 0) || (waSub && waSub.length > 0)
+    );
+
+    if (isByok && (!openai_api_key || !openai_api_key.trim())) {
+      return NextResponse.json(
+        { error: "OpenAI API Key is compulsory for active BYOK subscriptions." },
+        { status: 400 }
+      );
+    }
+
+    // Build payload linked to authenticated user.id
     const payload: Record<string, any> = {
       user_id: user.id,
       bot_name: bot_name || "Woodpetra AI",
       openai_model: openai_model || "gpt-4o-mini",
       enable_chatbot: enable_chatbot ?? true,
       use_history_context: use_history_context ?? true,
+      openai_api_key: openai_api_key ? openai_api_key.trim() : "",
+      openai_org_id: openai_org_id ? openai_org_id.trim() : "",
       updated_at: new Date().toISOString(),
     };
-
-    if (openai_api_key && openai_api_key !== "value exist add new to update") {
-      payload.openai_api_key = openai_api_key;
-    }
-    if (openai_org_id && openai_org_id !== "value exist add new to update") {
-      payload.openai_org_id = openai_org_id;
-    }
 
     const { error: upsertError } = await supabase
       .from("user_api_keys")
