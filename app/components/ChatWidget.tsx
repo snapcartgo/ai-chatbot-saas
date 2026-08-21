@@ -589,18 +589,25 @@ if (textarea) {
 
       // Extract explicit payment link or detect payment patterns
       // Extract URL directly from reply/message if not passed in dedicated fields
-      const messageBody = typeof data.reply === "string" ? data.reply : typeof data.message === "string" ? data.message : "";
-      const inlineUrl = messageBody.match(/\bhttps?:\/\/[^\s<>"']+/i)?.[0] || null;
+      // 1. Safe regex match for URLs in text or fields
+      const messageBody =
+        typeof data.reply === "string"
+          ? data.reply
+          : typeof data.message === "string"
+          ? data.message
+          : "";
 
-      // ✅ FIXED (Uses your isPaymentUrl sanitizer):
-const rawPaymentUrl =
-  (typeof data.payment_link === "string" && isPaymentUrl(data.payment_link)
-    ? data.payment_link.trim()
-    : null) ||
-  (typeof data.actionUrl === "string" && isPaymentUrl(data.actionUrl)
-    ? data.actionUrl.trim()
-    : null) ||
-  (inlineUrl && isPaymentUrl(inlineUrl) ? inlineUrl : null);
+      // Extract URL from string even if wrapped with \n or whitespace
+      const matchedUrl = messageBody.match(/https?:\/\/[^\s<>"']+/i)?.[0]?.trim() || null;
+
+      const rawPaymentUrl =
+        (typeof data.payment_link === "string" && isPaymentUrl(data.payment_link)
+          ? data.payment_link.trim()
+          : null) ||
+        (typeof data.actionUrl === "string" && isPaymentUrl(data.actionUrl)
+          ? data.actionUrl.trim()
+          : null) ||
+        (matchedUrl && isPaymentUrl(matchedUrl) ? matchedUrl : null);
 
       const rawProductUrl =
         (typeof data.product_url === "string" && data.product_url.trim()) ||
@@ -608,7 +615,6 @@ const rawPaymentUrl =
         null;
 
       if (isMySaasBot) {
-        // 1. SAAS BOT: ALLOWS ALL BUTTONS (Pay Now, Billing, Contact Us, Open Page)
         redirectCandidate =
           rawPaymentUrl ||
           rawProductUrl ||
@@ -618,9 +624,13 @@ const rawPaymentUrl =
 
         if (redirectCandidate) {
           const lowerUrl = redirectCandidate.toLowerCase();
-          if (rawPaymentUrl || lowerUrl.includes("/pay") || lowerUrl.includes("payu") || lowerUrl.includes("paypal")) {
+          if (rawPaymentUrl || isPaymentUrl(lowerUrl)) {
             actionLabel = "Pay Now";
-          } else if (lowerUrl.includes("/billing") || lowerUrl.includes("pricing") || lowerUrl.includes("plan")) {
+          } else if (
+            lowerUrl.includes("/billing") ||
+            lowerUrl.includes("pricing") ||
+            lowerUrl.includes("plan")
+          ) {
             actionLabel = "Billing";
           } else if (lowerUrl.includes("/contact") || lowerUrl.includes("support")) {
             actionLabel = "Contact Us";
@@ -631,11 +641,16 @@ const rawPaymentUrl =
           }
         }
       } else {
-        // 2. CUSTOMER BOTS: ONLY ALLOWS PAY NOW & VIEW PRODUCT
+        // Customer Bot: Set Pay Now button if any payment URL is found
         if (rawPaymentUrl) {
           redirectCandidate = rawPaymentUrl;
           actionLabel = "Pay Now";
-        } else if (rawProductUrl || data.type === "product" || data.name || data.product_name) {
+        } else if (
+          rawProductUrl ||
+          data.type === "product" ||
+          data.name ||
+          data.product_name
+        ) {
           redirectCandidate = rawProductUrl;
           actionLabel = "View Product";
         } else {
@@ -647,6 +662,11 @@ const rawPaymentUrl =
       const safeActionUrl = redirectCandidate ? sanitizeHttpUrl(redirectCandidate) : null;
       const finalActionLabel = safeActionUrl ? actionLabel : undefined;
 
+      // Clean message text so the URL isn't duplicated in the bubble text
+      let displayContent = messageBody;
+      if (safeActionUrl && messageBody.includes(safeActionUrl)) {
+        displayContent = messageBody.replace(safeActionUrl, "").trim();
+      }
       // 1. Carousel Payload State Interceptor
       if (data.type === "carousel" || data.messageType === "carousel" || Array.isArray(data.items)) {
         setMessages([
@@ -696,16 +716,17 @@ const rawPaymentUrl =
         ]);
         return;
       }
-      // 3. Fallback Regular Text Message Handler
+      // // 3. Fallback Regular Text Message Handler
       setMessages([
         ...newMessages,
         {
           role: "assistant",
           messageType: "text",
           content:
+            displayContent ||
             (typeof data.reply === "string" && data.reply.trim()) ||
             (typeof data.message === "string" && data.message.trim()) ||
-            "I received your message but have no response.",
+            "Please click below to proceed.",
           actionUrl: safeActionUrl || undefined,
           actionLabel: finalActionLabel,
         },
