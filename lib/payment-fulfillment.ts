@@ -444,3 +444,18 @@ export async function fulfillSaasBilling(params: {
     message_limit: PLAN_LIMITS.website[webTier].message_limit,
   };
 }
+export function isWhatsAppPlan(raw: string | null | undefined): boolean {
+  const { category } = detectPlanCategoryAndTier(raw);
+  return category === "whatsapp";
+}
+
+export function normalizePlan(raw: string | null | undefined): string {
+  const { category, tier, isBYOK } = detectPlanCategoryAndTier(raw);
+  if (category === "whatsapp") {
+    return `whatsapp_${tier}${isBYOK ? "_byok" : ""}`;
+  }
+  if (category === "combo") {
+    return `${tier}_combo${isBYOK ? "_byok" : ""}`;
+  }
+  return `${tier}${isBYOK ? "_byok" : ""}`;
+}
