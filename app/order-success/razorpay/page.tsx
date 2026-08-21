@@ -22,13 +22,26 @@ function RazorpayOrderSuccessContent() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    async function fetchOrderAndStoreUrl() {
+    async function verifyAndLoadOrder() {
       if (!orderId) {
         setLoading(false);
         return;
       }
 
-      // 1. Fetch order details from Supabase
+      // 1. Call server API to update payment_status to PAID using service role
+      if (paymentId) {
+        try {
+          await fetch("/api/ecommerce-razorpay/verify-payment", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ order_id: orderId, payment_id: paymentId }),
+          });
+        } catch (e) {
+          console.error("Payment verification call failed:", e);
+        }
+      }
+
+      // 2. Fetch updated order
       const { data: orderData } = await supabase
         .from("orders")
         .select("*")
@@ -38,7 +51,7 @@ function RazorpayOrderSuccessContent() {
       if (orderData) {
         setOrder(orderData);
 
-        // 2. Fetch the merchant's store website URL only
+        // Fetch merchant website URL
         if (orderData.user_id) {
           const { data: profile } = await supabase
             .from("profiles")
@@ -47,11 +60,8 @@ function RazorpayOrderSuccessContent() {
             .maybeSingle();
 
           const storeSite =
-            profile?.website_url ||
-            profile?.store_url ||
-            profile?.domain;
+            profile?.website_url || profile?.store_url || profile?.domain;
 
-          // Only set return URL if a valid custom website exists and it is NOT woodpetra.in
           if (storeSite && !storeSite.includes("woodpetra.in")) {
             const formattedUrl = storeSite.startsWith("http")
               ? storeSite
@@ -63,17 +73,12 @@ function RazorpayOrderSuccessContent() {
       setLoading(false);
     }
 
-    fetchOrderAndStoreUrl();
-  }, [orderId]);
-
-  const handleCloseWindow = () => {
-    window.close();
-  };
+    verifyAndLoadOrder();
+  }, [orderId, paymentId]);
 
   return (
     <div className="min-h-screen bg-black flex items-center justify-center p-6">
       <div className="max-w-md w-full p-8 bg-gray-900 rounded-2xl border border-gray-800 text-center shadow-xl">
-        {/* Success Icon */}
         <div className="bg-green-100 p-4 rounded-full mb-4 inline-flex">
           <CheckCircle className="w-16 h-16 text-green-600" />
         </div>
@@ -83,7 +88,6 @@ function RazorpayOrderSuccessContent() {
           Your payment via Razorpay was successful.
         </p>
 
-        {/* Order Details */}
         <div className="bg-gray-800/60 rounded-xl p-4 mb-6 text-left border border-gray-700/50 space-y-2">
           <div className="flex justify-between text-sm py-1 border-b border-gray-700/40">
             <span className="text-gray-400">Order ID:</span>
@@ -118,7 +122,6 @@ function RazorpayOrderSuccessContent() {
           💬 Confirmation & receipt details have been sent to your WhatsApp number.
         </p>
 
-        {/* Conditional Action: Show 'Return to Store' ONLY if merchant URL exists, otherwise show 'Close Window' */}
         {returnUrl ? (
           <a
             href={returnUrl}
@@ -128,7 +131,7 @@ function RazorpayOrderSuccessContent() {
           </a>
         ) : (
           <button
-            onClick={handleCloseWindow}
+            onClick={() => window.close()}
             className="inline-flex items-center justify-center gap-2 w-full bg-gray-800 hover:bg-gray-700 text-gray-200 px-8 py-3 rounded-lg font-medium transition border border-gray-700"
           >
             <X className="w-4 h-4" />
