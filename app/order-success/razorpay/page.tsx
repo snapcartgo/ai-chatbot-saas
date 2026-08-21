@@ -2,8 +2,7 @@
 
 import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import Link from "next/link";
-import { CheckCircle } from "lucide-react";
+import { CheckCircle, X } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(
@@ -13,42 +12,68 @@ const supabase = createClient(
 
 function RazorpayOrderSuccessContent() {
   const searchParams = useSearchParams();
-
-  // Razorpay appends these parameters on payment redirection
   const orderId =
     searchParams.get("order_id") ||
     searchParams.get("razorpay_payment_link_reference_id");
   const paymentId = searchParams.get("razorpay_payment_id");
 
   const [order, setOrder] = useState<any>(null);
+  const [returnUrl, setReturnUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    async function fetchOrderDetails() {
+    async function fetchOrderAndStoreUrl() {
       if (!orderId) {
         setLoading(false);
         return;
       }
 
-      const { data } = await supabase
+      // 1. Fetch order details from Supabase
+      const { data: orderData } = await supabase
         .from("orders")
         .select("*")
-        .eq("order_id", orderId)
+        .eq("id", orderId)
         .maybeSingle();
 
-      if (data) {
-        setOrder(data);
+      if (orderData) {
+        setOrder(orderData);
+
+        // 2. Fetch the merchant's store website URL only
+        if (orderData.user_id) {
+          const { data: profile } = await supabase
+            .from("profiles")
+            .select("website_url, store_url, domain")
+            .eq("id", orderData.user_id)
+            .maybeSingle();
+
+          const storeSite =
+            profile?.website_url ||
+            profile?.store_url ||
+            profile?.domain;
+
+          // Only set return URL if a valid custom website exists and it is NOT woodpetra.in
+          if (storeSite && !storeSite.includes("woodpetra.in")) {
+            const formattedUrl = storeSite.startsWith("http")
+              ? storeSite
+              : `https://${storeSite}`;
+            setReturnUrl(formattedUrl);
+          }
+        }
       }
       setLoading(false);
     }
 
-    fetchOrderDetails();
+    fetchOrderAndStoreUrl();
   }, [orderId]);
+
+  const handleCloseWindow = () => {
+    window.close();
+  };
 
   return (
     <div className="min-h-screen bg-black flex items-center justify-center p-6">
-      <div className="max-w-md w-full p-8 bg-gray-900 rounded-2xl border border-gray-800 text-center">
-        {/* Green Checkmark */}
+      <div className="max-w-md w-full p-8 bg-gray-900 rounded-2xl border border-gray-800 text-center shadow-xl">
+        {/* Success Icon */}
         <div className="bg-green-100 p-4 rounded-full mb-4 inline-flex">
           <CheckCircle className="w-16 h-16 text-green-600" />
         </div>
@@ -65,17 +90,21 @@ function RazorpayOrderSuccessContent() {
             <span className="text-white font-mono font-medium">{orderId || "N/A"}</span>
           </div>
 
-          {paymentId && (
+          {(paymentId || order?.payment_id) && (
             <div className="flex justify-between text-sm py-1 border-b border-gray-700/40">
               <span className="text-gray-400">Payment ID:</span>
-              <span className="text-white font-mono text-xs">{paymentId}</span>
+              <span className="text-white font-mono text-xs">
+                {paymentId || order?.payment_id}
+              </span>
             </div>
           )}
 
-          {order?.total_amount && (
+          {(order?.price || order?.total_amount) && (
             <div className="flex justify-between text-sm py-1 border-b border-gray-700/40">
               <span className="text-gray-400">Amount Paid:</span>
-              <span className="text-green-400 font-semibold">₹{order.total_amount}</span>
+              <span className="text-green-400 font-semibold">
+                ₹{order?.price || order?.total_amount}
+              </span>
             </div>
           )}
 
@@ -89,12 +118,23 @@ function RazorpayOrderSuccessContent() {
           💬 Confirmation & receipt details have been sent to your WhatsApp number.
         </p>
 
-        <Link
-          href="/"
-          className="inline-block w-full bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-lg font-medium transition"
-        >
-          Return to Store
-        </Link>
+        {/* Conditional Action: Show 'Return to Store' ONLY if merchant URL exists, otherwise show 'Close Window' */}
+        {returnUrl ? (
+          <a
+            href={returnUrl}
+            className="inline-block w-full bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-lg font-medium transition"
+          >
+            Return to Store
+          </a>
+        ) : (
+          <button
+            onClick={handleCloseWindow}
+            className="inline-flex items-center justify-center gap-2 w-full bg-gray-800 hover:bg-gray-700 text-gray-200 px-8 py-3 rounded-lg font-medium transition border border-gray-700"
+          >
+            <X className="w-4 h-4" />
+            Close Tab
+          </button>
+        )}
       </div>
     </div>
   );
