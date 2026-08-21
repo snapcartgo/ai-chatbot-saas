@@ -27,33 +27,33 @@ const RAZORPAY_LINKS: {
 } = {
   standard: {
     // Website
-    web_starter: "https://rzp.io/rzp/WS1oIbCc",
-    web_pro: "https://rzp.io/rzp/WS1oIbCc",
-    web_growth: "https://rzp.io/rzp/WS1oIbCc",
-    web_business: "https://rzp.io/rzp/WS1oIbCc",
+    starter: "https://rzp.io/rzp/WS1oIbCc",
+    pro: "https://rzp.io/rzp/WS1oIbCc",
+    growth: "https://rzp.io/rzp/WS1oIbCc",
+    business: "https://rzp.io/rzp/WS1oIbCc",
     // WhatsApp
-    wa_starter: "https://rzp.io/rzp/vWl9upj",
-    wa_pro: "https://rzp.io/rzp/WS1oIbCc",
-    wa_growth: "https://rzp.io/rzp/WS1oIbCc",
-    wa_business: "https://rzp.io/rzp/WS1oIbCc",
+    whatsapp_starter: "https://rzp.io/rzp/vWl9upj",
+    whatsapp_pro: "https://rzp.io/rzp/WS1oIbCc",
+    whatsapp_growth: "https://rzp.io/rzp/WS1oIbCc",
+    whatsapp_business: "https://rzp.io/rzp/WS1oIbCc",
     // Combo
-    combo_business: "https://rzp.io/rzp/g8FCMwQH",
-    combo_enterprise: "https://rzp.io/rzp/WS1oIbCc",
+    business_combo: "https://rzp.io/rzp/g8FCMwQH",
+    enterprise_combo: "https://rzp.io/rzp/WS1oIbCc",
   },
   byok: {
     // Website (BYOK Links)
-    web_starter: "https://rzp.io/rzp/f7BiwdB",
-    web_pro: "https://rzp.io/rzp/f7BiwdB",
-    web_growth: "https://rzp.io/rzp/f7BiwdB",
-    web_business: "https://rzp.io/rzp/f7BiwdB",
+    starter: "https://rzp.io/rzp/f7BiwdB",
+    pro: "https://rzp.io/rzp/f7BiwdB",
+    growth: "https://rzp.io/rzp/f7BiwdB",
+    business: "https://rzp.io/rzp/f7BiwdB",
     // WhatsApp (BYOK Links)
-    wa_starter: "https://rzp.io/rzp/J0zCJRsr",
-    wa_pro: "https://rzp.io/rzp/f7BiwdB",
-    wa_growth: "https://rzp.io/rzp/f7BiwdB",
-    wa_business: "https://rzp.io/rzp/f7BiwdB",
+    whatsapp_starter: "https://rzp.io/rzp/J0zCJRsr",
+    whatsapp_pro: "https://rzp.io/rzp/f7BiwdB",
+    whatsapp_growth: "https://rzp.io/rzp/f7BiwdB",
+    whatsapp_business: "https://rzp.io/rzp/f7BiwdB",
     // Combo (BYOK Links)
-    combo_business: "https://rzp.io/rzp/YIK76lg1",
-    combo_enterprise: "https://rzp.io/rzp/f7BiwdB",
+    business_combo: "https://rzp.io/rzp/YIK76lg1",
+    enterprise_combo: "https://rzp.io/rzp/f7BiwdB",
   },
 };
 
@@ -83,19 +83,26 @@ export default function BillingPage() {
         console.error("Billing user lookup error:", error);
       }
 
-      setIsIndia(data?.country === "India");
+      setIsIndia(data?.country === "India" || !data?.country);
     };
 
     getUserData();
   }, []);
 
-  const handlePayment = (
+  const handlePayment = async (
     planId: string,
     price: number,
     gateway: GatewayType
   ) => {
-    if (!userEmail) {
-      alert("User not logged in");
+    let email = userEmail;
+
+    if (!email) {
+      const { data: { user } } = await supabase.auth.getUser();
+      email = user?.email || null;
+    }
+
+    if (!email) {
+      alert("User not logged in. Please log in to proceed.");
       return;
     }
 
@@ -117,15 +124,17 @@ export default function BillingPage() {
       return;
     }
 
-    window.location.href = `/api/${gateway}?plan=${planId}&category=${activeTab}&byok=${isBYOK}&email=${encodeURIComponent(
-      userEmail
+    window.location.href = `/api/${gateway}?plan=${encodeURIComponent(
+      planId
+    )}&category=${activeTab}&byok=${isBYOK}&email=${encodeURIComponent(
+      email
     )}&amount=${price}`;
   };
 
   const PLANS_DATA: Record<PlanCategory, PlanItem[]> = {
     website: [
       {
-        planId: "web_starter",
+        planId: "starter",
         name: "Starter",
         usdPrice: 19,
         usdBYOK: 12,
@@ -145,7 +154,7 @@ export default function BillingPage() {
         ],
       },
       {
-        planId: "web_pro",
+        planId: "pro",
         name: "Pro",
         usdPrice: 39,
         usdBYOK: 25,
@@ -165,7 +174,7 @@ export default function BillingPage() {
         highlight: true,
       },
       {
-        planId: "web_growth",
+        planId: "growth",
         name: "Growth",
         usdPrice: 69,
         usdBYOK: 45,
@@ -185,7 +194,7 @@ export default function BillingPage() {
         ],
       },
       {
-        planId: "web_business",
+        planId: "business",
         name: "Business",
         usdPrice: 99,
         usdBYOK: 65,
@@ -207,7 +216,7 @@ export default function BillingPage() {
     ],
     whatsapp: [
       {
-        planId: "wa_starter",
+        planId: "whatsapp_starter",
         name: "Starter",
         usdPrice: 29,
         usdBYOK: 19,
@@ -226,7 +235,7 @@ export default function BillingPage() {
         ],
       },
       {
-        planId: "wa_pro",
+        planId: "whatsapp_pro",
         name: "Pro",
         usdPrice: 59,
         usdBYOK: 39,
@@ -245,7 +254,7 @@ export default function BillingPage() {
         highlight: true,
       },
       {
-        planId: "wa_growth",
+        planId: "whatsapp_growth",
         name: "Growth",
         usdPrice: 99,
         usdBYOK: 69,
@@ -264,7 +273,7 @@ export default function BillingPage() {
         ],
       },
       {
-        planId: "wa_business",
+        planId: "whatsapp_business",
         name: "Business",
         usdPrice: 149,
         usdBYOK: 105,
@@ -285,7 +294,7 @@ export default function BillingPage() {
     ],
     combo: [
       {
-        planId: "combo_business",
+        planId: "business_combo",
         name: "Business Combo",
         usdPrice: 129,
         usdBYOK: 89,
@@ -307,7 +316,7 @@ export default function BillingPage() {
         ],
       },
       {
-        planId: "combo_enterprise",
+        planId: "enterprise_combo",
         name: "Enterprise Combo",
         usdPrice: 249,
         usdBYOK: 169,

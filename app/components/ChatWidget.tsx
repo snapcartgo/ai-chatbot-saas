@@ -108,6 +108,9 @@ const EXTERNAL_PAYMENT_HOSTS = new Set([
   "paypal.com",
   "secure.payu.in",
   "test.payu.in",
+  "rzp.io",
+  "pages.razorpay.com",
+  "razorpay.com",
 ]);
 
 const PLAIN_URL_REGEX = /\bhttps?:\/\/[^\s<>"']+/gi;
@@ -119,6 +122,35 @@ function sanitizeHttpUrl(raw: string): string | null {
     return url.toString();
   } catch {
     return null;
+  }
+}
+
+function isPaymentUrl(raw: string | null | undefined): boolean {
+  if (!raw || typeof raw !== "string") return false;
+  try {
+    const parsed = new URL(raw.trim());
+    const host = parsed.hostname.toLowerCase();
+    const path = parsed.pathname.toLowerCase();
+
+    const isAllowedHost =
+      EXTERNAL_PAYMENT_HOSTS.has(host) ||
+      host.endsWith(".razorpay.com") ||
+      host.endsWith(".rzp.io") ||
+      host.endsWith(".payu.in") ||
+      host.endsWith(".paypal.com");
+
+    const isInternalPayment =
+      host === "woodpetra.in" &&
+      (path.includes("payment") ||
+        path.includes("checkout") ||
+        path.includes("payu") ||
+        path.includes("paypal") ||
+        path.includes("razorpay") ||
+        path.includes("order-success"));
+
+    return isAllowedHost || isInternalPayment;
+  } catch {
+    return false;
   }
 }
 
@@ -556,15 +588,19 @@ if (textarea) {
       let actionLabel: string | undefined;
 
       // Extract explicit payment link or detect payment patterns
-      const rawPaymentUrl =
-        (typeof data.payment_link === "string" && data.payment_link.trim()) ||
-        (typeof data.actionUrl === "string" &&
-          (data.actionUrl.includes("/pay") ||
-            data.actionUrl.includes("payu") ||
-            data.actionUrl.includes("paypal") ||
-            data.actionUrl.includes("payment"))
-          ? data.actionUrl.trim()
-          : null);
+      // Extract URL directly from reply/message if not passed in dedicated fields
+      const messageBody = typeof data.reply === "string" ? data.reply : typeof data.message === "string" ? data.message : "";
+      const inlineUrl = messageBody.match(/\bhttps?:\/\/[^\s<>"']+/i)?.[0] || null;
+
+      // ✅ FIXED (Uses your isPaymentUrl sanitizer):
+const rawPaymentUrl =
+  (typeof data.payment_link === "string" && isPaymentUrl(data.payment_link)
+    ? data.payment_link.trim()
+    : null) ||
+  (typeof data.actionUrl === "string" && isPaymentUrl(data.actionUrl)
+    ? data.actionUrl.trim()
+    : null) ||
+  (inlineUrl && isPaymentUrl(inlineUrl) ? inlineUrl : null);
 
       const rawProductUrl =
         (typeof data.product_url === "string" && data.product_url.trim()) ||

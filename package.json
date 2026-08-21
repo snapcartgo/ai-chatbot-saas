@@ -28,6 +28,7 @@
     "papaparse": "^5.5.3",
     "pdf-parse-fork": "^1.2.0",
     "pdfjs-dist": "^3.11.174",
+    "razorpay": "^2.9.8",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "redis": "^6.2.0",
