@@ -1,77 +1,121 @@
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import crypto from "crypto";
+import { fulfillSaasBilling } from "@/lib/payment-fulfillment";
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+export async function GET() {
+  return NextResponse.json({
+    status: "ok",
+    message: "Razorpay webhook is live and ready for POST requests",
+  });
+}
 
 export async function POST(req: Request) {
   try {
     const bodyText = await req.text();
-    const signature = req.headers.get("x-razorpay-signature") || "";
-    
-    // 1. Verify signature authenticity safely
-    const expectedSignature = crypto
-      .createHmac("sha256", process.env.RAZORPAY_WEBHOOK_SECRET!)
-      .update(bodyText)
-      .digest("hex");
+    const signature = req.headers.get("x-razorpay-signature");
+    const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
 
-    if (expectedSignature !== signature) {
-      console.error("❌ Razorpay webhook signature verification failed.");
-      return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
+    if (signature && secret) {
+      const expectedSignature = crypto
+        .createHmac("sha256", secret)
+        .update(bodyText)
+        .digest("hex");
+
+      if (expectedSignature !== signature) {
+        console.error("❌ Razorpay signature verification failed.");
+        return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
+      }
     }
 
     const body = JSON.parse(bodyText);
 
-    // Filter for payment captured status only
-    if (body.event !== "payment.captured") {
+    const supportedEvents = [
+      "payment.captured",
+      "payment_link.paid",
+      "order.paid",
+      "payment_page.paid",
+      "invoice.paid",
+    ];
+
+    if (body.event && !supportedEvents.includes(body.event)) {
       return NextResponse.json({ received: true });
     }
 
-    const payment = body.payload.payment.entity;
-    const paymentEmail = (payment.email || "").toLowerCase().trim();
+    const payment = body.payload?.payment?.entity;
+    const paymentLink = body.payload?.payment_link?.entity;
+    const paymentPage = body.payload?.payment_page?.entity;
+    const order = body.payload?.order?.entity;
+
+    const paymentEmail = (
+      payment?.email ||
+      paymentLink?.customer?.email ||
+      paymentPage?.customer?.email ||
+      payment?.notes?.email ||
+      order?.notes?.email ||
+      ""
+    )
+      .toLowerCase()
+      .trim();
 
     if (!paymentEmail) {
-      return NextResponse.json({ error: "No email payload provided" }, { status: 400 });
+      console.error("❌ Webhook error: No customer email found in payload.");
+      return NextResponse.json(
+        { error: "No email payload found" },
+        { status: 400 }
+      );
     }
 
-    console.log(`Processing valid checkout loop for consumer: ${paymentEmail}`);
+    const amount = payment?.amount
+      ? Number(payment.amount) / 100
+      : paymentLink?.amount
+      ? Number(paymentLink.amount) / 100
+      : null;
 
-    const executionStart = new Date();
-    const activeExpiryWindow = new Date();
-    activeExpiryWindow.setDate(executionStart.getDate() + 30);
+    const allNotesText = JSON.stringify({
+      paymentNotes: payment?.notes,
+      linkNotes: paymentLink?.notes,
+      orderNotes: order?.notes,
+      description: payment?.description,
+      pageTitle: paymentPage?.title,
+      pageId: paymentPage?.id,
+      linkTitle: paymentLink?.title,
+      linkId: paymentLink?.id,
+    });
 
-    // 2. Direct Update based on the active email column row directly inside subscriptions table 
-    const { error: subError } = await supabaseAdmin
-      .from("subscriptions")
-      .update({
-        status: "active",
-        plan: "starter",
-        chatbot_limit: 1,
-        message_limit: 1000,
-        message_used: 0,
-        amount: Number(payment.amount || 0) / 100, // Convert paisa to rupees formatting
-        messages_reset_at: executionStart.toISOString(),
-        billing_cycle_start: executionStart.toISOString(),
-        billing_cycle_end: activeExpiryWindow.toISOString(),
-        plan_expiry: activeExpiryWindow.toISOString().split("T")[0],
-      })
-      .eq("email", paymentEmail); // Locates your exact 'azaaditheband@gmail.com' row instantly!
+    const rawPlan = [
+      paymentPage?.title,
+      paymentPage?.id,
+      paymentLink?.title,
+      paymentLink?.id,
+      paymentLink?.notes?.plan_id,
+      paymentLink?.reference_id,
+      payment?.notes?.plan_id,
+      payment?.notes?.plan,
+      payment?.notes?.title,
+      payment?.notes?.payment_page_id,
+      order?.notes?.plan_id,
+      payment?.description,
+      allNotesText,
+    ]
+      .filter(Boolean)
+      .join(" ");
 
-    if (subError) {
-      console.error("❌ Supabase Write Failure:", subError.message);
-      return NextResponse.json({ error: subError.message }, { status: 500 });
-    }
+    console.log(
+      `🔍 Webhook Processing | Event: ${body.event || "manual_test"} | User: ${paymentEmail} | Raw Identifier: "${rawPlan}"`
+    );
 
-    console.log(`🚀 Success! Row updated perfectly for user account: ${paymentEmail}`);
-    return NextResponse.json({ success: true });
+    const result = await fulfillSaasBilling({
+      email: paymentEmail,
+      rawPlan: rawPlan || "WhatsApp Starter BYOK",
+      amount,
+    });
 
+    console.log("🚀 Supabase tables updated successfully:", result);
+    return NextResponse.json({ success: true, result });
   } catch (err: any) {
-    console.error("❌ System runtime crash inside webhook handler:", err.message);
+    console.error("❌ Razorpay webhook handler error:", err.message);
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }

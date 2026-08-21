@@ -21,7 +21,13 @@ export async function POST(req: Request) {
       price,
       customer_email,
       phone,
-      name, // ✅ ADD THIS
+      name,
+      // ✅ EXTRACT ADDRESS & QUANTITY FIELDS
+      address,
+      city,
+      state,
+      pincode,
+      quantity,
     } = body;
 
     const cleanOrderId = id?.trim();
@@ -47,10 +53,11 @@ export async function POST(req: Request) {
     // ✅ CORRECT DATA
     const amount = Number(price).toFixed(2);
     const firstname =
-      name || customer_email?.split("@")[0] || "Customer"; // ✅ FIXED
+      name || customer_email?.split("@")[0] || "Customer";
     const email = customer_email || "";
     const productinfo = product_name || "Product";
-    const phoneNumber = String(phone || "9999999999"); // ✅ FIXED
+    const phoneNumber = String(phone || "9999999999");
+    const orderQuantity = Number(quantity) || 1; // ✅ QUANTITY FALLBACK
 
     // ✅ HASH
     const hashString =
@@ -88,7 +95,7 @@ export async function POST(req: Request) {
       hash: generatedHash,
     };
 
-    // ✅ SAVE ORDER (UPDATED)
+    // ✅ SAVE ORDER (WITH ADDRESS & QUANTITY)
     const { error } = await supabase.from("orders").upsert(
       [
         {
@@ -98,8 +105,14 @@ export async function POST(req: Request) {
           product_name,
           price: Number(price),
           customer_email,
-          phone: phoneNumber,   // ✅ SAVE PHONE
-          name: firstname,     // ✅ SAVE NAME
+          phone: phoneNumber,
+          name: firstname,
+          // ✅ MAP ADDRESS & QUANTITY COLUMNS
+          address: address || null,
+          city: city || null,
+          state: state || null,
+          pincode: pincode ? String(pincode) : null,
+          quantity: orderQuantity,
           payment_status: "pending",
           payu_data,
         },

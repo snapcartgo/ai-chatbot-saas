@@ -68,7 +68,21 @@ export async function POST(request: Request) {
     // 7. Apply conditional filters
     if (category) query = query.ilike('category', `%${category.trim()}%`);
     if (product_type) query = query.ilike('product_type', `%${product_type.trim()}%`);
-    if (color && color !== "") query = query.ilike('color', `%${color.trim()}%`);
+    // Multi-color parser
+    // Multi-color parser
+    const rawColors = color
+      ? color.split(',').map((c: string) => c.trim().toLowerCase()).filter(Boolean)
+      : [];
+
+    const requestedColors = rawColors.filter((c: string) => !(q || '').toLowerCase().includes(c));
+
+    // Use .in() filter instead of .or() to prevent cross-table OR condition leaks
+    if (requestedColors.length === 1) {
+      query = query.ilike('color', `%${requestedColors[0]}%`);
+    } else if (requestedColors.length > 1) {
+      const formattedColors = requestedColors.map((c: string) => c.charAt(0).toUpperCase() + c.slice(1));
+      query = query.in('color', [...requestedColors, ...formattedColors]);
+    }
 
     // Intelligent Price Filter Parser
     if (price_query && price_query !== "null" && price_query.trim() !== "") {
@@ -103,34 +117,39 @@ export async function POST(request: Request) {
       if (genericWords.includes(cleanQuery)) {
         isGenericSearch = true;
       } else {
-        // Handle comma-separated or "and"-separated multi-product searches
+        // 1. Split across commas, "and", and "or"
         const rawItems = cleanQuery
-          .split(/(?:,| and )/g)
+          .split(/(?:,|\band\b|\bor\b)/gi)
           .map((item: string) => item.trim())
           .filter(Boolean);
 
-        const colorAdjectives = ["white", "black", "blue", "red", "green", "grey", "gray", "yellow", "olive green", "olive"];
-        const stockNoiseWords = ["stock", "available", "availability", "in stock", "is", "are", "have", "present", "left", "do", "you"];
+        const stockNoiseWords = ["stock", "available", "availability", "in stock", "is", "are", "have", "present", "left", "do", "you", "sell", "show", "me"];
 
         const conditions: string[] = [];
 
         rawItems.forEach((itemStr: string) => {
-          let queryWords = itemStr.split(/\s+/).filter((word: string) => 
-            !colorAdjectives.includes(word) && !stockNoiseWords.includes(word)
+          let words = itemStr.split(/\s+/).filter((word: string) => 
+            !stockNoiseWords.includes(word)
           );
           
-          queryWords = queryWords.map((word: string) => {
-            if (word === "shirts" || word === "tshirt" || word === "tshirts") return "t-shirt";
-            if (word === "chairs") return "chair";
-            if (word === "tables") return "table";
-            if (word === "beds") return "bed";
+          // Normalize plurals/synonyms
+          words = words.map((word: string) => {
+            if (["shirts", "tshirt", "tshirts", "t-shirts"].includes(word)) return "t-shirt";
+            if (["chairs", "armchairs", "armchair"].includes(word)) return "chair";
+            if (["tables"].includes(word)) return "table";
+            if (["beds"].includes(word)) return "bed";
+            if (["caps", "hats"].includes(word)) return "cap";
             return word;
           });
 
-          const term = queryWords.join(" ");
-          if (term.length > 0) {
-            conditions.push(`name.ilike.%${term}%,description.ilike.%${term}%,category.ilike.%${term}%`);
-          }
+          // Match keywords across name, description, and category
+          words.forEach((w: string) => {
+            if (w.length > 2) {
+              conditions.push(`name.ilike.%${w}%`);
+              conditions.push(`description.ilike.%${w}%`);
+              conditions.push(`category.ilike.%${w}%`);
+            }
+          });
         });
 
         if (conditions.length > 0) {
@@ -142,7 +161,6 @@ export async function POST(request: Request) {
         }
       }
     }
-
     // 9. Execution
     let { data, error } = await query;
 
@@ -152,12 +170,40 @@ export async function POST(request: Request) {
     }
 
     // =========================================================================
+    // RELEVANCE SCORING & SORTING (Added to rank exact/best matches first)
+    // =========================================================================
+    let matchedItems = data || [];
+
+    if (q && !isGenericSearch && matchedItems.length > 1) {
+      const searchTerms = q.toLowerCase().split(/\s+/).filter(Boolean);
+
+       matchedItems = matchedItems.sort((a: any, b: any) => {
+        const nameA = (a.name || '').toLowerCase();
+        const nameB = (b.name || '').toLowerCase();
+        const cleanQ = q.trim().toLowerCase();
+
+        // 1. Exact full name match gets top priority
+        if (nameA === cleanQ) return -1;
+        if (nameB === cleanQ) return 1;
+
+        // 2. Full search phrase inclusion
+        if (nameA.includes(cleanQ) && !nameB.includes(cleanQ)) return -1;
+        if (!nameA.includes(cleanQ) && nameB.includes(cleanQ)) return 1;
+
+        // 3. Score based on matching individual keyword count
+        const scoreA = searchTerms.reduce((count: number, term: string) => count + (nameA.includes(term) ? 1 : 0), 0);
+        const scoreB = searchTerms.reduce((count: number, term: string) => count + (nameB.includes(term) ? 1 : 0), 0);
+
+        return scoreB - scoreA;
+      });
+    }
+
+    // =========================================================================
     // DYNAMIC STOCK & ALTERNATIVE ITEM HANDLING
     // =========================================================================
     const requestedItemName = (q || fallbackSearchTerm || 'item').trim();
 
     // Check if the specific search returned item(s) that are ALL OUT OF STOCK (stock = 0)
-    const matchedItems = data || [];
     const isExactMatchOutOfStock = matchedItems.length > 0 && matchedItems.every(item => getStockCount(item) === 0);
     const noExactMatchFound = matchedItems.length === 0;
 
@@ -193,15 +239,72 @@ export async function POST(request: Request) {
         message: responseMessage
       });
     }
+    // Extract base item name keywords (e.g., "t-shirt", "tshirt", "jeans")
+    const cleanSearchQuery = (q || fallbackSearchTerm || '').toLowerCase();
 
-    // Filter matching items that are in stock
-    const inStockItems = matchedItems.filter(item => getStockCount(item) > 0);
-    const topInStockItem = inStockItems[0] || matchedItems[0];
-    const topProductName = topInStockItem.name || topInStockItem.title || requestedItemName;
+    // Split multi-item queries into discrete requested product phrases (e.g., ["cap", "live-edge walnut coffee table"])
+    const rawRequestedPhrases = (q || fallbackSearchTerm || '')
+      .split(/(?:,|\band\b|\bor\b)/gi)
+      .map((s: string) => s.trim().toLowerCase())
+      .filter((s: string) => s.length > 0);
+
+    const inStockItems = matchedItems
+      .filter((item: any) => {
+        if (!q || isGenericSearch) return true;
+
+        const itemName = (item.name || '').toLowerCase().trim();
+        const itemCategory = (item.category || '').toLowerCase().trim();
+        const itemDesc = (item.description || '').toLowerCase().trim();
+        const fullItemText = `${itemName} ${itemCategory} ${itemDesc}`;
+
+        return rawRequestedPhrases.some((phrase: string) => {
+          const cleanPhrase = phrase.toLowerCase().trim();
+
+          // 1. Conflict Prevention: If query specifies "dining", exclude pure coffee tables
+          if (cleanPhrase.includes('dining') && !cleanPhrase.includes('coffee')) {
+            if (itemCategory.includes('coffee') || itemName.includes('coffee table')) {
+              return false;
+            }
+          }
+
+          // 2. Direct exact phrase match in Name or Category
+          if (fullItemText.includes(cleanPhrase)) return true;
+
+          // 3. Category match
+          if (itemCategory.includes(cleanPhrase)) return true;
+
+          const phraseWords = cleanPhrase.split(/\s+/).filter((w: string) => w.length > 2);
+
+          if (phraseWords.length === 1) {
+            return fullItemText.includes(phraseWords[0]);
+          }
+
+          // 4. For multi-word queries, ALL significant words must match
+          const matchedCount = phraseWords.filter((w: string) => fullItemText.includes(w)).length;
+          return matchedCount === phraseWords.length;
+        });
+      })
+      .filter((item: any) => getStockCount(item) > 0);
+
+    // Empty result guard: Prevents showing wrong fallback items
+    if (inStockItems.length === 0) {
+      return NextResponse.json({
+        data: [],
+        success: true,
+        is_stock_check: isStockQuery,
+        quantity: quantity,
+        total_price: 0,
+        message: `No products found matching "${q || fallbackSearchTerm || 'your criteria'}" under the requested price.`
+      });
+    }
+
+    const topInStockItem = inStockItems[0];
+    const topProductName = topInStockItem.name;
     const stockNum = getStockCount(topInStockItem);
+    const currencySymbol = topInStockItem.currency || '$';
 
     // Attach computed total prices to matched items
-    const enrichedItems = inStockItems.map(item => {
+    const enrichedItems = inStockItems.map((item: any) => {
       const unitPrice = parseFloat(item.price) || 0;
       return {
         ...item,
@@ -214,8 +317,50 @@ export async function POST(request: Request) {
     let matchMessage = "Here is what we found:";
 
 if (isStockQuery) {
-  matchMessage = `✅ Yes, *${topProductName}* is available in stock (${stockNum} units available).`;
-} else if (price_query || queryLower.includes('price') || queryLower.includes('cost') || quantity > 1) {
+  // 1. Check if multiple distinct products were queried (e.g. "Cap, Live-Edge Walnut Coffee Table")
+  const requestedItems = q
+    ? q.split(/(?:,|\band\b|\bor\b)/gi).map((s: string) => s.trim().toLowerCase()).filter(Boolean)
+    : [];
+
+  if (requestedItems.length > 1) {
+    const matchedNames = inStockItems.map((i: any) => (i.name || '').toLowerCase());
+    const availableList = inStockItems
+      .map((i: any) => `*${i.name}* (${getStockCount(i)} units)`)
+      .join(', ');
+
+    const missingItems = requestedItems.filter(
+      (req: string) => !matchedNames.some((m: string) => m.includes(req) || req.includes(m))
+    );
+
+    if (missingItems.length > 0 && inStockItems.length > 0) {
+      const missingFormatted = missingItems
+        .map((m: string) => `*${m.charAt(0).toUpperCase() + m.slice(1)}*`)
+        .join(', ');
+      matchMessage = `✅ Yes, ${availableList} is available in stock, but ${missingFormatted} is currently out of stock.`;
+    } else if (inStockItems.length > 0) {
+      matchMessage = `✅ Yes, all requested items are in stock: ${availableList}.`;
+    }
+  } else if (requestedColors.length > 1) {
+    // 2. Multi-color handling for a single product
+    const availableColors = inStockItems.map((i: any) => (i.color || '').toLowerCase());
+    const availableSummary = inStockItems
+      .map((i: any) => `${i.color || 'Standard'} (${getStockCount(i)} units)`)
+      .join(', ');
+
+    const missingColors = requestedColors.filter(
+      (c: string) => !availableColors.some((ac: string) => ac.includes(c))
+    );
+
+    if (missingColors.length > 0) {
+      matchMessage = `✅ *${topProductName}* is available in ${availableSummary}, but *${missingColors.join(', ')}* is currently out of stock.`;
+    } else {
+      matchMessage = `✅ Yes, *${topProductName}* is available in stock: ${availableSummary}.`;
+    }
+  } else {
+    // 3. Standard single-item stock message
+    matchMessage = `✅ Yes, *${topProductName}* is available in stock (${stockNum} units available).`;
+  }
+}else if (price_query || queryLower.includes('price') || queryLower.includes('cost') || quantity > 1) {
   const unitPrice = parseFloat(topInStockItem?.price || 0);
   const totalPrice = unitPrice * quantity;
   

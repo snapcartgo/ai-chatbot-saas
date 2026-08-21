@@ -549,45 +549,67 @@ if (textarea) {
         throw new Error(data?.reply || data?.message || "Server Error");
       }
 
-      const redirectCandidate =
-        typeof data.product_url === "string" && data.product_url.trim()
-          ? data.product_url.trim()
-          : typeof data.productUrl === "string" && data.productUrl.trim()
-          ? data.productUrl.trim()
-          : typeof data.website_url === "string" && data.website_url.trim()
-          ? data.website_url.trim()
-          : typeof data.redirect_url === "string" && data.redirect_url.trim()
-          ? data.redirect_url.trim()
-          : typeof data.payment_link === "string" && data.payment_link.trim()
-          ? data.payment_link.trim()
-          : typeof data.actionUrl === "string" && data.actionUrl.trim()
-          ? data.actionUrl.trim()
-          : null;
+      const SAAS_BOT_ID = "9ff1f58c-d09d-4449-97cc-a5860b640e2c";
+      const isMySaasBot = activeBotId === SAAS_BOT_ID;
 
-      const safeActionUrl = redirectCandidate
-        ? sanitizeHttpUrl(redirectCandidate)
-        : null;
-
+      let redirectCandidate: string | null = null;
       let actionLabel: string | undefined;
 
-      if (safeActionUrl) {
-        const lowerUrl = safeActionUrl.toLowerCase();
+      // Extract explicit payment link or detect payment patterns
+      const rawPaymentUrl =
+        (typeof data.payment_link === "string" && data.payment_link.trim()) ||
+        (typeof data.actionUrl === "string" &&
+          (data.actionUrl.includes("/pay") ||
+            data.actionUrl.includes("payu") ||
+            data.actionUrl.includes("paypal") ||
+            data.actionUrl.includes("payment"))
+          ? data.actionUrl.trim()
+          : null);
 
-        if (
-          lowerUrl.includes("/pay") ||
-          lowerUrl.includes("payu") ||
-          lowerUrl.includes("paypal") ||
-          lowerUrl.includes("payment")
-        ) {
+      const rawProductUrl =
+        (typeof data.product_url === "string" && data.product_url.trim()) ||
+        (typeof data.productUrl === "string" && data.productUrl.trim()) ||
+        null;
+
+      if (isMySaasBot) {
+        // 1. SAAS BOT: ALLOWS ALL BUTTONS (Pay Now, Billing, Contact Us, Open Page)
+        redirectCandidate =
+          rawPaymentUrl ||
+          rawProductUrl ||
+          (typeof data.actionUrl === "string" ? data.actionUrl.trim() : null) ||
+          (typeof data.redirect_url === "string" ? data.redirect_url.trim() : null) ||
+          (typeof data.website_url === "string" ? data.website_url.trim() : null);
+
+        if (redirectCandidate) {
+          const lowerUrl = redirectCandidate.toLowerCase();
+          if (rawPaymentUrl || lowerUrl.includes("/pay") || lowerUrl.includes("payu") || lowerUrl.includes("paypal")) {
+            actionLabel = "Pay Now";
+          } else if (lowerUrl.includes("/billing") || lowerUrl.includes("pricing") || lowerUrl.includes("plan")) {
+            actionLabel = "Billing";
+          } else if (lowerUrl.includes("/contact") || lowerUrl.includes("support")) {
+            actionLabel = "Contact Us";
+          } else if (data.type === "product" || data.name || data.product_name) {
+            actionLabel = "View Product";
+          } else {
+            actionLabel = data.actionLabel || "Open Page";
+          }
+        }
+      } else {
+        // 2. CUSTOMER BOTS: ONLY ALLOWS PAY NOW & VIEW PRODUCT
+        if (rawPaymentUrl) {
+          redirectCandidate = rawPaymentUrl;
           actionLabel = "Pay Now";
-        } else if (data.type === "product" || data.name) {
+        } else if (rawProductUrl || data.type === "product" || data.name || data.product_name) {
+          redirectCandidate = rawProductUrl;
           actionLabel = "View Product";
-        } else if (lowerUrl.includes("/contact")) {
-          actionLabel = "Contact Us";
         } else {
-          actionLabel = "Open Page";
+          redirectCandidate = null;
+          actionLabel = undefined;
         }
       }
+
+      const safeActionUrl = redirectCandidate ? sanitizeHttpUrl(redirectCandidate) : null;
+      const finalActionLabel = safeActionUrl ? actionLabel : undefined;
 
       // 1. Carousel Payload State Interceptor
       if (data.type === "carousel" || data.messageType === "carousel" || Array.isArray(data.items)) {
@@ -649,7 +671,7 @@ if (textarea) {
             (typeof data.message === "string" && data.message.trim()) ||
             "I received your message but have no response.",
           actionUrl: safeActionUrl || undefined,
-          actionLabel,
+          actionLabel: finalActionLabel,
         },
       ]);
     } catch (error) {
@@ -789,14 +811,14 @@ if (textarea) {
               <div className="flex flex-col gap-2">
                 <div>{m.content}</div>
                 
-                {/* CRITICAL FIX: Render action button if a payment link or redirection URL exists */}
-                {(m.actionUrl || (m as any).payment_link || (m as any).paymentUrl) && (
+                {/* Renders button strictly if authorized by bot rules */}
+                {m.actionUrl && m.actionLabel && (
                   <button
                     type="button"
-                    onClick={() => handleOpen(m.actionUrl || (m as any).payment_link || (m as any).paymentUrl)}
+                    onClick={() => handleOpen(m.actionUrl!)}
                     className="mt-1.5 w-full rounded-md bg-blue-600 py-1.5 text-center font-semibold text-white shadow-sm transition hover:bg-blue-700"
                   >
-                    {m.actionLabel || "Pay Now"}
+                    {m.actionLabel}
                   </button>
                 )}
               </div>

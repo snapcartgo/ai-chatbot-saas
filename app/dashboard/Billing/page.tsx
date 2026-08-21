@@ -4,18 +4,64 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 
 type GatewayType = "payu" | "paypal" | "razorpay";
+type PlanCategory = "website" | "whatsapp" | "combo";
 
-const RAZORPAY_LINKS: Record<string, string> = {
-  starter: "https://rzp.io/rzp/WS1oIbCc",
-  pro: "https://rzp.io/rzp/WS1oIbCc",
-  growth: "https://rzp.io/rzp/WS1oIbCc",
-  enterprise: "https://rzp.io/rzp/WS1oIbCc",
-  whatsapp: "https://rzp.io/rzp/WS1oIbCc",
+interface PlanItem {
+  planId: string;
+  name: string;
+  usdPrice: number;
+  usdBYOK: number;
+  inrPrice: number;
+  inrBYOK: number;
+  description: string;
+  messages: string;
+  bots: string;
+  knowledgeBase?: string;
+  features: string[];
+  highlight?: boolean;
+}
+
+const RAZORPAY_LINKS: {
+  standard: Record<string, string>;
+  byok: Record<string, string>;
+} = {
+  standard: {
+    // Website
+    web_starter: "https://rzp.io/rzp/WS1oIbCc",
+    web_pro: "https://rzp.io/rzp/WS1oIbCc",
+    web_growth: "https://rzp.io/rzp/WS1oIbCc",
+    web_business: "https://rzp.io/rzp/WS1oIbCc",
+    // WhatsApp
+    wa_starter: "https://rzp.io/rzp/vWl9upj",
+    wa_pro: "https://rzp.io/rzp/WS1oIbCc",
+    wa_growth: "https://rzp.io/rzp/WS1oIbCc",
+    wa_business: "https://rzp.io/rzp/WS1oIbCc",
+    // Combo
+    combo_business: "https://rzp.io/rzp/g8FCMwQH",
+    combo_enterprise: "https://rzp.io/rzp/WS1oIbCc",
+  },
+  byok: {
+    // Website (BYOK Links)
+    web_starter: "https://rzp.io/rzp/f7BiwdB",
+    web_pro: "https://rzp.io/rzp/f7BiwdB",
+    web_growth: "https://rzp.io/rzp/f7BiwdB",
+    web_business: "https://rzp.io/rzp/f7BiwdB",
+    // WhatsApp (BYOK Links)
+    wa_starter: "https://rzp.io/rzp/J0zCJRsr",
+    wa_pro: "https://rzp.io/rzp/f7BiwdB",
+    wa_growth: "https://rzp.io/rzp/f7BiwdB",
+    wa_business: "https://rzp.io/rzp/f7BiwdB",
+    // Combo (BYOK Links)
+    combo_business: "https://rzp.io/rzp/YIK76lg1",
+    combo_enterprise: "https://rzp.io/rzp/f7BiwdB",
+  },
 };
 
 export default function BillingPage() {
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [isIndia, setIsIndia] = useState(true);
+  const [activeTab, setActiveTab] = useState<PlanCategory>("website");
+  const [isBYOK, setIsBYOK] = useState(false);
 
   useEffect(() => {
     const getUserData = async () => {
@@ -59,242 +105,402 @@ export default function BillingPage() {
     }
 
     if (gateway === "razorpay") {
-      const razorpayUrl = RAZORPAY_LINKS[planId];
+      const linkMap = isBYOK ? RAZORPAY_LINKS.byok : RAZORPAY_LINKS.standard;
+      const razorpayUrl = linkMap[planId];
 
       if (!razorpayUrl) {
-        alert("Razorpay payment link not added for this plan");
+        alert(`Razorpay ${isBYOK ? "BYOK" : "standard"} link not configured for this plan`);
         return;
       }
 
-      // FIX: Force open in a new clean window tab to let deep-linking trigger GPay app safely
       window.open(razorpayUrl, "_blank", "noopener,noreferrer");
       return;
     }
 
-    window.location.href = `/api/${gateway}?plan=${planId}&email=${encodeURIComponent(
+    window.location.href = `/api/${gateway}?plan=${planId}&category=${activeTab}&byok=${isBYOK}&email=${encodeURIComponent(
       userEmail
     )}&amount=${price}`;
   };
 
-  const handleWhatsAppPayment = (gateway: GatewayType) => {
-    if (!userEmail) {
-      alert("User not logged in");
-      return;
-    }
-
-    if (!isIndia && gateway === "payu") {
-      alert("PayU is only available in India");
-      return;
-    }
-
-    if (gateway === "razorpay") {
-      const razorpayUrl = RAZORPAY_LINKS.whatsapp;
-
-      if (!razorpayUrl) {
-        alert("Razorpay payment link not added for WhatsApp");
-        return;
-      }
-
-      // FIX: Force open in a new clean window tab to let deep-linking trigger GPay app safely
-      window.open(razorpayUrl, "_blank", "noopener,noreferrer");
-      return;
-    }
-
-    window.location.href = `/api/${gateway}?plan=whatsapp&email=${encodeURIComponent(
-      userEmail
-    )}&amount=${isIndia ? 999 : 29}`;
+  const PLANS_DATA: Record<PlanCategory, PlanItem[]> = {
+    website: [
+      {
+        planId: "web_starter",
+        name: "Starter",
+        usdPrice: 19,
+        usdBYOK: 12,
+        inrPrice: 1499,
+        inrBYOK: 999,
+        description: "For small websites",
+        messages: "1,000 AI Messages",
+        bots: "1 AI Chatbot",
+        knowledgeBase: "10 MB",
+        features: [
+          "Lead Capture",
+          "Conversation History",
+          "Basic Product Search",
+          "3 Languages",
+          "Basic Analytics",
+          "Basic Automation",
+        ],
+      },
+      {
+        planId: "web_pro",
+        name: "Pro",
+        usdPrice: 39,
+        usdBYOK: 25,
+        inrPrice: 2999,
+        inrBYOK: 1999,
+        description: "For growing businesses",
+        messages: "3,000 AI Messages",
+        bots: "2 AI Chatbots",
+        knowledgeBase: "30 MB",
+        features: [
+          "Lead Capture & History",
+          "Booking & Human Handoff",
+          "10 Languages",
+          "Basic CRM / Pipeline",
+          "Analytics & Automation",
+        ],
+        highlight: true,
+      },
+      {
+        planId: "web_growth",
+        name: "Growth",
+        usdPrice: 69,
+        usdBYOK: 45,
+        inrPrice: 5499,
+        inrBYOK: 3499,
+        description: "For businesses needing automation + CRM",
+        messages: "10,000 AI Messages",
+        bots: "5 AI Chatbots",
+        knowledgeBase: "100 MB",
+        features: [
+          "Booking & Human Handoff",
+          "25+ Languages",
+          "Advanced CRM & Pipeline",
+          "Advanced Analytics",
+          "Advanced Automation",
+          "Priority Support",
+        ],
+      },
+      {
+        planId: "web_business",
+        name: "Business",
+        usdPrice: 99,
+        usdBYOK: 65,
+        inrPrice: 7999,
+        inrBYOK: 4999,
+        description: "For high-volume websites",
+        messages: "20,000 AI Messages",
+        bots: "10 AI Chatbots",
+        knowledgeBase: "200 MB",
+        features: [
+          "Advanced Product Search",
+          "Booking & Human Handoff",
+          "25+ Languages",
+          "Advanced CRM & Pipeline",
+          "Advanced Automation",
+          "Priority Support",
+        ],
+      },
+    ],
+    whatsapp: [
+      {
+        planId: "wa_starter",
+        name: "Starter",
+        usdPrice: 29,
+        usdBYOK: 19,
+        inrPrice: 2299,
+        inrBYOK: 1499,
+        description: "Basic WhatsApp bot for small setups",
+        messages: "1,000 AI Messages",
+        bots: "1 WhatsApp Chatbot",
+        features: [
+          "Auto Lead Capture",
+          "Auto Replies",
+          "Conversation Tracking",
+          "Basic Product/E-commerce",
+          "3 Languages",
+          "Basic Automation",
+        ],
+      },
+      {
+        planId: "wa_pro",
+        name: "Pro",
+        usdPrice: 59,
+        usdBYOK: 39,
+        inrPrice: 4499,
+        inrBYOK: 2999,
+        description: "Scale WhatsApp operations",
+        messages: "3,000 AI Messages",
+        bots: "2 WhatsApp Chatbots",
+        features: [
+          "Order Tracking & Booking",
+          "Human Handoff",
+          "Basic Follow-ups",
+          "10 Languages",
+          "Basic CRM & Analytics",
+        ],
+        highlight: true,
+      },
+      {
+        planId: "wa_growth",
+        name: "Growth",
+        usdPrice: 99,
+        usdBYOK: 69,
+        inrPrice: 7999,
+        inrBYOK: 5499,
+        description: "Full WhatsApp engagement & CRM",
+        messages: "10,000 AI Messages",
+        bots: "5 WhatsApp Chatbots",
+        features: [
+          "Advanced E-commerce & Orders",
+          "Booking & Human Handoff",
+          "Advanced Follow-ups",
+          "25+ Languages",
+          "Advanced CRM & Automation",
+          "Priority Support",
+        ],
+      },
+      {
+        planId: "wa_business",
+        name: "Business",
+        usdPrice: 149,
+        usdBYOK: 105,
+        inrPrice: 11999,
+        inrBYOK: 8499,
+        description: "High-throughput WhatsApp engine",
+        messages: "25,000 AI Messages",
+        bots: "10 WhatsApp Chatbots",
+        features: [
+          "Advanced E-commerce & Orders",
+          "Booking & Human Handoff",
+          "Advanced Follow-ups & CRM",
+          "25+ Languages",
+          "Full Automation Nodes",
+          "Dedicated Support",
+        ],
+      },
+    ],
+    combo: [
+      {
+        planId: "combo_business",
+        name: "Business Combo",
+        usdPrice: 129,
+        usdBYOK: 89,
+        inrPrice: 9999,
+        inrBYOK: 6999,
+        description: "Full Website + WhatsApp integration",
+        messages: "20,000 AI Messages",
+        bots: "5 Chatbots (Web + WA)",
+        knowledgeBase: "100 MB",
+        features: [
+          "Website & WhatsApp Chatbot",
+          "Lead Capture & Advanced CRM",
+          "E-commerce & Order Tracking",
+          "Booking & Human Handoff",
+          "Advanced Follow-ups",
+          "25+ Languages",
+          "Custom API & Automation",
+          "Priority Support",
+        ],
+      },
+      {
+        planId: "combo_enterprise",
+        name: "Enterprise Combo",
+        usdPrice: 249,
+        usdBYOK: 169,
+        inrPrice: 19999,
+        inrBYOK: 13999,
+        description: "Complete omni-channel infrastructure",
+        messages: "50,000 AI Messages",
+        bots: "7 Chatbots (Web + WA)",
+        knowledgeBase: "100 MB",
+        features: [
+          "Website & WhatsApp Chatbot",
+          "Lead Capture & Advanced CRM",
+          "E-commerce & Order Tracking",
+          "Booking & Human Handoff",
+          "Advanced Follow-ups",
+          "25+ Languages",
+          "Custom API & Full Automation",
+          "Dedicated Support",
+        ],
+        highlight: true,
+      },
+    ],
   };
 
-  const plans = [
-    {
-      name: "Starter",
-      price: isIndia ? 999 : 29,
-      currency: isIndia ? "₹" : "$",
-      description: "Perfect for getting started",
-      messages: "1000 AI Messages / month",
-      bots: "1 AI Chatbot",
-      knowledgeBase: "10 MB",
-      features: [
-        "Capture Leads Automatically",
-        "View Conversations Dashboard",
-        "Simple Auto-Reply Workflow",
-        "Email Support",
-      ],
-      planId: "starter",
-    },
-    {
-      name: "Pro",
-      price: isIndia ? 1999 : 59,
-      currency: isIndia ? "₹" : "$",
-      description: "Scale your customer engagement",
-      messages: "3000 AI Messages / month",
-      bots: "2 AI Chatbots",
-      knowledgeBase: "45 MB",
-      features: [
-        "Advanced Lead Capture + Pipeline",
-        "Full Conversation History",
-        "Smart Follow-ups & Automation",
-        "Analytics Dashboard",
-        "Priority Email Support",
-      ],
-      planId: "pro",
-    },
-    {
-      name: "Growth",
-      price: isIndia ? 4999 : 99,
-      currency: isIndia ? "₹" : "$",
-      description: "Built for serious businesses",
-      messages: "12000 AI Messages / month",
-      bots: "5 AI Chatbots",
-      knowledgeBase: "100 MB",
-      features: [
-        "Advanced CRM (Leads + Pipeline)",
-        "Auto Lead Assignment",
-        "Advanced Automation Workflows",
-        "Cart Recovery & Follow-ups",
-        "Advanced Analytics",
-        "Priority Support",
-      ],
-      planId: "growth",
-    },
-    {
-      name: "Enterprise",
-      price: isIndia ? 15000 : 299,
-      currency: isIndia ? "₹" : "$",
-      description: "Advanced Multimodal AI Solution",
-      messages: "20000 AI Messages / month",
-      bots: "10 AI Chatbots",
-      knowledgeBase: "200 MB",
-      features: [
-        "Instant Image & Voice Understanding",
-        "Auto-Detect Multilingual Support",
-        "Mindset & Memory Persistence",
-        "Advanced CRM (Leads + Orders)",
-        "Custom API Integrations",
-        "Full Automation Nodes",
-      ],
-      planId: "enterprise",
-      highlight: true,
-    },
-  ];
+  const currentPlans = PLANS_DATA[activeTab];
 
   return (
     <div className="min-h-screen w-full bg-black p-4 text-white md:p-8">
       <h1 className="mb-2 text-xl font-bold md:text-3xl">Billing Plans</h1>
-
       <p className="mb-6 text-sm text-gray-400 md:mb-8 md:text-base">
         Choose the plan that fits your business needs.
       </p>
 
-      <div className="mb-10 grid grid-cols-1 gap-4 md:grid-cols-2 md:gap-6 lg:grid-cols-4">
-        {plans.map((plan) => (
-          <div
-            key={plan.name}
-            className={`relative flex flex-col rounded-2xl border bg-gray-900 p-5 md:p-6 ${
-              plan.highlight
-                ? "border-blue-500 shadow-lg shadow-blue-500/20"
-                : "border-gray-800"
-            }`}
-          >
-            {plan.highlight && (
-              <span className="absolute left-1/2 top-[-12px] -translate-x-1/2 rounded-full bg-blue-600 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-white">
-                Most Powerful
-              </span>
-            )}
-
-            <h2 className="mb-1 text-lg font-bold md:text-2xl">{plan.name}</h2>
-
-            <p className="mb-3 text-lg font-bold text-blue-500 md:text-xl">
-              {plan.currency}
-              {plan.price}
-            </p>
-
-            <p className="mb-5 text-xs text-gray-400 md:text-sm">
-              {plan.description}
-            </p>
-
-            <div className="mb-6 flex-grow space-y-2 text-xs text-gray-300 md:text-sm">
-              <p className="font-semibold text-white">✅ {plan.messages}</p>
-              <p>✅ {plan.bots}</p>
-              <p>✅ Knowledge Base: {plan.knowledgeBase}</p>
-
-              {plan.features.map((feature, index) => (
-                <p key={index}>✅ {feature}</p>
-              ))}
-            </div>
-
-            {/* Razorpay is now displayed for all countries */}
-            <button
-              onClick={() => handlePayment(plan.planId, plan.price, "razorpay")}
-              className="mb-2 w-full rounded-xl bg-green-600 py-2 font-bold hover:bg-green-700 md:py-3"
-            >
-              Pay with Razorpay
-            </button>
-
-            {isIndia && (
-              <button
-                onClick={() => handlePayment(plan.planId, plan.price, "payu")}
-                className={`mb-2 w-full rounded-xl py-2 font-bold transition-opacity md:py-3 ${
-                  plan.highlight ? "bg-blue-500" : "bg-blue-600"
-                } hover:opacity-90`}
-              >
-                Pay with PayU
-              </button>
-            )}
-
-            <button
-              onClick={() => handlePayment(plan.planId, plan.price, "paypal")}
-              className="w-full rounded-xl border border-gray-700 py-2 font-bold transition-colors hover:bg-gray-800 md:py-3"
-            >
-              Pay with PayPal
-            </button>
-          </div>
-        ))}
+      {/* Category Tabs */}
+      <div className="mb-6 flex flex-wrap gap-3">
+        <button
+          onClick={() => setActiveTab("website")}
+          className={`rounded-xl px-5 py-2.5 text-sm font-semibold transition-all ${
+            activeTab === "website"
+              ? "bg-blue-600 text-white shadow-lg shadow-blue-500/20"
+              : "border border-gray-800 bg-gray-900 text-gray-400 hover:bg-gray-800"
+          }`}
+        >
+          🌐 Website Chatbot
+        </button>
+        <button
+          onClick={() => setActiveTab("whatsapp")}
+          className={`rounded-xl px-5 py-2.5 text-sm font-semibold transition-all ${
+            activeTab === "whatsapp"
+              ? "bg-green-600 text-white shadow-lg shadow-green-500/20"
+              : "border border-gray-800 bg-gray-900 text-gray-400 hover:bg-gray-800"
+          }`}
+        >
+          💬 WhatsApp Chatbot
+        </button>
+        <button
+          onClick={() => setActiveTab("combo")}
+          className={`rounded-xl px-5 py-2.5 text-sm font-semibold transition-all ${
+            activeTab === "combo"
+              ? "bg-purple-600 text-white shadow-lg shadow-purple-500/20"
+              : "border border-gray-800 bg-gray-900 text-gray-400 hover:bg-gray-800"
+          }`}
+        >
+          🔥 Website + WhatsApp Combined
+        </button>
       </div>
 
-      <div className="mx-auto max-w-xl rounded-2xl border border-green-700 bg-gray-900 p-6">
-        <h2 className="mb-2 text-2xl font-bold text-green-400">
-          WhatsApp Automation
-        </h2>
-
-        <p className="mb-3 text-xl font-bold text-green-400">
-          {isIndia ? "₹999" : "$29"}
-        </p>
-
-        <p className="mb-4 text-sm text-gray-400">
-          Add WhatsApp chatbot automation to capture leads and automate conversations.
-        </p>
-
-        <div className="mb-6 space-y-2 text-sm text-gray-300">
-          <p>✅ WhatsApp Chatbot Integration</p>
-          <p>✅ Auto Lead Capture</p>
-          <p>✅ Auto Replies & Follow-ups</p>
-          <p>✅ Conversation Tracking</p>
+      {/* BYOK Toggle */}
+      <div className="mb-8 flex items-center justify-between rounded-xl border border-gray-800 bg-gray-900 p-4 sm:w-fit sm:gap-6">
+        <div>
+          <p className="text-sm font-bold text-white">Use Your Own AI API Key (BYOK)</p>
+          <p className="text-xs text-gray-400">Save up to ~35% by using your OpenAI key</p>
         </div>
-
-        {/* Razorpay WhatsApp button is now displayed for all countries */}
         <button
-          onClick={() => handleWhatsAppPayment("razorpay")}
-          className="mb-2 w-full rounded-xl bg-green-500 py-3 font-bold hover:bg-green-600"
+          onClick={() => setIsBYOK(!isBYOK)}
+          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+            isBYOK ? "bg-blue-600" : "bg-gray-700"
+          }`}
         >
-          Enable via Razorpay
+          <span
+            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+              isBYOK ? "translate-x-6" : "translate-x-1"
+            }`}
+          />
         </button>
+      </div>
 
-        {isIndia && (
-          <button
-            onClick={() => handleWhatsAppPayment("payu")}
-            className="mb-2 w-full rounded-xl bg-green-600 py-3 font-bold hover:bg-green-700"
-          >
-            Enable via PayU
-          </button>
-        )}
+      {/* Plans Grid */}
+      <div
+        className={`mb-10 grid grid-cols-1 gap-4 md:gap-6 ${
+          activeTab === "combo"
+            ? "mx-auto max-w-4xl md:grid-cols-2"
+            : "md:grid-cols-2 lg:grid-cols-4"
+        }`}
+      >
+        {currentPlans.map((plan) => {
+          const finalPrice = isIndia
+            ? isBYOK
+              ? plan.inrBYOK
+              : plan.inrPrice
+            : isBYOK
+            ? plan.usdBYOK
+            : plan.usdPrice;
 
-        <button
-          onClick={() => handleWhatsAppPayment("paypal")}
-          className="w-full rounded-xl border border-gray-700 py-3 font-bold hover:bg-gray-800"
-        >
-          Enable via PayPal
-        </button>
+          const currencySymbol = isIndia ? "₹" : "$";
+
+          return (
+            <div
+              key={plan.planId}
+              className={`relative flex flex-col rounded-2xl border bg-gray-900 p-5 md:p-6 ${
+                plan.highlight
+                  ? activeTab === "whatsapp"
+                    ? "border-green-500 shadow-lg shadow-green-500/20"
+                    : activeTab === "combo"
+                    ? "border-purple-500 shadow-lg shadow-purple-500/20"
+                    : "border-blue-500 shadow-lg shadow-blue-500/20"
+                  : "border-gray-800"
+              }`}
+            >
+              {plan.highlight && (
+                <span
+                  className={`absolute left-1/2 top-[-12px] -translate-x-1/2 rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-white ${
+                    activeTab === "whatsapp"
+                      ? "bg-green-600"
+                      : activeTab === "combo"
+                      ? "bg-purple-600"
+                      : "bg-blue-600"
+                  }`}
+                >
+                  Most Popular
+                </span>
+              )}
+
+              <h2 className="mb-1 text-lg font-bold md:text-2xl">{plan.name}</h2>
+
+              <p className="mb-1 text-2xl font-bold text-white md:text-3xl">
+                {currencySymbol}
+                {finalPrice}
+                <span className="text-sm font-normal text-gray-400">/mo</span>
+              </p>
+
+              {isBYOK && (
+                <span className="mb-3 inline-block w-fit rounded bg-blue-500/10 px-2 py-0.5 text-xs font-semibold text-blue-400">
+                  BYOK Applied
+                </span>
+              )}
+
+              <p className="mb-5 text-xs text-gray-400 md:text-sm">
+                {plan.description}
+              </p>
+
+              <div className="mb-6 flex-grow space-y-2 text-xs text-gray-300 md:text-sm">
+                <p className="font-semibold text-white">✅ {plan.messages}</p>
+                <p>✅ {plan.bots}</p>
+                {plan.knowledgeBase && <p>✅ Knowledge Base: {plan.knowledgeBase}</p>}
+
+                {plan.features.map((feature, index) => (
+                  <p key={index}>✅ {feature}</p>
+                ))}
+              </div>
+
+              {/* Action Buttons */}
+              <button
+                onClick={() => handlePayment(plan.planId, finalPrice, "razorpay")}
+                className="mb-2 w-full rounded-xl bg-green-600 py-2.5 font-bold hover:bg-green-700 md:py-3"
+              >
+                Pay with Razorpay
+              </button>
+
+              {isIndia && (
+                <button
+                  onClick={() => handlePayment(plan.planId, finalPrice, "payu")}
+                  className={`mb-2 w-full rounded-xl py-2.5 font-bold transition-opacity hover:opacity-90 md:py-3 ${
+                    activeTab === "whatsapp"
+                      ? "bg-green-600"
+                      : activeTab === "combo"
+                      ? "bg-purple-600"
+                      : "bg-blue-600"
+                  }`}
+                >
+                  Pay with PayU
+                </button>
+              )}
+
+              <button
+                onClick={() => handlePayment(plan.planId, finalPrice, "paypal")}
+                className="w-full rounded-xl border border-gray-700 py-2.5 font-bold transition-colors hover:bg-gray-800 md:py-3"
+              >
+                Pay with PayPal
+              </button>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

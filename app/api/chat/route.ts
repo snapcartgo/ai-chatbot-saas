@@ -8,8 +8,21 @@ const supabase = createClient(
 );
 
 const extractUTR = (text: string) => {
-  const match = text.match(/\b\d{12}\b/);
-  return match ? match[0] : null;
+  // Ignore messages containing email addresses or plus signs (contact details)
+  if (text.includes("@") || text.includes("+")) return null;
+
+  // Check if payment-related keywords are present
+  const hasPaymentKeyword = /\b(utr|ref|reference|txn|transaction|paid|upi)\b/i.test(text);
+  
+  // Or check if the message is strictly a single 12-digit number
+  const isOnly12Digits = /^\d{12}$/.test(text.trim());
+
+  if (hasPaymentKeyword || isOnly12Digits) {
+    const match = text.match(/\b\d{12}\b/);
+    return match ? match[0] : null;
+  }
+
+  return null;
 };
 
 const extractMarkdownUrl = (message: any): { cleanText: string; url: string | null } => {

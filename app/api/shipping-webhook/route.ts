@@ -50,9 +50,26 @@ export async function POST(req: NextRequest) {
 
     // Standard processing
     if (orderId) {
+      const normalizedStatus = String(rawStatus).toUpperCase().trim();
+
       const updateData: Record<string, any> = {
         order_status: rawStatus || "In Transit",
+        updated_at: new Date().toISOString(),
       };
+
+      // COD & Delivery status synchronization
+      if (normalizedStatus === "DELIVERED") {
+        updateData.payment_status = "PAID";
+        updateData.order_status = "DELIVERED";
+      } else if (
+        normalizedStatus === "CANCELED" ||
+        normalizedStatus === "RTO INITIATED" ||
+        normalizedStatus === "RTO DELIVERED"
+      ) {
+        updateData.payment_status = "FAILED";
+        updateData.order_status = "CANCELED";
+      }
+
       if (trackingNumber) updateData.tracking_number = trackingNumber;
       if (courierName) updateData.courier_name = courierName;
 
