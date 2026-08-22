@@ -413,7 +413,17 @@ if (!sessionId) {
       });
     }
 
-    grandShipping = grandSubtotal >= 999 ? 0 : 40; 
+    // 1. Read dynamic shipping rules sent from n8n (defaults: threshold = 999, standard fee = 40)
+const threshold = body.shipping_threshold !== undefined && body.shipping_threshold !== null && !isNaN(Number(body.shipping_threshold))
+  ? Number(body.shipping_threshold) 
+  : 999;
+
+const standardFee = body.shipping_fee !== undefined && body.shipping_fee !== null && !isNaN(Number(body.shipping_fee))
+  ? Number(body.shipping_fee) 
+  : 40; // Fallback standard charge so missing inputs never accidentally make shipping free
+
+// 2. Exact amount calculation
+grandShipping = grandSubtotal >= threshold ? 0 : standardFee;
 
     // SAVE COMPLETE WORKING CART BACK TO SUPABASE
     const normalizedCartItems = finalItemsToProcess.map((item: any) => {
