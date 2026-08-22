@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 
+
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY! // Use Service Role Key to bypass RLS in webhooks
@@ -47,7 +48,6 @@ export async function POST(req: Request) {
     // 🛡️ IMMEDIATE DEDUPLICATION LOCK
     // =========================================================================
     if (messageId) {
-      // 1. Check if message was already processed
       const { data: existingMsg } = await supabase
         .from("messages")
         .select("id")
@@ -59,7 +59,6 @@ export async function POST(req: Request) {
         return new Response("EVENT_RECEIVED", { status: 200 });
       }
 
-      // 2. Immediately lock/mark this message in Supabase so retries get blocked
       await supabase.from("messages").insert({
         whatsapp_message_id: messageId,
         content: message.text?.body || "User sent media/interactive",
@@ -68,6 +67,25 @@ export async function POST(req: Request) {
     }
     // =========================================================================
 
+    // Run the full workflow asynchronously in the background
+    (async () => {
+      try {
+        await processWebhookPayload(value, message, messageId);
+      } catch (err) {
+        console.error("Background Webhook Error:", err);
+      }
+    })();
+
+    // Respond immediately to Meta within < 100ms
+    return new Response("EVENT_RECEIVED", { status: 200 });
+  } catch (error) {
+    console.error("Webhook Error:", error);
+    return new Response("EVENT_RECEIVED", { status: 200 });
+  }
+}
+
+async function processWebhookPayload(value: any, message: any, messageId: string) {
+  try {
     const customerPhone = message.from;
     const messageType = message?.type;
 
@@ -103,12 +121,12 @@ export async function POST(req: Request) {
     const phoneNumberId = value.metadata?.phone_number_id;
 
     if (!customerPhone || !userMessage || !phoneNumberId) {
-      return new Response("EVENT_RECEIVED", { status: 200 });
+      return;
     }
 
     if (!/^\d+$/.test(phoneNumberId)) {
       console.error("Invalid phone number ID");
-      return new Response("EVENT_RECEIVED", { status: 200 });
+      return;
     }
 
     // Lookup WhatsApp Configs for bot_id & user_id
@@ -120,7 +138,7 @@ export async function POST(req: Request) {
 
     if (configErr || !config) {
       console.error("Config lookup failed:", configErr);
-      return new Response("EVENT_RECEIVED", { status: 200 });
+      return;
     }
 
     // ACCESSIBLE GLOBAL VARIABLE SCOPING FOR BOTH BLOCKS
@@ -183,7 +201,7 @@ export async function POST(req: Request) {
 
     if (aiMode === "human") {
       console.log(`[HANDOFF ACTIVE] Human Mode active for ${customerPhone}. Message saved to inbox, skipping n8n workflow.`);
-      return new Response("EVENT_RECEIVED", { status: 200 });
+      return;
     }
 
     // =========================================================================
@@ -206,7 +224,6 @@ export async function POST(req: Request) {
           let quotedText = "";
 
           if (quotedMessageId) {
-            // 1. First try looking up by primary key 'id'
             const { data: byId } = await supabase
               .from("messages")
               .select("content")
@@ -216,7 +233,6 @@ export async function POST(req: Request) {
             if (byId?.content) {
               quotedText = byId.content;
             } else {
-              // 2. If not found by 'id', try looking up by 'whatsapp_message_id'
               const { data: byWaId } = await supabase
                 .from("messages")
                 .select("content")
@@ -311,14 +327,12 @@ export async function POST(req: Request) {
       // -----------------------------------------------------------------
       let textBody = aiResponse;
 
-      // Check if n8n returned an array with a `body_text` property
       if (!textBody && Array.isArray(n8nData) && n8nData.length > 0) {
         textBody = n8nData[0]?.body_text || n8nData[0]?.reply || "";
       } else if (!textBody && typeof n8nData === "object") {
         textBody = n8nData?.body_text || n8nData?.reply || n8nData?.text?.body || "";
       }
 
-      // If textBody exists, send it to Meta
       if (textBody) {
         const textPayload = {
           messaging_product: "whatsapp",
@@ -336,11 +350,9 @@ export async function POST(req: Request) {
           body: JSON.stringify(textPayload),
         });
 
-        // 🟢 Extract wamid from Meta's response
         const metaResponseJson = await textRes.json();
         const sentWamid = metaResponseJson?.messages?.[0]?.id || null;
 
-        // Save to Supabase WITH whatsapp_message_id
         await supabase.from("messages").insert([
           {
             conversation_id: conversationId,
@@ -363,7 +375,6 @@ export async function POST(req: Request) {
         for (const product of n8nData) {
           if (!product.image_url) continue;
 
-          // Build text specific ONLY to this item
           const productLink = product.product_url || product.website_url || "";
           const linkText = productLink ? `\nLink: ${productLink}` : "";
           const assistantText = `${product.name || ""}\nSKU: ${product.retailer_id || ""}\nPrice: ${product.price || ""}${linkText}`.trim();
@@ -390,7 +401,6 @@ export async function POST(req: Request) {
           const metaImageJson = await metaRes.json();
           const sentImageWamid = metaImageJson?.messages?.[0]?.id || null;
 
-          // Insert unique record per product directly into Supabase
           await supabase.from("messages").insert([
             {
               conversation_id: conversationId,
@@ -408,52 +418,61 @@ export async function POST(req: Request) {
       }
 
       // -----------------------------------------------------------------
-      // 3. SEND AUDIO / VOICE NOTE
-      // -----------------------------------------------------------------
-      let rawAudioId = n8nData?.media_id || (Array.isArray(n8nData) && n8nData[0]?.media_id) || "";
-      const cleanAudioId = String(rawAudioId).replace(/[^0-9]/g, "");
+// 3. SEND AUDIO / VOICE NOTE
+// -----------------------------------------------------------------
+let rawAudioId = n8nData?.media_id || (Array.isArray(n8nData) && n8nData[0]?.media_id) || "";
+const cleanAudioId = String(rawAudioId).replace(/[^0-9]/g, "");
 
-      const n8nAudioUrl = n8nData?.audio_url || (Array.isArray(n8nData) && n8nData[0]?.audio_url) || "";
+const n8nAudioUrl = n8nData?.audio_url || (Array.isArray(n8nData) && n8nData[0]?.audio_url) || "";
 
-      if (cleanAudioId || n8nAudioUrl) {
-        const audioPayload = {
-          messaging_product: "whatsapp",
-          to: customerPhone,
-          type: "audio",
-          audio: cleanAudioId
-            ? { id: cleanAudioId }
-            : { link: String(n8nAudioUrl).trim() },
-        };
-
-        const audioRes = await fetch(metaUrl, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${metaAccessToken}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(audioPayload),
-        });
-
-        const metaAudioJson = await audioRes.json();
-        console.log("META AUDIO RESPONSE:", JSON.stringify(metaAudioJson, null, 2));
-
-        const sentAudioWamid = metaAudioJson?.messages?.[0]?.id || null;
-
-        if (sentAudioWamid) {
-          await supabase.from("messages").insert([
-            {
-              conversation_id: conversationId,
-              role: "assistant",
-              content: "[Sent Audio]",
-              channel: "whatsapp",
-              phone_number: cleanPhone,
-              bot_id: config.chatbot_id,
-              user_id: config.user_id,
-              whatsapp_message_id: sentAudioWamid,
-            },
-          ]);
+if (cleanAudioId || n8nAudioUrl) {
+  const audioPayload = {
+    messaging_product: "whatsapp",
+    recipient_type: "individual",
+    to: customerPhone,
+    type: "document",
+    document: cleanAudioId
+      ? {
+          id: cleanAudioId,
+          filename: "voice-message.mp3",
+          caption: "🎵 Voice Message",
         }
-      } else if (n8nData?.image_url) {
+      : {
+          link: String(n8nAudioUrl).trim(),
+          filename: "voice-message.mp3",
+          caption: "🎵 Voice Message",
+        },
+  };
+
+  const audioRes = await fetch(metaUrl, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${metaAccessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(audioPayload),
+  });
+
+  const metaAudioJson = await audioRes.json();
+  console.log("META AUDIO RESPONSE:", JSON.stringify(metaAudioJson, null, 2));
+
+  const sentAudioWamid = metaAudioJson?.messages?.[0]?.id || null;
+
+  if (sentAudioWamid) {
+    await supabase.from("messages").insert([
+      {
+        conversation_id: conversationId,
+        role: "assistant",
+        content: "[Sent Audio]",
+        channel: "whatsapp",
+        phone_number: cleanPhone,
+        bot_id: config.chatbot_id,
+        user_id: config.user_id,
+        whatsapp_message_id: sentAudioWamid,
+      },
+    ]);
+  }
+} else if (n8nData?.image_url) {
         const productLink = n8nData.product_url || n8nData.website_url || "";
         const linkText = productLink ? `\nLink: ${productLink}` : "";
         const assistantText = `${n8nData.name || ""}\nPrice: ${n8nData.price || ""}${linkText}`.trim();
@@ -491,11 +510,7 @@ export async function POST(req: Request) {
         ]);
       }
     }
-
-    return new Response("EVENT_RECEIVED", { status: 200 });
-
-  } catch (error) {
-    console.error("Webhook Error:", error);
-    return new Response("EVENT_RECEIVED", { status: 200 });
+  } catch (asyncError) {
+    console.error("Async Processing Error:", asyncError);
   }
 }
