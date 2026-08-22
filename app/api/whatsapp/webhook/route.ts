@@ -67,16 +67,9 @@ export async function POST(req: Request) {
     }
     // =========================================================================
 
-    // Run the full workflow asynchronously in the background
-    (async () => {
-      try {
-        await processWebhookPayload(value, message, messageId);
-      } catch (err) {
-        console.error("Background Webhook Error:", err);
-      }
-    })();
+    // Await the processing payload so Vercel does not terminate before n8n completes
+    await processWebhookPayload(value, message, messageId);
 
-    // Respond immediately to Meta within < 100ms
     return new Response("EVENT_RECEIVED", { status: 200 });
   } catch (error) {
     console.error("Webhook Error:", error);
