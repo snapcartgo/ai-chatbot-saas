@@ -166,26 +166,61 @@ export async function GET(request: Request) {
     // Extract the dynamic phone number forwarded from the n8n webhook trigger
     const userPhone = searchParams.get('phone') || '';
 
-    // Dynamic Header Check: Determine if this request is routing through WhatsApp / Meta Catalog
-    const metaCatalogId = request.headers.get('x-catalog-id');
-    const metaAccessToken = request.headers.get('x-access-token');
+    // Dynamic Header Check: Read headers first, fallback to DB lookup via user_id
+    let metaCatalogId = request.headers.get('x-catalog-id') || searchParams.get('catalog_id');
+    let metaAccessToken = request.headers.get('x-access-token') || searchParams.get('access_token');
 
-    // Replace lines 148-151 with this updated array:
-const genericWords = [
-  // Generic placeholders
-  "something", "anything", "stuff", "thing", "things", "item", "items", 
-  "product", "products", "produt", "produts",
+    // DB Fallback: If headers are missing, fetch Meta credentials for this user_id from Supabase
+    if ((!metaCatalogId || !metaAccessToken) && user_id && user_id !== 'null') {
+      try {
+        const supabase = await createSupabaseServerClient();
+        
+        // Query user settings/profile table for saved meta credentials
+        const { data: userProfile } = await supabase
+          .from('users') // change table name to 'user_settings' or 'profiles' if named differently
+          .select('meta_catalog_id, meta_access_token, catalog_id, access_token')
+          .eq('id', user_id)
+          .maybeSingle();
 
-  // Catalog & Collection terms
-  "all", "list", "any", "catalog", "collection", "options", "inventory", 
-  "stock", "store", "shop", "categories", "variety", "everything",
-  "latest", "new", "new arrivals", "newest", "trending", "best", "popular", "top", "featured",
+        if (userProfile) {
+          metaCatalogId = metaCatalogId || userProfile.meta_catalog_id || userProfile.catalog_id || null;
+          metaAccessToken = metaAccessToken || userProfile.meta_access_token || userProfile.access_token || null;
+        }
+      } catch (err) {
+        console.error("Failed to fetch meta credentials from DB:", err);
+      }
+    }
 
-  // Conversational / Broad Phrases
-  "any product", "available products", "available product", "show me", 
-  "what do you have", "what's available", "whats available", "show catalog",
-  "home essentials"
-];
+    // =========================================================================
+    // ⬇️ ADD THIS BLOCK HERE (IF CATALOG CREDENTIALS ARE MISSING) ⬇️
+    // =========================================================================
+    if (!metaCatalogId || !metaAccessToken || metaCatalogId === 'null' || metaAccessToken === 'null') {
+      return NextResponse.json({
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to: userPhone,
+        type: "text",
+        text: {
+          body: "Our digital catalog is currently undergoing an update. In the meantime, please feel free to ask about any specific products or visit our website to explore our collection!"
+        }
+      });
+    }
+
+    const genericWords = [
+      // Generic placeholders
+      "something", "anything", "stuff", "thing", "things", "item", "items", 
+      "product", "products", "produt", "produts",
+
+      // Catalog & Collection terms
+      "all", "list", "any", "catalog", "collection", "options", "inventory", 
+      "stock", "store", "shop", "categories", "variety", "everything",
+      "latest", "new", "new arrivals", "newest", "trending", "best", "popular", "top", "featured",
+
+      // Conversational / Broad Phrases
+      "any product", "available products", "available product", "show me", 
+      "what do you have", "what's available", "whats available", "show catalog",
+      "home essentials"
+    ];
 
     // =========================================================================
     // BRANCH A: WHATSAPP META CATALOG SEARCH ENGINE (MULTI-PRODUCT READY)

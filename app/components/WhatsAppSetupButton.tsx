@@ -54,8 +54,8 @@ export const WhatsAppSetupButton: React.FC<WhatsAppSetupButtonProps> = ({ client
       window.FB.init({
         appId: FACEBOOK_APP_ID,
         cookie: true,
-        xfbml: true, 
-        version: "v20.0",
+        xfbml: true,
+        version: "v21.0",
       });
       hasInitializedRef.current = true;
       setSdkReady(true);
@@ -71,41 +71,50 @@ export const WhatsAppSetupButton: React.FC<WhatsAppSetupButtonProps> = ({ client
 
         console.log("Meta postMessage:", data);
 
-        if (data.type === "WA_EMBEDDED_SIGNUP" && data.event === "FINISH") {
-          let attempts = 0;
-          while (!pendingAuthCodeRef.current && attempts < 20) {
-            await new Promise((resolve) => setTimeout(resolve, 100));
-            attempts++;
-          }
+        // With this:
+const isFinishEvent = 
+  data.type === "WA_EMBEDDED_SIGNUP" &&
+  (
+    data.event === "FINISH" ||
+    data.event === "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING" ||
+    data.event === "FINISH_ONLY_WABA"
+  );
 
-          const payload = {
-            client_id: clientId,
-            waba_id: data.data?.waba_id || null,
-            phone_number_id: data.data?.phone_number_id || null,
-            business_id: data.data?.business_id || null,
-            access_token: pendingAuthCodeRef.current, 
-          };
+if (isFinishEvent) {
+  let attempts = 0;
+  while (!pendingAuthCodeRef.current && attempts < 30) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    attempts++;
+  }
 
-          const res = await fetch("/api/whatsapp/onboard", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-          });
+  const payload = {
+    client_id: clientId,
+    waba_id: data.data?.waba_id || null,
+    phone_number_id: data.data?.phone_number_id || null,
+    business_id: data.data?.business_id || null,
+    access_token: pendingAuthCodeRef.current,
+  };
 
-          const result = await res.json();
-          pendingAuthCodeRef.current = null;
+  const res = await fetch("/api/whatsapp/onboard", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
 
-          if (!res.ok) {
-            console.error("Onboard save failed:", result);
-            alert(result.error || "Failed to save WhatsApp onboarding data.");
-            setIsInitializing(false);
-            return;
-          }
+  const result = await res.json();
+  pendingAuthCodeRef.current = null;
 
-          alert("WhatsApp onboarding completed successfully.");
-          setIsInitializing(false);
-        }
+  if (!res.ok) {
+    console.error("Onboard save failed:", result);
+    alert(result.error || "Failed to save WhatsApp onboarding data.");
+    setIsInitializing(false);
+    return;
+  }
 
+  alert("WhatsApp onboarding completed successfully!");
+  setIsInitializing(false);
+  window.location.reload();
+}
         if (data.type === "WA_EMBEDDED_SIGNUP" && data.event === "CANCEL") {
           pendingAuthCodeRef.current = null;
           setIsInitializing(false);
@@ -162,10 +171,14 @@ export const WhatsAppSetupButton: React.FC<WhatsAppSetupButtonProps> = ({ client
         config_id: WHATSAPP_CONFIG_ID,
         response_type: "code",
         override_default_response_type: true,
-        extras: JSON.stringify({
-          feature: "whatsapp_embedded_signup",
-          sessionInfoVersion: "3",
-        }),
+        extras: {
+          featureType: "whatsapp_business_app_onboarding",
+          sessionInfoVersion: 3,
+          setup: {
+            featureType: "whatsapp_business_app_onboarding",
+            sessionInfoVersion: 3,
+          },
+        },
       }
     );
   };
