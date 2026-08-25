@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
       bot_id, 
       phone, 
       email, 
-      payment_status = 'COD', 
+      payment_status = 'COD ', 
       order_status = 'Active' 
     } = body;
 
