@@ -70,12 +70,14 @@ export async function POST(req: Request) {
       }
     }
 
-    // 3. Automatically query Meta Graph API for Phone Number & Phone Number ID
+   // 3. Automatically query Meta Graph API for Phone Number & Phone Number ID
     let resolvedPhoneNumber = "";
-    if (waba_id) {
+    if (waba_id && /^\d+$/.test(waba_id)) {
       try {
+        const safeWabaId = encodeURIComponent(waba_id);
+
         const phoneListRes = await axios.get(
-          `https://graph.facebook.com/v21.0/${waba_id}/phone_numbers`,
+          `https://graph.facebook.com/v21.0/${safeWabaId}/phone_numbers`,
           {
             headers: { Authorization: `Bearer ${finalAccessToken}` },
           }
@@ -87,13 +89,13 @@ export async function POST(req: Request) {
             ? phoneList.find((p: any) => p.id === phone_number_id) || phoneList[0]
             : phoneList[0];
 
-          phone_number_id = matchedPhone.id;
+          phone_number_id = String(matchedPhone.id);
           resolvedPhoneNumber = (matchedPhone.display_phone_number || "").replace(/\s+/g, "");
         }
 
         // 4. Subscribe the WABA to Webhooks
         await axios.post(
-          `https://graph.facebook.com/v21.0/${waba_id}/subscribed_apps`,
+          `https://graph.facebook.com/v21.0/${safeWabaId}/subscribed_apps`,
           {},
           { headers: { Authorization: `Bearer ${finalAccessToken}` } }
         );
