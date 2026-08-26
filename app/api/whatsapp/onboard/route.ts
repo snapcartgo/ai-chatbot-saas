@@ -7,16 +7,26 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+// Sanitizer to ensure strictly numeric digits for Meta Graph API endpoints (fixes CodeQL SSRF)
+function sanitizeMetaId(id: unknown): string | null {
+  if (typeof id !== "string" && typeof id !== "number") return null;
+  const cleaned = String(id).replace(/\D/g, "");
+  return cleaned.length >= 5 && cleaned.length <= 32 ? cleaned : null;
+}
+
 export async function POST(req: Request) {
   console.log("===== ONBOARD ROUTE: COEXISTENCE AUTO-SYNC =====");
   try {
     const body = await req.json();
+    console.log("📥 BACKEND RECEIVED BODY:", JSON.stringify(body, null, 2));
 
     const client_id = String(body.client_id || "").trim();
-    let waba_id = String(body.waba_id || "").trim();
-    let phone_number_id = String(body.phone_number_id || "").trim();
-    const business_id = String(body.business_id || "").trim();
+    let waba_id = sanitizeMetaId(body.waba_id) || "";
+    let phone_number_id = sanitizeMetaId(body.phone_number_id) || "";
+    const business_id = sanitizeMetaId(body.business_id) || "";
     const auth_code = String(body.access_token || "").trim();
+    let metaCatalogId: string | null = sanitizeMetaId(body.catalog_id);
+    let resolvedPhoneNumber = "";
 
     if (!client_id) {
       return NextResponse.json({ error: "Missing client_id" }, { status: 400 });
@@ -50,8 +60,8 @@ export async function POST(req: Request) {
       );
     }
 
-    // 2. Fallback discovery if waba_id wasn't in popup payload
-    if (!waba_id && finalAccessToken) {
+    // 2. Discover WABA ID & Catalog ID from Granular Scopes
+    if (finalAccessToken && metaAppSecret) {
       try {
         const debugRes = await axios.get("https://graph.facebook.com/v21.0/debug_token", {
           params: {
@@ -59,48 +69,63 @@ export async function POST(req: Request) {
             access_token: `${process.env.NEXT_PUBLIC_FACEBOOK_APP_ID}|${metaAppSecret}`,
           },
         });
-        const waScope = debugRes.data?.data?.granular_scopes?.find(
-          (s: any) => s.scope === "whatsapp_business_management"
-        );
-        if (waScope?.target_ids?.length > 0) {
-          waba_id = waScope.target_ids[0];
+
+        const scopes = debugRes.data?.data?.granular_scopes || [];
+
+        // Auto-discover WABA ID if not present
+        if (!waba_id) {
+          const waScope = scopes.find(
+            (s: any) => s.scope === "whatsapp_business_management"
+          );
+          if (waScope?.target_ids?.length > 0) {
+            waba_id = waScope.target_ids[0];
+          }
+        }
+
+        // Extract Catalog ID directly from granted granular scopes
+        if (!metaCatalogId) {
+          const catalogScope = scopes.find(
+            (s: any) => s.scope === "catalog_management"
+          );
+          if (catalogScope?.target_ids?.length > 0) {
+            metaCatalogId = String(catalogScope.target_ids[0]);
+            console.log("✅ Found Catalog ID from debug_token scopes:", metaCatalogId);
+          }
         }
       } catch (err: any) {
-        console.warn("WABA auto-discovery failed:", err?.message);
+        console.warn("WABA/Catalog discovery failed:", err?.message);
       }
     }
 
-   // 3. Automatically query Meta Graph API for Phone Number & Phone Number ID
-    let resolvedPhoneNumber = "";
+    // 3. Query Meta Graph API for Phone Number & Subscribe Apps (SSRF Safe)
+    const waClient = axios.create({
+      baseURL: "https://graph.facebook.com/v21.0",
+      headers: { Authorization: `Bearer ${finalAccessToken}` },
+    });
+
     if (waba_id && /^\d+$/.test(waba_id)) {
       try {
-        const safeWabaId = encodeURIComponent(waba_id);
+        const phoneListRes = await waClient.get("/me/phone_numbers", {
+          params: { waba_id: waba_id },
+        }).catch(async () => {
+          // Fallback to direct Graph node with numeric validation
+          return await waClient.get(`${encodeURIComponent(waba_id)}/phone_numbers`);
+        });
 
-        const phoneListRes = await axios.get(
-          `https://graph.facebook.com/v21.0/${safeWabaId}/phone_numbers`,
-          {
-            headers: { Authorization: `Bearer ${finalAccessToken}` },
-          }
-        );
-
-        const phoneList = phoneListRes.data?.data || [];
+        const phoneList = phoneListRes?.data?.data || [];
         if (phoneList.length > 0) {
           const matchedPhone = phone_number_id
-            ? phoneList.find((p: any) => p.id === phone_number_id) || phoneList[0]
+            ? phoneList.find((p: any) => String(p.id) === phone_number_id) || phoneList[0]
             : phoneList[0];
 
           phone_number_id = String(matchedPhone.id);
           resolvedPhoneNumber = (matchedPhone.display_phone_number || "").replace(/\s+/g, "");
         }
 
-        // 4. Subscribe the WABA to Webhooks
-        await axios.post(
-          `https://graph.facebook.com/v21.0/${safeWabaId}/subscribed_apps`,
-          {},
-          { headers: { Authorization: `Bearer ${finalAccessToken}` } }
-        );
+        // Webhook Subscription
+        await waClient.post(`${encodeURIComponent(waba_id)}/subscribed_apps`, {});
       } catch (graphErr: any) {
-        console.warn("Failed fetching phone details from Graph API:", graphErr?.response?.data || graphErr.message);
+        console.warn("Failed fetching phone details:", graphErr?.response?.data || graphErr.message);
       }
     }
 
@@ -157,6 +182,7 @@ export async function POST(req: Request) {
         wa_phone_number_id: phone_number_id,
         phone_number: resolvedPhoneNumber,
         whatsapp_access_token: finalAccessToken,
+        meta_catalog_id: metaCatalogId,
         status: "active",
         automation_enabled: true,
         workflow_type: "whatsapp_only",
@@ -172,6 +198,7 @@ export async function POST(req: Request) {
           wa_phone_number: resolvedPhoneNumber,
           wa_phone_number_id: phone_number_id,
           waba_id: waba_id,
+          meta_catalog_id: metaCatalogId,
           status: "active",
         },
         { onConflict: "chatbot_id" }
@@ -184,6 +211,7 @@ export async function POST(req: Request) {
         phone_number: resolvedPhoneNumber,
         phone_number_id: phone_number_id,
         waba_id: waba_id,
+        meta_catalog_id: metaCatalogId,
       },
     });
   } catch (err: any) {

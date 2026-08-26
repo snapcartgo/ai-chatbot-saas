@@ -63,22 +63,23 @@ export const WhatsAppSetupButton: React.FC<WhatsAppSetupButtonProps> = ({ client
     };
 
     const handleEmbeddedMessage = async (event: MessageEvent) => {
-      if (!isTrustedMetaOrigin(event.origin)) return;
+  if (!isTrustedMetaOrigin(event.origin)) return;
 
-      try {
-        const data = typeof event.data === "string" ? JSON.parse(event.data) : event.data;
-        if (!data) return;
+  try {
+    const data = typeof event.data === "string" ? JSON.parse(event.data) : event.data;
+    if (!data) return;
 
-        console.log("Meta postMessage:", data);
+    // ---> ADD THIS LINE TO INSPECT EVERYTHING META SENDS <---
+    console.log("🔥 FULL META EVENT PAYLOAD:", JSON.stringify(data, null, 2));
 
-        // With this:
-const isFinishEvent = 
-  data.type === "WA_EMBEDDED_SIGNUP" &&
-  (
-    data.event === "FINISH" ||
-    data.event === "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING" ||
-    data.event === "FINISH_ONLY_WABA"
-  );
+    const isFinishEvent =
+      data.type === "WA_EMBEDDED_SIGNUP" &&
+      (
+        data.event === "FINISH" ||
+        data.event === "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING" ||
+        data.event === "FINISH_ONLY_WABA"
+      );
+    // ...
 
 if (isFinishEvent) {
   let attempts = 0;
@@ -87,13 +88,24 @@ if (isFinishEvent) {
     attempts++;
   }
 
-  const payload = {
-    client_id: clientId,
-    waba_id: data.data?.waba_id || null,
-    phone_number_id: data.data?.phone_number_id || null,
-    business_id: data.data?.business_id || null,
-    access_token: pendingAuthCodeRef.current,
-  };
+  const eventData = data.data || {};
+        
+        // Extract catalog_ids array from Meta's event payload
+        let extractedCatalogId: string | null = null;
+        if (Array.isArray(eventData.catalog_ids) && eventData.catalog_ids.length > 0) {
+          extractedCatalogId = String(eventData.catalog_ids[0]);
+        } else if (eventData.catalog_id) {
+          extractedCatalogId = String(eventData.catalog_id);
+        }
+
+        const payload = {
+          client_id: clientId,
+          waba_id: eventData.waba_id || null,
+          phone_number_id: eventData.phone_number_id || null,
+          business_id: eventData.business_id || null,
+          catalog_id: extractedCatalogId,
+          access_token: pendingAuthCodeRef.current,
+        };
 
   const res = await fetch("/api/whatsapp/onboard", {
     method: "POST",
