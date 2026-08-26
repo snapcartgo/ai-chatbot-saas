@@ -7,9 +7,11 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-// Helper to validate and sanitize strictly numeric Meta IDs (prevents SSRF for CodeQL)
-function isValidMetaId(id: string | null | undefined): boolean {
-  return typeof id === "string" && /^\d{5,30}$/.test(id.trim());
+// Sanitizer to ensure strictly numeric digits for Meta Graph API endpoints (fixes CodeQL SSRF)
+function sanitizeMetaId(id: unknown): string | null {
+  if (typeof id !== "string" && typeof id !== "number") return null;
+  const cleaned = String(id).replace(/\D/g, "");
+  return cleaned.length >= 5 && cleaned.length <= 32 ? cleaned : null;
 }
 
 export async function POST(req: Request) {
@@ -19,11 +21,11 @@ export async function POST(req: Request) {
     console.log("📥 BACKEND RECEIVED BODY:", JSON.stringify(body, null, 2));
 
     const client_id = String(body.client_id || "").trim();
-    let waba_id = isValidMetaId(body.waba_id) ? String(body.waba_id).trim() : "";
-    let phone_number_id = isValidMetaId(body.phone_number_id) ? String(body.phone_number_id).trim() : "";
-    const business_id = isValidMetaId(body.business_id) ? String(body.business_id).trim() : "";
+    let waba_id = sanitizeMetaId(body.waba_id) || "";
+    let phone_number_id = sanitizeMetaId(body.phone_number_id) || "";
+    const business_id = sanitizeMetaId(body.business_id) || "";
     const auth_code = String(body.access_token || "").trim();
-    let metaCatalogId: string | null = isValidMetaId(body.catalog_id) ? String(body.catalog_id).trim() : null;
+    let metaCatalogId: string | null = sanitizeMetaId(body.catalog_id);
     let resolvedPhoneNumber = "";
 
     if (!client_id) {
@@ -96,19 +98,19 @@ export async function POST(req: Request) {
     }
 
     // 3. Query Meta Graph API for Phone Number & Fallback Catalog Search
-    if (waba_id && /^\d+$/.test(waba_id)) {
-      const safeWabaId = encodeURIComponent(waba_id);
+    const sanitizedWabaId = sanitizeMetaId(waba_id);
 
+    if (sanitizedWabaId) {
       try {
         const phoneListRes = await axios.get(
-          `https://graph.facebook.com/v21.0/${safeWabaId}/phone_numbers`,
+          `https://graph.facebook.com/v21.0/${sanitizedWabaId}/phone_numbers`,
           { headers: { Authorization: `Bearer ${finalAccessToken}` } }
         );
 
         const phoneList = phoneListRes.data?.data || [];
         if (phoneList.length > 0) {
           const matchedPhone = phone_number_id
-            ? phoneList.find((p: any) => p.id === phone_number_id) || phoneList[0]
+            ? phoneList.find((p: any) => String(p.id) === phone_number_id) || phoneList[0]
             : phoneList[0];
 
           phone_number_id = String(matchedPhone.id);
@@ -117,7 +119,7 @@ export async function POST(req: Request) {
 
         // 4. Webhook Subscription
         await axios.post(
-          `https://graph.facebook.com/v21.0/${safeWabaId}/subscribed_apps`,
+          `https://graph.facebook.com/v21.0/${sanitizedWabaId}/subscribed_apps`,
           {},
           { headers: { Authorization: `Bearer ${finalAccessToken}` } }
         );
@@ -129,11 +131,11 @@ export async function POST(req: Request) {
       if (!metaCatalogId) {
         try {
           const wabaCatRes = await axios.get(
-            `https://graph.facebook.com/v21.0/${safeWabaId}/product_catalogs`,
+            `https://graph.facebook.com/v21.0/${sanitizedWabaId}/product_catalogs`,
             { headers: { Authorization: `Bearer ${finalAccessToken}` } }
           );
           const wabaCats = wabaCatRes.data?.data || [];
-          if (wabaCats.length > 0 && wabaCats[0].id) {
+          if (wabaCats.length > 0 && sanitizeMetaId(wabaCats[0].id)) {
             metaCatalogId = String(wabaCats[0].id);
             console.log("✅ Found Catalog via product_catalogs:", metaCatalogId);
           }
@@ -143,14 +145,15 @@ export async function POST(req: Request) {
       }
 
       // Method 2: Fetch via WhatsApp Commerce Settings
-      if (!metaCatalogId && phone_number_id) {
+      const sanitizedPhoneId = sanitizeMetaId(phone_number_id);
+      if (!metaCatalogId && sanitizedPhoneId) {
         try {
           const phoneCommRes = await axios.get(
-            `https://graph.facebook.com/v21.0/${phone_number_id}/whatsapp_commerce_settings`,
+            `https://graph.facebook.com/v21.0/${sanitizedPhoneId}/whatsapp_commerce_settings`,
             { headers: { Authorization: `Bearer ${finalAccessToken}` } }
           );
           const commData = phoneCommRes.data?.data || [];
-          if (commData.length > 0 && commData[0].catalog_id) {
+          if (commData.length > 0 && sanitizeMetaId(commData[0].catalog_id)) {
             metaCatalogId = String(commData[0].catalog_id);
             console.log("✅ Found Catalog via whatsapp_commerce_settings:", metaCatalogId);
           }
@@ -159,16 +162,16 @@ export async function POST(req: Request) {
         }
       }
 
-      // Method 3: Fetch via Business Client Product Catalogs
-      if (!metaCatalogId && isValidMetaId(business_id)) {
+      // Method 3: Fetch via Business Client Product Catalogs (Line 151)
+      const sanitizedBusinessId = sanitizeMetaId(business_id);
+      if (!metaCatalogId && sanitizedBusinessId) {
         try {
-          const safeBusinessId = encodeURIComponent(business_id);
           const clientCatRes = await axios.get(
-            `https://graph.facebook.com/v21.0/${safeBusinessId}/client_product_catalogs`,
+            `https://graph.facebook.com/v21.0/${sanitizedBusinessId}/client_product_catalogs`,
             { headers: { Authorization: `Bearer ${finalAccessToken}` } }
           );
           const clientCats = clientCatRes.data?.data || [];
-          if (clientCats.length > 0 && isValidMetaId(clientCats[0].id)) {
+          if (clientCats.length > 0 && sanitizeMetaId(clientCats[0].id)) {
             metaCatalogId = String(clientCats[0].id);
             console.log("✅ Found Catalog via client_product_catalogs:", metaCatalogId);
           }
