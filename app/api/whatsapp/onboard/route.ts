@@ -97,16 +97,15 @@ export async function POST(req: Request) {
       }
     }
 
-    // 3. Query Meta Graph API for Phone Number & Fallback Catalog Search
-    const META_GRAPH_BASE = "https://graph.facebook.com/v21.0";
+    // 3. Query Meta Graph API for Phone Number & Subscribe Apps
+    const cleanWaba = String(waba_id || "").replace(/\D/g, "");
 
-    const cleanWabaId = String(waba_id || "").replace(/\D/g, "");
-    if (cleanWabaId) {
+    if (cleanWaba) {
       try {
-        const phoneUrl = new URL(`${META_GRAPH_BASE}/${cleanWabaId}/phone_numbers`);
-        const phoneListRes = await axios.get(phoneUrl.toString(), {
-          headers: { Authorization: `Bearer ${finalAccessToken}` },
-        });
+        const phoneListRes = await axios.get(
+          `https://graph.facebook.com/v21.0/${cleanWaba}/phone_numbers`,
+          { headers: { Authorization: `Bearer ${finalAccessToken}` } }
+        );
 
         const phoneList = phoneListRes.data?.data || [];
         if (phoneList.length > 0) {
@@ -114,72 +113,18 @@ export async function POST(req: Request) {
             ? phoneList.find((p: any) => String(p.id) === phone_number_id) || phoneList[0]
             : phoneList[0];
 
-          phone_number_id = String(matchedPhone.id).replace(/\D/g, "");
+          phone_number_id = String(matchedPhone.id);
           resolvedPhoneNumber = (matchedPhone.display_phone_number || "").replace(/\s+/g, "");
         }
 
-        // 4. Webhook Subscription
-        const subUrl = new URL(`${META_GRAPH_BASE}/${cleanWabaId}/subscribed_apps`);
+        // Webhook Subscription
         await axios.post(
-          subUrl.toString(),
+          `https://graph.facebook.com/v21.0/${cleanWaba}/subscribed_apps`,
           {},
           { headers: { Authorization: `Bearer ${finalAccessToken}` } }
         );
       } catch (graphErr: any) {
         console.warn("Failed fetching phone details:", graphErr?.response?.data || graphErr.message);
-      }
-
-      // Method 1: Fetch via WABA product_catalogs
-      if (!metaCatalogId) {
-        try {
-          const catUrl = new URL(`${META_GRAPH_BASE}/${cleanWabaId}/product_catalogs`);
-          const wabaCatRes = await axios.get(catUrl.toString(), {
-            headers: { Authorization: `Bearer ${finalAccessToken}` },
-          });
-          const wabaCats = wabaCatRes.data?.data || [];
-          if (wabaCats.length > 0 && wabaCats[0].id) {
-            metaCatalogId = String(wabaCats[0].id).replace(/\D/g, "");
-            console.log("✅ Found Catalog via product_catalogs:", metaCatalogId);
-          }
-        } catch (err: any) {
-          console.warn("WABA product_catalogs error:", err?.response?.data || err.message);
-        }
-      }
-
-      // Method 2: Fetch via WhatsApp Commerce Settings
-      const cleanPhoneId = String(phone_number_id || "").replace(/\D/g, "");
-      if (!metaCatalogId && cleanPhoneId) {
-        try {
-          const commUrl = new URL(`${META_GRAPH_BASE}/${cleanPhoneId}/whatsapp_commerce_settings`);
-          const phoneCommRes = await axios.get(commUrl.toString(), {
-            headers: { Authorization: `Bearer ${finalAccessToken}` },
-          });
-          const commData = phoneCommRes.data?.data || [];
-          if (commData.length > 0 && commData[0].catalog_id) {
-            metaCatalogId = String(commData[0].catalog_id).replace(/\D/g, "");
-            console.log("✅ Found Catalog via whatsapp_commerce_settings:", metaCatalogId);
-          }
-        } catch (err: any) {
-          console.warn("Phone commerce settings error:", err?.response?.data || err.message);
-        }
-      }
-
-      // Method 3: Fetch via Business Client Product Catalogs
-      const cleanBusinessId = String(business_id || "").replace(/\D/g, "");
-      if (!metaCatalogId && cleanBusinessId) {
-        try {
-          const busUrl = new URL(`${META_GRAPH_BASE}/${cleanBusinessId}/client_product_catalogs`);
-          const clientCatRes = await axios.get(busUrl.toString(), {
-            headers: { Authorization: `Bearer ${finalAccessToken}` },
-          });
-          const clientCats = clientCatRes.data?.data || [];
-          if (clientCats.length > 0 && clientCats[0].id) {
-            metaCatalogId = String(clientCats[0].id).replace(/\D/g, "");
-            console.log("✅ Found Catalog via client_product_catalogs:", metaCatalogId);
-          }
-        } catch (err: any) {
-          console.warn("Client catalogs check error:", err?.message);
-        }
       }
     }
 
