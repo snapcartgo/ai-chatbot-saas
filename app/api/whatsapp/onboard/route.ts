@@ -98,14 +98,15 @@ export async function POST(req: Request) {
     }
 
     // 3. Query Meta Graph API for Phone Number & Fallback Catalog Search
-    const sanitizedWabaId = sanitizeMetaId(waba_id);
+    const META_GRAPH_BASE = "https://graph.facebook.com/v21.0";
 
-    if (sanitizedWabaId) {
+    const cleanWabaId = String(waba_id || "").replace(/\D/g, "");
+    if (cleanWabaId) {
       try {
-        const phoneListRes = await axios.get(
-          `https://graph.facebook.com/v21.0/${sanitizedWabaId}/phone_numbers`,
-          { headers: { Authorization: `Bearer ${finalAccessToken}` } }
-        );
+        const phoneUrl = new URL(`${META_GRAPH_BASE}/${cleanWabaId}/phone_numbers`);
+        const phoneListRes = await axios.get(phoneUrl.toString(), {
+          headers: { Authorization: `Bearer ${finalAccessToken}` },
+        });
 
         const phoneList = phoneListRes.data?.data || [];
         if (phoneList.length > 0) {
@@ -113,13 +114,14 @@ export async function POST(req: Request) {
             ? phoneList.find((p: any) => String(p.id) === phone_number_id) || phoneList[0]
             : phoneList[0];
 
-          phone_number_id = String(matchedPhone.id);
+          phone_number_id = String(matchedPhone.id).replace(/\D/g, "");
           resolvedPhoneNumber = (matchedPhone.display_phone_number || "").replace(/\s+/g, "");
         }
 
         // 4. Webhook Subscription
+        const subUrl = new URL(`${META_GRAPH_BASE}/${cleanWabaId}/subscribed_apps`);
         await axios.post(
-          `https://graph.facebook.com/v21.0/${sanitizedWabaId}/subscribed_apps`,
+          subUrl.toString(),
           {},
           { headers: { Authorization: `Bearer ${finalAccessToken}` } }
         );
@@ -130,13 +132,13 @@ export async function POST(req: Request) {
       // Method 1: Fetch via WABA product_catalogs
       if (!metaCatalogId) {
         try {
-          const wabaCatRes = await axios.get(
-            `https://graph.facebook.com/v21.0/${sanitizedWabaId}/product_catalogs`,
-            { headers: { Authorization: `Bearer ${finalAccessToken}` } }
-          );
+          const catUrl = new URL(`${META_GRAPH_BASE}/${cleanWabaId}/product_catalogs`);
+          const wabaCatRes = await axios.get(catUrl.toString(), {
+            headers: { Authorization: `Bearer ${finalAccessToken}` },
+          });
           const wabaCats = wabaCatRes.data?.data || [];
-          if (wabaCats.length > 0 && sanitizeMetaId(wabaCats[0].id)) {
-            metaCatalogId = String(wabaCats[0].id);
+          if (wabaCats.length > 0 && wabaCats[0].id) {
+            metaCatalogId = String(wabaCats[0].id).replace(/\D/g, "");
             console.log("✅ Found Catalog via product_catalogs:", metaCatalogId);
           }
         } catch (err: any) {
@@ -145,16 +147,16 @@ export async function POST(req: Request) {
       }
 
       // Method 2: Fetch via WhatsApp Commerce Settings
-      const sanitizedPhoneId = sanitizeMetaId(phone_number_id);
-      if (!metaCatalogId && sanitizedPhoneId) {
+      const cleanPhoneId = String(phone_number_id || "").replace(/\D/g, "");
+      if (!metaCatalogId && cleanPhoneId) {
         try {
-          const phoneCommRes = await axios.get(
-            `https://graph.facebook.com/v21.0/${sanitizedPhoneId}/whatsapp_commerce_settings`,
-            { headers: { Authorization: `Bearer ${finalAccessToken}` } }
-          );
+          const commUrl = new URL(`${META_GRAPH_BASE}/${cleanPhoneId}/whatsapp_commerce_settings`);
+          const phoneCommRes = await axios.get(commUrl.toString(), {
+            headers: { Authorization: `Bearer ${finalAccessToken}` },
+          });
           const commData = phoneCommRes.data?.data || [];
-          if (commData.length > 0 && sanitizeMetaId(commData[0].catalog_id)) {
-            metaCatalogId = String(commData[0].catalog_id);
+          if (commData.length > 0 && commData[0].catalog_id) {
+            metaCatalogId = String(commData[0].catalog_id).replace(/\D/g, "");
             console.log("✅ Found Catalog via whatsapp_commerce_settings:", metaCatalogId);
           }
         } catch (err: any) {
@@ -162,17 +164,17 @@ export async function POST(req: Request) {
         }
       }
 
-      // Method 3: Fetch via Business Client Product Catalogs (Line 151)
-      const sanitizedBusinessId = sanitizeMetaId(business_id);
-      if (!metaCatalogId && sanitizedBusinessId) {
+      // Method 3: Fetch via Business Client Product Catalogs
+      const cleanBusinessId = String(business_id || "").replace(/\D/g, "");
+      if (!metaCatalogId && cleanBusinessId) {
         try {
-          const clientCatRes = await axios.get(
-            `https://graph.facebook.com/v21.0/${sanitizedBusinessId}/client_product_catalogs`,
-            { headers: { Authorization: `Bearer ${finalAccessToken}` } }
-          );
+          const busUrl = new URL(`${META_GRAPH_BASE}/${cleanBusinessId}/client_product_catalogs`);
+          const clientCatRes = await axios.get(busUrl.toString(), {
+            headers: { Authorization: `Bearer ${finalAccessToken}` },
+          });
           const clientCats = clientCatRes.data?.data || [];
-          if (clientCats.length > 0 && sanitizeMetaId(clientCats[0].id)) {
-            metaCatalogId = String(clientCats[0].id);
+          if (clientCats.length > 0 && clientCats[0].id) {
+            metaCatalogId = String(clientCats[0].id).replace(/\D/g, "");
             console.log("✅ Found Catalog via client_product_catalogs:", metaCatalogId);
           }
         } catch (err: any) {
