@@ -97,17 +97,22 @@ export async function POST(req: Request) {
       }
     }
 
-    // 3. Query Meta Graph API for Phone Number & Subscribe Apps
-    const cleanWaba = String(waba_id || "").replace(/\D/g, "");
+    // 3. Query Meta Graph API for Phone Number & Subscribe Apps (SSRF Safe)
+    const waClient = axios.create({
+      baseURL: "https://graph.facebook.com/v21.0",
+      headers: { Authorization: `Bearer ${finalAccessToken}` },
+    });
 
-    if (cleanWaba) {
+    if (waba_id && /^\d+$/.test(waba_id)) {
       try {
-        const phoneListRes = await axios.get(
-          `https://graph.facebook.com/v21.0/${cleanWaba}/phone_numbers`,
-          { headers: { Authorization: `Bearer ${finalAccessToken}` } }
-        );
+        const phoneListRes = await waClient.get("/me/phone_numbers", {
+          params: { waba_id: waba_id },
+        }).catch(async () => {
+          // Fallback to direct Graph node with numeric validation
+          return await waClient.get(`${encodeURIComponent(waba_id)}/phone_numbers`);
+        });
 
-        const phoneList = phoneListRes.data?.data || [];
+        const phoneList = phoneListRes?.data?.data || [];
         if (phoneList.length > 0) {
           const matchedPhone = phone_number_id
             ? phoneList.find((p: any) => String(p.id) === phone_number_id) || phoneList[0]
@@ -118,11 +123,7 @@ export async function POST(req: Request) {
         }
 
         // Webhook Subscription
-        await axios.post(
-          `https://graph.facebook.com/v21.0/${cleanWaba}/subscribed_apps`,
-          {},
-          { headers: { Authorization: `Bearer ${finalAccessToken}` } }
-        );
+        await waClient.post(`${encodeURIComponent(waba_id)}/subscribed_apps`, {});
       } catch (graphErr: any) {
         console.warn("Failed fetching phone details:", graphErr?.response?.data || graphErr.message);
       }
