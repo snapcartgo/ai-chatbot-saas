@@ -7,18 +7,23 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+// Helper to validate and sanitize strictly numeric Meta IDs (prevents SSRF for CodeQL)
+function isValidMetaId(id: string | null | undefined): boolean {
+  return typeof id === "string" && /^\d{5,30}$/.test(id.trim());
+}
+
 export async function POST(req: Request) {
   console.log("===== ONBOARD ROUTE: COEXISTENCE AUTO-SYNC =====");
   try {
     const body = await req.json();
-    console.log("📥 BACKEND RECEIVED BODY:", JSON.stringify(body, null, 2)); // <-- ADD THIS HERE
+    console.log("📥 BACKEND RECEIVED BODY:", JSON.stringify(body, null, 2));
 
     const client_id = String(body.client_id || "").trim();
-    let waba_id = String(body.waba_id || "").trim();
-    let phone_number_id = String(body.phone_number_id || "").trim();
-    const business_id = String(body.business_id || "").trim();
+    let waba_id = isValidMetaId(body.waba_id) ? String(body.waba_id).trim() : "";
+    let phone_number_id = isValidMetaId(body.phone_number_id) ? String(body.phone_number_id).trim() : "";
+    const business_id = isValidMetaId(body.business_id) ? String(body.business_id).trim() : "";
     const auth_code = String(body.access_token || "").trim();
-    let metaCatalogId: string | null = body.catalog_id ? String(body.catalog_id).trim() : null;
+    let metaCatalogId: string | null = isValidMetaId(body.catalog_id) ? String(body.catalog_id).trim() : null;
     let resolvedPhoneNumber = "";
 
     if (!client_id) {
@@ -155,14 +160,15 @@ export async function POST(req: Request) {
       }
 
       // Method 3: Fetch via Business Client Product Catalogs
-      if (!metaCatalogId && business_id) {
+      if (!metaCatalogId && isValidMetaId(business_id)) {
         try {
+          const safeBusinessId = encodeURIComponent(business_id);
           const clientCatRes = await axios.get(
-            `https://graph.facebook.com/v21.0/${encodeURIComponent(business_id)}/client_product_catalogs`,
+            `https://graph.facebook.com/v21.0/${safeBusinessId}/client_product_catalogs`,
             { headers: { Authorization: `Bearer ${finalAccessToken}` } }
           );
           const clientCats = clientCatRes.data?.data || [];
-          if (clientCats.length > 0 && clientCats[0].id) {
+          if (clientCats.length > 0 && isValidMetaId(clientCats[0].id)) {
             metaCatalogId = String(clientCats[0].id);
             console.log("✅ Found Catalog via client_product_catalogs:", metaCatalogId);
           }
