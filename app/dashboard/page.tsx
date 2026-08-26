@@ -133,47 +133,7 @@ export default function DashboardPage() {
   }
 
   // Next.js function that opens Laravel and manually pre-fills the email field directly from the DOM
-  const handleLaravelRedirectAndFill = (e: React.MouseEvent) => {
-    e.preventDefault();
-
-    const targetUrl = "https://marketing.woodpetra.in/auth/register/vendor";
-
-    // 1. Open Laravel in a new window tab
-    const newWindow = window.open(targetUrl, "_blank");
-
-    if (newWindow && userEmail) {
-      // 2. Wait briefly for the Laravel page elements to load completely
-      const checkInterval = setInterval(() => {
-        try {
-          if (
-            newWindow.document &&
-            newWindow.document.readyState === "complete"
-          ) {
-            // 3. Find the email input element by its ID or name attributes
-            const emailInput =
-              (newWindow.document.getElementById("email") as HTMLInputElement) ||
-              (newWindow.document.querySelector(
-                'input[name="email"]'
-              ) as HTMLInputElement);
-
-            if (emailInput) {
-              // 4. Inject the Next.js user email directly into the Laravel field
-              emailInput.value = userEmail;
-
-              // Trigger input events so any reactive frameworks or validations acknowledge the change
-              emailInput.dispatchEvent(new Event("input", { bubbles: true }));
-
-              clearInterval(checkInterval); // Done filling, clear the check
-            }
-          }
-        } catch (error) {
-          // If browser cross-origin flags block direct window script access, clear interval
-          clearInterval(checkInterval);
-        }
-      }, 500); // Checks every half second
-    }
-  };
-
+  
   async function handleCalendarSync(e: React.FormEvent) {
     e.preventDefault();
     if (!userId) return;
@@ -302,30 +262,7 @@ export default function DashboardPage() {
           </div>
         )}
 
-        <div className="mb-8 overflow-hidden rounded-3xl border border-emerald-200 bg-gradient-to-r from-emerald-950 via-emerald-900 to-lime-900 shadow-2xl shadow-emerald-950/20">
-          <div className="flex flex-col gap-6 px-6 py-7 md:flex-row md:items-center md:justify-between md:px-8">
-            <div className="max-w-2xl">
-              <p className="text-xs font-bold uppercase tracking-[0.3em] text-emerald-200">
-                WhatsApp Marketing
-              </p>
-              <h2 className="mt-3 text-3xl font-extrabold text-white md:text-4xl">
-                WhatsApp Bot
-              </h2>
-              <p className="mt-3 text-sm leading-6 text-emerald-100/85 md:text-base">
-                Open your WhatsApp bot dashboard to manage campaigns, templates,
-                bot replies, contacts, and automations from one place.
-              </p>
-            </div>
-
-            {/* Replaced standard href with cross-window script injector */}
-            <button
-              onClick={handleLaravelRedirectAndFill}
-              className="inline-flex items-center justify-center rounded-2xl bg-white px-7 py-4 text-sm font-bold text-emerald-950 shadow-lg shadow-black/20 transition-all duration-200 hover:-translate-y-0.5 hover:bg-emerald-50 hover:shadow-xl"
-            >
-              WhatsApp Bot
-            </button>
-          </div>
-        </div>
+        
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
@@ -422,6 +359,38 @@ export default function DashboardPage() {
               </button>
 
               <div className="border-t border-gray-100 my-2 pt-2"></div>
+
+              {/* Prerequisites Checklist Box */}
+              <div className="bg-blue-50/60 border border-blue-100 rounded-xl p-3 text-xs text-gray-700 space-y-1.5 mb-2">
+                <p className="font-semibold text-blue-900 flex items-center gap-1.5">
+                  <span>ℹ️</span> Important Checklist Before Connecting:
+                </p>
+                <ul className="list-disc list-outside pl-4 space-y-1 text-[11px] leading-relaxed text-gray-600">
+                  <li>
+                    <strong className="text-gray-800">Unregistered Number:</strong> If setting up a new API number, ensure it is not active on WhatsApp (delete the account from the app first).
+                  </li>
+                  <li>
+                    <strong className="text-gray-800">OTP Verification:</strong> Ensure the phone number is active and able to receive SMS or voice call verification.
+                  </li>
+                  <li>
+                    <strong className="text-gray-800">Meta Business Portfolio:</strong> Ensure you have full Admin access to your{" "}
+                    <a
+                      href="https://business.facebook.com/settings"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 underline font-medium hover:text-blue-800"
+                    >
+                      Meta Business Portfolio ↗
+                    </a>
+                  </li>
+                  <li>
+                    <strong className="text-gray-800">Using WhatsApp Business App:</strong> To connect your existing mobile app number without deleting it, choose <span className="font-medium text-gray-800">&quot;Connect a WhatsApp Business app&quot;</span>.
+                  </li>
+                  <li>
+                    <strong className="text-gray-800">App Pairing:</strong> In WhatsApp Business app, go to <span className="font-medium text-gray-800">⋮ (three dots) → Linked Devices → Link a Device</span> to scan the QR code or link with phone number.
+                  </li>
+                </ul>
+              </div>
 
               {/* 4. Connect WhatsApp Action */}
               {userId ? (

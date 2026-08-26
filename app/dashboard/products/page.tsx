@@ -35,6 +35,15 @@ export default function ProductsPage() {
   const [websiteUrl, setWebsiteUrl] = useState("");
   const [isSyncing, setIsSyncing] = useState(false);
 
+  // ---> ADD HERE <---
+  const [isSyncingMeta, setIsSyncingMeta] = useState(false);
+  const [metaSyncResult, setMetaSyncResult] = useState<{
+    imported: number;
+    updated: number;
+    total: number;
+  } | null>(null);
+  const [metaSyncError, setMetaSyncError] = useState<string | null>(null);
+
   useEffect(() => {
     fetchProducts();
 
@@ -150,6 +159,48 @@ export default function ProductsPage() {
     }
   };
 
+  const handleSyncMeta = async () => {
+    try {
+      setIsSyncingMeta(true);
+      setMetaSyncError(null);
+      setMetaSyncResult(null);
+
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        alert("User session not found. Please log in again.");
+        return;
+      }
+
+      const response = await fetch("/api/sync-meta-products", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: user.id }),
+      });
+
+      const result = await response.json();
+
+      if (response.ok && result.success) {
+        setMetaSyncResult({
+          imported: result.imported ?? 0,
+          updated: result.updated ?? 0,
+          total: result.total ?? 0,
+        });
+        setActiveTab("meta");
+        fetchProducts();
+      } else {
+        setMetaSyncError(result.error || "Failed to sync Meta catalog.");
+      }
+    } catch (err: any) {
+      console.error("Meta Sync error:", err);
+      setMetaSyncError("Something went wrong while syncing Meta catalog.");
+    } finally {
+      setIsSyncingMeta(false);
+    }
+  };
+
   const getStoragePathFromUrl = (url: string) => {
     try {
       const parsedUrl = new URL(url);
@@ -261,11 +312,13 @@ export default function ProductsPage() {
     Sync Website
   </button>
 
-          <Link href="/dashboard/products/sync-meta">
-            <button className="rounded-xl bg-blue-600 px-5 py-3 font-bold text-white transition hover:bg-blue-700">
-              Sync Meta Catalog
-            </button>
-          </Link>
+          <button
+            onClick={handleSyncMeta}
+            disabled={isSyncingMeta}
+            className={`rounded-xl bg-blue-600 px-5 py-3 font-bold text-white transition hover:bg-blue-700 disabled:opacity-50`}
+          >
+            {isSyncingMeta ? "Syncing Meta..." : "Sync Meta Catalog"}
+          </button>
 
           <Link href="/dashboard/products/upload">
             <button className="rounded-xl bg-green-600 px-5 py-3 font-bold text-white transition hover:bg-green-700">
@@ -274,6 +327,36 @@ export default function ProductsPage() {
           </Link>
         </div>
       </div>
+
+      {/* Meta Sync Error Alert */}
+      {metaSyncError && (
+        <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">
+          {metaSyncError}
+        </div>
+      )}
+
+      {/* Meta Sync Status Box */}
+      {metaSyncResult && (
+        <div className="mb-6 rounded-2xl border border-emerald-300 bg-emerald-50/70 p-5 shadow-sm">
+          <h3 className="mb-3 flex items-center gap-1.5 text-sm font-semibold text-emerald-900">
+            ✓ Catalog Synchronized Successfully
+          </h3>
+          <div className="grid grid-cols-3 gap-4 text-center">
+            <div className="rounded-xl border border-emerald-100 bg-white p-3 shadow-sm">
+              <p className="text-xs font-semibold uppercase text-slate-500">Imported</p>
+              <p className="mt-1 text-xl font-extrabold text-slate-900">{metaSyncResult.imported}</p>
+            </div>
+            <div className="rounded-xl border border-emerald-100 bg-white p-3 shadow-sm">
+              <p className="text-xs font-semibold uppercase text-slate-500">Updated</p>
+              <p className="mt-1 text-xl font-extrabold text-slate-900">{metaSyncResult.updated}</p>
+            </div>
+            <div className="rounded-xl border border-emerald-100 bg-white p-3 shadow-sm">
+              <p className="text-xs font-semibold uppercase text-slate-500">Total Items</p>
+              <p className="mt-1 text-xl font-extrabold text-blue-600">{metaSyncResult.total}</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* --- FILTER BUTTONS POSITIONED UNDER THE HEADER DESCRIPTION --- */}
       <div className="mb-8 flex gap-4 border-b border-gray-200 pb-4">

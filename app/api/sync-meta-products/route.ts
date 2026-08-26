@@ -143,43 +143,53 @@ function mapAvailabilityToStock(availability?: string | null): number {
   return 999;
 }
 
-// 🟢 FIX: Clean extractor to intercept categories from string formats or deeply-nested objects
 function parseMetaCategory(meta: any): string | null {
-  // 1. Try standard Meta API fields first
-  if (meta.product_type) return String(meta.product_type).trim();
-  if (meta.category_name) return String(meta.category_name).trim();
-  
+  // Helper to clean category strings or leaf paths (e.g. "Health and beauty > Beauty" -> "Beauty")
+  const formatCategory = (val: any): string | null => {
+    if (!val) return null;
+    const str = String(val).trim();
+    if (!str) return null;
+    return str.includes(">") ? str.split(">").pop()!.trim() : str;
+  };
+
+  // 1. Direct Facebook Product Category
+  if (meta.fb_product_category) {
+    const fbCat = typeof meta.fb_product_category === "object"
+      ? meta.fb_product_category.name || meta.fb_product_category.id
+      : meta.fb_product_category;
+    const formatted = formatCategory(fbCat);
+    if (formatted) return formatted;
+  }
+
+  // 2. Standard Meta Product Category
   if (meta.product_category) {
-    if (typeof meta.product_category === 'object') {
-      return meta.product_category.name || meta.product_category.id || null;
-    }
-    return String(meta.product_category).trim();
+    const pCat = typeof meta.product_category === "object"
+      ? meta.product_category.name || meta.product_category.id
+      : meta.product_category;
+    const formatted = formatCategory(pCat);
+    if (formatted) return formatted;
   }
 
+  // 3. Google Product Category configured in Meta Catalog
   if (meta.google_product_category) {
-    if (typeof meta.google_product_category === 'object') {
-      return meta.google_product_category.name || meta.google_product_category.id || null;
-    }
-    return String(meta.google_product_category).trim();
+    const gCat = typeof meta.google_product_category === "object"
+      ? meta.google_product_category.name || meta.google_product_category.id
+      : meta.google_product_category;
+    const formatted = formatCategory(gCat);
+    if (formatted) return formatted;
   }
 
+  // 4. Custom product_type or category_name strings
+  if (meta.product_type) return formatCategory(meta.product_type);
+  if (meta.category_name) return formatCategory(meta.category_name);
+  if (meta.category && typeof meta.category === "string") return formatCategory(meta.category);
+
+  // 5. Category specific spec
   if (meta.category_specific_spec?.google_product_category) {
-    return String(meta.category_specific_spec.google_product_category).trim();
+    return formatCategory(meta.category_specific_spec.google_product_category);
   }
 
-  // 2. 🟢 SMART FALLBACK: If Meta returns nothing, auto-detect using keywords
-  const searchText = `${meta.name || ''} ${meta.description || ''}`.toLowerCase();
-  
-  if (searchText.includes("t-shirt") || searchText.includes("jeans") || searchText.includes("shirt") || searchText.includes("clothing")) {
-    return "Clothing";
-  }
-  if (searchText.includes("earbuds") || searchText.includes("headphone") || searchText.includes("battery") || searchText.includes("noise cancellation")) {
-    return "Electronics";
-  }
-  if (searchText.includes("shoes") || searchText.includes("sneaker")) {
-    return "Footwear";
-  }
-
+  // If customer has not set any category in Meta, return null (blank)
   return null;
 }
 
@@ -300,11 +310,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // 1. Fetch config from whatsapp_configs
     const { data: config, error: configError } = await supabase
       .from("whatsapp_configs")
-      .select("user_id, meta_catalog_id, meta_access_token, whatsapp_access_token")
+      .select("user_id, chatbot_id, meta_catalog_id, meta_access_token, whatsapp_access_token")
       .eq("user_id", userId)
-      .maybeSingle<WhatsAppConfigRow>();
+      .maybeSingle();
 
     if (configError) {
       console.error("WhatsApp config lookup error:", configError);
@@ -314,16 +325,34 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const catalogId = req.headers.get("x-catalog-id") || config?.meta_catalog_id;
-    const accessToken = req.headers.get("x-access-token") || config?.meta_access_token || config?.whatsapp_access_token;
+    let catalogId = req.headers.get("x-catalog-id") || config?.meta_catalog_id;
+    let accessToken = req.headers.get("x-access-token") || config?.whatsapp_access_token || config?.meta_access_token;
 
-    console.log("Catalog ID:", catalogId);
+    // 🟢 FALLBACK: If catalog_id is missing in whatsapp_configs, look in whatsapp_subscriptions
+    if (!catalogId && config?.chatbot_id) {
+      const { data: subData } = await supabase
+        .from("whatsapp_subscriptions")
+        .select("meta_catalog_id")
+        .eq("chatbot_id", config.chatbot_id)
+        .maybeSingle();
+
+      if (subData?.meta_catalog_id) {
+        catalogId = subData.meta_catalog_id;
+      }
+    }
+
+    // 🟢 FALLBACK: If token is still missing, fallback to system environment token
+    if (!accessToken) {
+      accessToken = process.env.WHATSAPP_ACCESS_TOKEN || null;
+    }
+
+    console.log("Using Catalog ID:", catalogId);
 
     if (!catalogId || !accessToken) {
       return NextResponse.json(
         {
           success: false,
-          error: "Meta catalog or Meta access token is not configured for this user",
+          error: "Meta catalog ID or WhatsApp access token is missing. Please connect WhatsApp first.",
         },
         { status: 400 }
       );
@@ -332,10 +361,10 @@ export async function POST(req: NextRequest) {
     const allProducts: MetaProduct[] = [];
     let currentPage = 1;
     
-    // 🟢 FIX: Added product_type, product_category, and structural spec nodes to the fields query parameters
+    // 🟢 FIX: Added fb_product_category, category, product_type, product_category, and structural spec nodes
     let nextUrl =
       `https://graph.facebook.com/v20.0/${catalogId}/products` +
-      `?fields=id,retailer_id,name,description,price,availability,image_url,url,color,currency,size,gender,google_product_category,product_category,category_specific_spec,product_type` +
+      `?fields=id,retailer_id,name,description,price,availability,image_url,url,color,currency,size,gender,google_product_category,product_category,fb_product_category,category,category_specific_spec,product_type` +
       `&limit=100&access_token=${encodeURIComponent(accessToken)}`;
 
     while (nextUrl) {
