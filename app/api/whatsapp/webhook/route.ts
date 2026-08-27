@@ -88,28 +88,33 @@ async function processWebhookPayload(value: any, message: any, messageId: string
     const referredProductSku = context?.referred_product?.product_retailer_id || null;
 
     // Extract Message Content
-    let userMessage = "";
-    let mediaId = "";
+let userMessage = "";
+let mediaId = "";
 
-    if (messageType === "text") {
-      userMessage = message.text?.body || "";
-    } else if (messageType === "interactive") {
-      // Intentionally left available for interactive payloads
-    } else if (messageType === "image") {
-      userMessage = message.image?.caption || "User sent an image";
-      mediaId = message.image?.id || "";
-    } else if (messageType === "video") {
-      userMessage = message.video?.caption || "User sent a video";
-      mediaId = message.video?.id || "";
-    } else if (messageType === "audio") {
-      userMessage = "User sent an audio message";
-      mediaId = message.audio?.id || "";
-    } else {
-      userMessage =
-        message.button?.text ||
-        message.interactive?.button_reply?.title ||
-        "Unsupported message";
-    }
+if (messageType === "text") {
+  userMessage = message.text?.body || "";
+} else if (messageType === "interactive") {
+  const interactive = message.interactive;
+  userMessage =
+    interactive?.button_reply?.title ||
+    interactive?.list_reply?.title ||
+    interactive?.button_reply?.id ||
+    interactive?.list_reply?.id ||
+    "";
+} else if (messageType === "button") {
+  userMessage = message.button?.text || message.button?.payload || "";
+} else if (messageType === "image") {
+  userMessage = message.image?.caption || "User sent an image";
+  mediaId = message.image?.id || "";
+} else if (messageType === "video") {
+  userMessage = message.video?.caption || "User sent a video";
+  mediaId = message.video?.id || "";
+} else if (messageType === "audio") {
+  userMessage = "User sent an audio message";
+  mediaId = message.audio?.id || "";
+} else {
+  userMessage = message?.text?.body || "Unsupported message";
+}
 
     const phoneNumberId = value.metadata?.phone_number_id;
 
