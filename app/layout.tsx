@@ -18,6 +18,12 @@ export default function RootLayout({
 
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        <meta
+          name="facebook-domain-verification"
+          content="qdc2496gaj80kem8bhr94s3zkejbyo"
+        />
+      </head>
       <body
         style={{
           margin: 0,
