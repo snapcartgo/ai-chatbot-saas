@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import * as cheerio from "cheerio";
+import dns from "dns/promises";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -8,76 +9,57 @@ const supabase = createClient(
 );
 
 /**
- * Validates the host against SSRF and returns safe validated parts.
- * Breaks taint flow by returning isolated primitives.
+ * Checks whether an IP address is in a private, loopback, or metadata subnet
  */
-function validateAndGetOrigin(urlString: string): { protocol: "http:" | "https:"; host: string } | null {
+function isDisallowedIp(ip: string): boolean {
+  if (!ip) return true;
+  if (ip === "127.0.0.1" || ip === "::1" || ip === "0.0.0.0") return true;
+
+  const parts = ip.split(".").map(Number);
+  if (parts.length === 4 && parts.every((n) => !isNaN(n) && n >= 0 && n <= 255)) {
+    const [b0, b1] = parts;
+    if (b0 === 10) return true; // 10.0.0.0/8
+    if (b0 === 127) return true; // 127.0.0.0/8
+    if (b0 === 0) return true; // 0.0.0.0/8
+    if (b0 === 172 && b1 >= 16 && b1 <= 31) return true; // 172.16.0.0/12
+    if (b0 === 192 && b1 === 168) return true; // 192.168.0.0/16
+    if (b0 === 169 && b1 === 254) return true; // 169.254.0.0/16 (AWS metadata)
+    return false;
+  }
+
+  // Treat all unhandled IPv6 as disallowed for scraping targets
+  return true;
+}
+
+/**
+ * Validates domain and performs DNS lookup to prove host is an external public IP
+ */
+async function getValidatedSafeUrl(urlString: string): Promise<URL | null> {
   if (!urlString || typeof urlString !== "string") return null;
 
   try {
     const parsed = new URL(urlString);
-
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-      return null;
-    }
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
 
     const hostname = parsed.hostname.toLowerCase();
+    if (!hostname || hostname.length > 253 || hostname.includes(" ")) return null;
 
-    // Standard hostname sanity checks
-    if (!hostname || hostname.length > 253 || hostname.includes(" ")) {
+    // Check against internal domain patterns
+    const blockedSuffixes = [".local", ".internal", ".lan", ".home", ".corp"];
+    if (blockedSuffixes.some((s) => hostname.endsWith(s))) return null;
+
+    // Resolve DNS and test actual network IP
+    const { address } = await dns.lookup(hostname);
+    if (isDisallowedIp(address)) {
       return null;
     }
 
-    // Explicit localhost / internal domain checks
-    if (
-      hostname === "localhost" ||
-      hostname === "127.0.0.1" ||
-      hostname === "0.0.0.0" ||
-      hostname === "::1" ||
-      hostname.endsWith(".local") ||
-      hostname.endsWith(".internal") ||
-      hostname.endsWith(".lan") ||
-      hostname.endsWith(".home") ||
-      hostname.endsWith(".corp")
-    ) {
-      return null;
-    }
-
-    // IPv4 private, loopback, link-local, and cloud metadata (169.254.x.x)
-    const ipv4Regex = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
-    const ipv4Match = hostname.match(ipv4Regex);
-    if (ipv4Match) {
-      const b0 = parseInt(ipv4Match[1], 10);
-      const b1 = parseInt(ipv4Match[2], 10);
-      if (
-        b0 === 10 ||
-        b0 === 127 ||
-        b0 === 0 ||
-        (b0 === 172 && b1 >= 16 && b1 <= 31) ||
-        (b0 === 192 && b1 === 168) ||
-        (b0 === 169 && b1 === 254)
-      ) {
-        return null;
-      }
-    }
-
-    // IPv6 block
-    if (hostname.startsWith("[") || hostname.includes(":")) {
-      return null;
-    }
-
-    return {
-      protocol: parsed.protocol as "http:" | "https:",
-      host: parsed.host,
-    };
+    return parsed;
   } catch {
     return null;
   }
 }
 
-/**
- * Safely cleans HTML tags using Cheerio
- */
 function sanitizeText(htmlContent: string): string {
   if (!htmlContent) return "";
   const $ = cheerio.load(htmlContent);
@@ -85,7 +67,6 @@ function sanitizeText(htmlContent: string): string {
   return $.text().replace(/\s+/g, " ").trim();
 }
 
-// Extract the selling price
 function extractExactProductPrice($card: cheerio.Cheerio<any>): number {
   const $clone = $card.clone();
   $clone.find("del, s, strike, [class*='old-price'], [class*='regular-price'], [class*='shipping']").remove();
@@ -124,10 +105,9 @@ function extractExactProductPrice($card: cheerio.Cheerio<any>): number {
   return 0;
 }
 
-// Scrape detail page for high-res images and fallback prices
-async function scrapeDetailPage(protocol: string, host: string, pathname: string) {
+async function scrapeDetailPage(baseVerifiedUrl: URL, pathAndQuery: string) {
   try {
-    const targetUrl = new URL(pathname, `${protocol}//${host}`).href;
+    const targetUrl = new URL(pathAndQuery, baseVerifiedUrl.origin).href;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 3500);
 
@@ -158,7 +138,7 @@ async function scrapeDetailPage(protocol: string, host: string, pathname: string
     const detailPrice = extractExactProductPrice($("body"));
 
     return {
-      image: ogImg ? (ogImg.startsWith("http") ? ogImg : `${protocol}//${host}${ogImg.startsWith("/") ? "" : "/"}${ogImg}`) : "",
+      image: ogImg ? (ogImg.startsWith("http") ? ogImg : new URL(ogImg, baseVerifiedUrl.origin).href) : "",
       sku: extractedSku,
       price: detailPrice,
     };
@@ -167,11 +147,10 @@ async function scrapeDetailPage(protocol: string, host: string, pathname: string
   }
 }
 
-// Shopify Direct JSON fetcher using isolated protocol & host
-async function fetchShopifyProducts(protocol: string, host: string, userId: string) {
+async function fetchShopifyProducts(baseVerifiedUrl: URL, userId: string) {
   try {
-    const targetUrl = `${protocol}//${host}/products.json?limit=100`;
-    const res = await fetch(targetUrl, {
+    const shopifyEndpoint = new URL("/products.json?limit=100", baseVerifiedUrl.origin).href;
+    const res = await fetch(shopifyEndpoint, {
       headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)", Accept: "application/json" },
     });
     if (!res.ok) return null;
@@ -191,8 +170,8 @@ async function fetchShopifyProducts(protocol: string, host: string, userId: stri
         price: parseFloat(variant.price) || 0,
         category: item.product_type || "General",
         image_url: img,
-        product_url: `${protocol}//${host}/products/${item.handle}`,
-        website_url: `${protocol}//${host}/products/${item.handle}`,
+        product_url: `${baseVerifiedUrl.origin}/products/${item.handle}`,
+        website_url: `${baseVerifiedUrl.origin}/products/${item.handle}`,
         sku: variant.sku || `SP-${idx + 1000}`,
         stock: "20",
         attributes: { option: ["Standard"] },
@@ -215,18 +194,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Missing websiteUrl or userId" }, { status: 400 });
     }
 
-    const validatedOrigin = validateAndGetOrigin(rawWebsiteUrl);
-    if (!validatedOrigin) {
-      return NextResponse.json({ error: "Invalid website target" }, { status: 400 });
+    const verifiedBaseUrl = await getValidatedSafeUrl(rawWebsiteUrl);
+    if (!verifiedBaseUrl) {
+      return NextResponse.json({ error: "Invalid or private website target" }, { status: 400 });
     }
-
-    const { protocol, host } = validatedOrigin;
-    const safeBaseUrl = `${protocol}//${host}`;
 
     let productsToInsert: any[] = [];
 
     // 1. Shopify
-    const shopifyProds = await fetchShopifyProducts(protocol, host, userId);
+    const shopifyProds = await fetchShopifyProducts(verifiedBaseUrl, userId);
     if (shopifyProds && shopifyProds.length > 0) {
       productsToInsert = shopifyProds;
     }
@@ -234,7 +210,7 @@ export async function POST(req: Request) {
     // 2. Dynamic HTML Scraper
     if (productsToInsert.length === 0) {
       const pathsToCrawl = ["/"];
-      if (!host.includes("lovable.app")) {
+      if (!verifiedBaseUrl.hostname.includes("lovable.app")) {
         pathsToCrawl.push("/shop/");
       }
 
@@ -262,7 +238,7 @@ export async function POST(req: Request) {
 
       for (const crawlPath of pathsToCrawl) {
         try {
-          const targetUrl = `${protocol}//${host}${crawlPath}`;
+          const targetUrl = new URL(crawlPath, verifiedBaseUrl.origin).href;
           const pageRes = await fetch(targetUrl, {
             headers: {
               "User-Agent":
@@ -298,21 +274,20 @@ export async function POST(req: Request) {
             const lowerTitle = title.toLowerCase();
             if (bannedTitles.includes(lowerTitle)) continue;
 
-            // Link extraction
             const extractedHref = ($card.is("a") ? $card.attr("href") : $card.find("a").first().attr("href")) || "";
 
             let detailPath = "";
-            let fullProductUrl = safeBaseUrl;
+            let fullProductUrl = verifiedBaseUrl.origin;
 
             if (extractedHref) {
               try {
-                const targetObj = new URL(extractedHref, safeBaseUrl);
-                if (targetObj.host === host) {
+                const targetObj = new URL(extractedHref, verifiedBaseUrl.origin);
+                if (targetObj.hostname === verifiedBaseUrl.hostname) {
                   detailPath = targetObj.pathname + targetObj.search;
-                  fullProductUrl = `${safeBaseUrl}${detailPath}`;
+                  fullProductUrl = targetObj.href;
                 }
               } catch {
-                fullProductUrl = safeBaseUrl;
+                fullProductUrl = verifiedBaseUrl.origin;
               }
             }
 
@@ -353,14 +328,13 @@ export async function POST(req: Request) {
             let imgUrl = "";
             if (rawImg && !rawImg.startsWith("data:image")) {
               try {
-                const full = rawImg.startsWith("http") ? rawImg : `${safeBaseUrl}${rawImg.startsWith("/") ? "" : "/"}${rawImg}`;
-                imgUrl = full;
+                imgUrl = rawImg.startsWith("http") ? rawImg : new URL(rawImg, verifiedBaseUrl.origin).href;
               } catch {}
             }
 
             let detailSku = "";
             if ((!imgUrl || price === 0) && detailPath) {
-              const details = await scrapeDetailPage(protocol, host, detailPath);
+              const details = await scrapeDetailPage(verifiedBaseUrl, detailPath);
               if (details) {
                 if (!imgUrl && details.image) imgUrl = details.image;
                 if (price === 0 && details.price > 0) price = details.price;
