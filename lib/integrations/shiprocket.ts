@@ -27,9 +27,8 @@ export async function getShiprocketToken(userId?: string): Promise<{ token: stri
 
   // Endpoints to try
   const endpoints = [
-    'https://apiv2.shiprocket.in/v2/console/auth/login',
-    'https://apiv2.shiprocket.in/v2/auth/login'
-  ];
+  'https://apiv2.shiprocket.in/v1/external/auth/login',
+];
 
   let token: string | null = null;
   let lastResponse: any = null;
@@ -146,15 +145,15 @@ export async function createShiprocketShipment(order: any) {
     weight: 0.5,
   };
 
-  const res = await fetch('https://apiv2.shiprocket.in/v2/console/data/orders/create/adhoc', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify(payload),
-  });
+  const res = await fetch('https://apiv2.shiprocket.in/v1/external/orders/create/adhoc', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+    Authorization: `Bearer ${token}`,
+  },
+  body: JSON.stringify(payload),
+});
 
   const data = await res.json().catch(() => null);
 
@@ -179,8 +178,8 @@ export async function createShiprocketShipment(order: any) {
 export async function getShiprocketTracking(userId: string, awb: string, shipmentId?: string) {
   const { token } = await getShiprocketToken(userId);
   const endpoint = awb
-    ? `https://apiv2.shiprocket.in/v2/console/courier/track/awb/${awb}`
-    : `https://apiv2.shiprocket.in/v2/console/courier/track/shipment/${shipmentId}`;
+  ? `https://apiv2.shiprocket.in/v1/external/courier/track/awb/${awb}`
+  : `https://apiv2.shiprocket.in/v1/external/courier/track/shipment/${shipmentId}`;
 
   const res = await fetch(endpoint, {
     method: 'GET',

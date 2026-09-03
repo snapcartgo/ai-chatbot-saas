@@ -7,24 +7,13 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-/**
- * Sanitizes and validates external URLs to pass CodeQL static analysis taint tracking.
- * Strictly enforces http/https and blocks SSRF vectors (private IPs, localhost).
- */
 function getSafeFetchUrl(urlString: string): string | null {
   if (!urlString || typeof urlString !== "string") return null;
-
   try {
     const parsed = new URL(urlString);
-
-    // Enforce protocol restriction
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-      return null;
-    }
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
 
     const host = parsed.hostname.toLowerCase();
-
-    // Block local / internal IP ranges & private domains (SSRF Protection)
     if (
       host === "localhost" ||
       host === "127.0.0.1" ||
@@ -40,130 +29,133 @@ function getSafeFetchUrl(urlString: string): string | null {
       return null;
     }
 
-    // Reconstruct brand new URL object to break CodeQL taint chain
     const cleanUrl = new URL(`${parsed.protocol}//${parsed.host}${parsed.pathname}`);
     cleanUrl.search = parsed.search;
-
     return cleanUrl.toString();
   } catch {
     return null;
   }
 }
 
-async function scrapeProductDetails(productUrl: string) {
+// Extract the selling price
+function extractExactProductPrice($card: cheerio.Cheerio<any>): number {
+  const $clone = $card.clone();
+  $clone.find("del, s, strike, [class*='old-price'], [class*='regular-price'], [class*='shipping']").remove();
+
+  const selectors = [
+    "ins .woocommerce-Price-amount bdi",
+    "ins .woocommerce-Price-amount",
+    "ins .amount",
+    "ins",
+    ".woocommerce-Price-amount bdi",
+    ".woocommerce-Price-amount",
+    ".price-current",
+    ".special-price",
+    "[class*='price']:not(del)",
+    ".amount",
+  ];
+
+  for (const s of selectors) {
+    const txt = $clone.find(s).first().text().replace(/\u00a0/g, " ").replace(/,/g, "").trim();
+    if (txt && !txt.includes("%")) {
+      const match = txt.match(/(?:₹|rs\.?|\$|&#8377;)?\s*(\d+(?:\.\d{1,2})?)/i);
+      if (match && match[1]) {
+        const val = parseFloat(match[1]);
+        if (val > 0) return val;
+      }
+    }
+  }
+
+  const rawText = $clone.text().replace(/\u00a0/g, " ").replace(/,/g, "");
+  const matches = [...rawText.matchAll(/(?:₹|rs\.?|\$)\s*(\d+(?:\.\d{1,2})?)/gi)];
+  for (const m of matches) {
+    const val = parseFloat(m[1]);
+    if (val > 0 && !rawText.includes(`-${val}%`)) return val;
+  }
+
+  return 0;
+}
+
+// Scrape detail page for high-res images and fallback prices
+async function scrapeDetailPage(productUrl: string) {
   const safeTargetUrl = getSafeFetchUrl(productUrl);
   if (!safeTargetUrl) return null;
 
   try {
-    // CodeQL passes here because safeTargetUrl is verified clean
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3500);
+
     const res = await fetch(safeTargetUrl, {
+      signal: controller.signal,
       headers: {
         "User-Agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
       },
     });
+    clearTimeout(timer);
 
     if (!res.ok) return null;
-
     const html = await res.text();
     const $ = cheerio.load(html);
 
-    // 1. EXTRACT CATEGORY FROM DETAIL PAGE
-    let extractedCategory = "";
-    $("*").each((_, el) => {
-      const txt = $(el).clone().children().remove().end().text().trim();
-      if (/^Category$/i.test(txt) || txt.startsWith("Category:")) {
-        const val = $(el).next().text().trim() || $(el).parent().find("p, span, div, a").last().text().trim();
-        if (val && val.length < 30 && !extractedCategory && !/category/i.test(val)) {
-          extractedCategory = val;
-        }
-      }
-    });
+    const ogImg =
+      $("meta[property='og:image']").attr("content") ||
+      $("meta[name='twitter:image']").attr("content") ||
+      $("main img, article img, .product-image img").first().attr("src") ||
+      "";
 
-    // 2. EXTRACT EXACT SKU
-    let extractedSku: string | null = null;
+    let extractedSku = "";
     const bodyText = $("body").text();
+    const skuMatch = bodyText.match(/WP-\d{4}/i);
+    if (skuMatch) extractedSku = skuMatch[0].toUpperCase();
 
-    const strictSkuMatch = bodyText.match(/WP-\d{4}/i);
-    if (strictSkuMatch) {
-      extractedSku = strictSkuMatch[0].toUpperCase();
-    }
-
-    if (!extractedSku) {
-      $('[class*="sku"], [id*="sku"]').each((_, el) => {
-        const text = $(el).text().replace(/SKU:?/i, "").trim();
-        const m = text.match(/([A-Z]{2,4}-\d{3,6})/i);
-        if (m && !extractedSku) {
-          extractedSku = m[1].toUpperCase();
-        }
-      });
-    }
-
-    // 3. EXTRACT ATTRIBUTES
-    const attributes: Record<string, string[]> = {};
-    const requiredFields: string[] = [];
-
-    const colorSwatches: string[] = [];
-    $("button, [class*='swatch'], [class*='option'], [class*='chip']").each((_, el) => {
-      const txt = $(el).text().trim();
-      if (
-        txt &&
-        !/add to cart|buy|select|sku|product|specifications|description/i.test(txt) &&
-        txt.length < 25
-      ) {
-        colorSwatches.push(txt);
-      }
-    });
-
-    if (colorSwatches.length > 0) {
-      attributes["color"] = Array.from(new Set(colorSwatches));
-      requiredFields.push("color");
-    }
-
-    let materialVal = "";
-    let colorVal = "";
-
-    $("*").each((_, el) => {
-      const txt = $(el).clone().children().remove().end().text().trim();
-
-      if (/^Material$/i.test(txt)) {
-        const next = $(el).next().text().trim() || $(el).parent().find("p, span, div").last().text().trim();
-        if (next && next.length < 50 && !materialVal) {
-          materialVal = next;
-        }
-      }
-
-      if (/^Color$/i.test(txt)) {
-        const next = $(el).next().text().trim() || $(el).parent().find("p, span, div").last().text().trim();
-        if (next && next.length < 50 && !colorVal) {
-          colorVal = next;
-        }
-      }
-    });
-
-    if (!materialVal || !colorVal) {
-      const bulletMatch = bodyText.match(/([A-Za-z0-9\s-]+)\s*•\s*([A-Za-z0-9\s-]+)/);
-      if (bulletMatch) {
-        if (!materialVal && bulletMatch[1]) materialVal = bulletMatch[1].trim();
-        if (!colorVal && bulletMatch[2]) colorVal = bulletMatch[2].trim();
-      }
-    }
-
-    if (materialVal) {
-      attributes["material"] = [materialVal];
-    }
-
-    if (!attributes["color"] && colorVal) {
-      attributes["color"] = [colorVal];
-      requiredFields.push("color");
-    }
+    const detailPrice = extractExactProductPrice($("body"));
 
     return {
-      category: extractedCategory,
+      image: ogImg ? getSafeFetchUrl(ogImg.startsWith("http") ? ogImg : new URL(ogImg, safeTargetUrl).href) : "",
       sku: extractedSku,
-      attributes: Object.keys(attributes).length > 0 ? attributes : { option: ["Standard"] },
-      required_fields: requiredFields,
+      price: detailPrice,
     };
+  } catch {
+    return null;
+  }
+}
+
+// Shopify Direct JSON fetcher
+async function fetchShopifyProducts(targetUrl: string, userId: string) {
+  try {
+    const parsed = new URL(targetUrl);
+    const shopifyEndpoint = `${parsed.protocol}//${parsed.host}/products.json?limit=100`;
+    const safeUrl = getSafeFetchUrl(shopifyEndpoint);
+    if (!safeUrl) return null;
+
+    const res = await fetch(safeUrl, {
+      headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)", Accept: "application/json" },
+    });
+    if (!res.ok) return null;
+
+    const data = await res.json();
+    if (!data?.products || !Array.isArray(data.products) || data.products.length === 0) return null;
+
+    return data.products.map((item: any, idx: number) => {
+      const variant = item.variants?.[0] || {};
+      const img = item.images?.[0]?.src || "";
+      return {
+        user_id: userId,
+        name: item.title,
+        description: (item.body_html || "").replace(/<[^>]*>?/gm, "").trim().slice(0, 200) || `${item.title} available now.`,
+        price: parseFloat(variant.price) || 0,
+        category: item.product_type || "General",
+        image_url: img,
+        product_url: `${parsed.protocol}//${parsed.host}/products/${item.handle}`,
+        website_url: `${parsed.protocol}//${parsed.host}/products/${item.handle}`,
+        sku: variant.sku || `SP-${idx + 1000}`,
+        stock: "20",
+        attributes: { option: ["Standard"] },
+        required_fields: [],
+        product_type: "website",
+      };
+    });
   } catch {
     return null;
   }
@@ -175,116 +167,238 @@ export async function POST(req: Request) {
     const rawWebsiteUrl = body?.websiteUrl;
     const userId = body?.userId;
 
-    if (!rawWebsiteUrl || !userId || typeof rawWebsiteUrl !== "string") {
-      return NextResponse.json({ error: "Missing or invalid websiteUrl or userId" }, { status: 400 });
+    if (!rawWebsiteUrl || !userId) {
+      return NextResponse.json({ error: "Missing websiteUrl or userId" }, { status: 400 });
     }
 
-    // Clean & validate base URL before making initial HTTP fetch
     const safeBaseUrl = getSafeFetchUrl(rawWebsiteUrl);
     if (!safeBaseUrl) {
-      return NextResponse.json({ error: "Unauthorized or invalid website target" }, { status: 400 });
+      return NextResponse.json({ error: "Invalid website target" }, { status: 400 });
     }
 
-    const pageRes = await fetch(safeBaseUrl, {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-      },
-    });
+    let productsToInsert: any[] = [];
 
-    if (!pageRes.ok) {
-      return NextResponse.json({ error: "Failed to load website content" }, { status: 400 });
+    // 1. Shopify
+    const shopifyProds = await fetchShopifyProducts(safeBaseUrl, userId);
+    if (shopifyProds && shopifyProds.length > 0) {
+      productsToInsert = shopifyProds;
     }
 
-    const html = await pageRes.text();
-    const $ = cheerio.load(html);
+    // 2. Dynamic HTML Scraper
+    if (productsToInsert.length === 0) {
+      const parsed = new URL(safeBaseUrl);
+      const urlsToCrawl = [safeBaseUrl];
 
-    const productsToInsert: any[] = [];
-    const cardElements = $('a[href*="/product"], div[class*="product"], article').toArray();
-
-    for (const el of cardElements) {
-      const $card = $(el);
-
-      const title = $card.find('h2, h3, h4, [class*="title"], [class*="name"]').first().text().trim();
-      const description = $card.find("p").text().trim();
-      const priceText = $card.find('[class*="price"], span:contains("$"), span:contains("₹")').first().text();
-      const cleanPrice = parseFloat(priceText.replace(/[^0-9.]/g, "")) || 0;
-
-      let rawImg = $card.find("img").first().attr("src") || $card.find("img").first().attr("data-src") || "";
-      let imgUrl = "";
-      if (rawImg) {
-        const fullImg = rawImg.startsWith("http") ? rawImg : new URL(rawImg, safeBaseUrl).href;
-        imgUrl = getSafeFetchUrl(fullImg) || "";
+      if (!safeBaseUrl.includes("lovable.app")) {
+        const shopUrl = `${parsed.protocol}//${parsed.host}/shop/`;
+        if (safeBaseUrl !== shopUrl) urlsToCrawl.push(shopUrl);
       }
 
-      let cardCategory = $card.find('span[class*="badge"], span[class*="tag"], [class*="category"], div[class*="uppercase"]').first().text().trim();
+      const seenNames = new Set<string>();
 
-      let extractedHref = $card.is("a") ? $card.attr("href") : $card.find("a").attr("href") || $card.closest("a").attr("href");
-      let fullProductUrl = safeBaseUrl;
-      if (extractedHref) {
-        const fullHref = extractedHref.startsWith("http") ? extractedHref : new URL(extractedHref, safeBaseUrl).href;
-        const safeHref = getSafeFetchUrl(fullHref);
-        if (safeHref) fullProductUrl = safeHref;
-      } else if (title) {
-        const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-        const safeSlug = getSafeFetchUrl(`${safeBaseUrl}/products/${slug}`);
-        if (safeSlug) fullProductUrl = safeSlug;
-      }
+      // List of non-product titles to reject
+      const bannedTitles = [
+        "our blogs",
+        "latest news",
+        "delivery policy",
+        "shipping & delivery policy",
+        "shipping and delivery policy",
+        "privacy policy",
+        "terms",
+        "health advantages",
+        "health benefits",
+        "makhana nutrition",
+        "new arrival",
+        "hot products",
+        "about us",
+        "contact us",
+        "cart",
+        "checkout",
+        "my account",
+      ];
 
-      const details = await scrapeProductDetails(fullProductUrl);
+      for (const targetPage of urlsToCrawl) {
+        try {
+          const pageRes = await fetch(targetPage, {
+            headers: {
+              "User-Agent":
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+              Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            },
+          });
 
-      let finalCategory = details?.category || cardCategory || "";
+          if (!pageRes.ok) continue;
 
-      if (!finalCategory || finalCategory.toLowerCase() === "general") {
-        const t = title.toLowerCase();
-        if (t.includes("coffee table")) finalCategory = "Coffee Tables";
-        else if (t.includes("dining table") || t.includes("farmhouse table") || t.includes("table")) finalCategory = "Dining Tables";
-        else if (t.includes("chair") || t.includes("armchair")) finalCategory = "Chairs";
-        else if (t.includes("bed")) finalCategory = "Beds";
-        else if (t.includes("sofa")) finalCategory = "Sofas";
-        else finalCategory = "General";
-      }
+          const html = await pageRes.text();
+          const $ = cheerio.load(html);
 
-      finalCategory = finalCategory
-        .toLowerCase()
-        .replace(/\b\w/g, (l) => l.toUpperCase());
+          $("header, footer, nav, aside, [id*='footer'], [id*='header'], .blog, .post, [class*='blog']").remove();
 
-      const finalSku = details?.sku || null;
+          const candidateCards = $(
+            "li.product, div.product, article.product, div[class*='product-card'], div[class*='product-item'], div[class*='type-product'], a[href*='/product/'], a[href*='/products/']"
+          ).toArray();
 
-      if (title && title.length > 2 && finalSku && !productsToInsert.some((p) => p.name === title)) {
-        productsToInsert.push({
-          user_id: userId,
-          name: title,
-          description: description || `Imported product from store`,
-          price: cleanPrice,
-          category: finalCategory,
-          image_url: imgUrl,
-          product_url: fullProductUrl,
-          website_url: fullProductUrl,
-          sku: finalSku,
-          stock: "20",
-          attributes: details?.attributes || { option: ["Standard"] },
-          required_fields: details?.required_fields || [],
-          product_type: "website",
-        });
+          const batch = candidateCards.slice(0, 24);
+
+          for (let i = 0; i < batch.length; i++) {
+            const $card = $(batch[i]);
+
+            const title = $card
+              .find("h2, h3, h4, .woocommerce-loop-product__title, [class*='title'], [class*='name']")
+              .first()
+              .text()
+              .trim();
+
+            if (!title || title.length < 3) continue;
+
+            // Reject explicit non-product titles
+            const lowerTitle = title.toLowerCase();
+            if (bannedTitles.includes(lowerTitle)) continue;
+
+            // Link extraction
+const extractedHref: string | undefined = $card.is("a")
+  ? $card.attr("href")
+  : $card.find("a").first().attr("href");
+
+let fullProductUrl: string = safeBaseUrl;
+
+if (extractedHref) {
+  try {
+    const absolute = /^https?:\/\//i.test(extractedHref)
+      ? extractedHref
+      : new URL(extractedHref, safeBaseUrl).href;
+
+    fullProductUrl = getSafeFetchUrl(absolute) || safeBaseUrl;
+  } catch {
+    fullProductUrl = safeBaseUrl;
+  }
+}
+
+// Exclude blog or info links
+if (
+  /\/(blog|post|article|news|policy|privacy|terms|about|contact)(\/|$)/i.test(
+    fullProductUrl
+  )
+) {
+  continue;
+}
+
+            // Price extraction
+            let price = extractExactProductPrice($card);
+            if (price === 0 && $card.parent().length) {
+              price = extractExactProductPrice($card.parent());
+            }
+
+            // Image extraction
+            let rawImg = "";
+            const imgEl = $card.find("img, picture source").first();
+            if (imgEl.is("img")) {
+              rawImg =
+                imgEl.attr("data-large_image") ||
+                imgEl.attr("data-src") ||
+                imgEl.attr("data-lazy-src") ||
+                imgEl.attr("src") ||
+                "";
+            } else if (imgEl.is("source")) {
+              rawImg = imgEl.attr("srcset") || "";
+            }
+
+            if (!rawImg) {
+              const styleAttr = $card.find("[style*='background']").attr("style") || $card.attr("style") || "";
+              const bgMatch = styleAttr.match(/url\(['"]?(.*?)['"]?\)/i);
+              if (bgMatch && bgMatch[1]) rawImg = bgMatch[1];
+            }
+
+            if (rawImg.includes(",")) rawImg = rawImg.split(",")[0].trim().split(" ")[0];
+
+            let imgUrl = "";
+            if (rawImg && !rawImg.startsWith("data:image")) {
+              try {
+                const full = rawImg.startsWith("http") ? rawImg : new URL(rawImg, safeBaseUrl).href;
+                imgUrl = getSafeFetchUrl(full) || "";
+              } catch {}
+            }
+
+            // Detail page inspection if price or image is missing
+            let detailSku = "";
+            if ((!imgUrl || price === 0) && fullProductUrl !== safeBaseUrl) {
+              const details = await scrapeDetailPage(fullProductUrl);
+              if (details) {
+                if (!imgUrl && details.image) imgUrl = details.image;
+                if (price === 0 && details.price > 0) price = details.price;
+                if (details.sku) detailSku = details.sku;
+              }
+            }
+
+            // Must have a valid price and image to be inserted
+            if (price <= 0 || !imgUrl) {
+              continue;
+            }
+
+            if (seenNames.has(title)) continue;
+            seenNames.add(title);
+
+            // Category
+            let category = "General";
+            if (lowerTitle.includes("makhana") || lowerTitle.includes("cookie") || lowerTitle.includes("snack")) {
+              category = "Snacks & Food";
+            } else if (lowerTitle.includes("bed")) {
+              category = "Beds";
+            } else if (lowerTitle.includes("chair")) {
+              category = "Chairs";
+            } else if (lowerTitle.includes("table")) {
+              category = "Tables";
+            } else if (lowerTitle.includes("sofa")) {
+              category = "Sofas";
+            }
+
+            // SKU
+            const cardText = $card.text();
+            const skuMatch = cardText.match(/WP-\d{4}/i);
+            const cleanSlug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 30);
+            const sku = detailSku || (skuMatch ? skuMatch[0].toUpperCase() : `PROD-${cleanSlug}`);
+
+            productsToInsert.push({
+              user_id: userId,
+              name: title,
+              description: `Fresh, premium quality ${title}.`,
+              price: price,
+              category: category,
+              image_url: imgUrl,
+              product_url: fullProductUrl,
+              website_url: fullProductUrl,
+              sku: sku,
+              stock: "20",
+              attributes: { option: ["Standard"] },
+              required_fields: [],
+              product_type: "website",
+            });
+          }
+        } catch {}
       }
     }
 
-    const validProducts = productsToInsert.filter((p) => Boolean(p.name) && Boolean(p.sku));
+    if (productsToInsert.length === 0) {
+      return NextResponse.json({ error: "No valid products could be extracted." }, { status: 400 });
+    }
 
-    const { error } = await supabase.from("products").upsert(validProducts, {
-      onConflict: "user_id,sku",
-    });
+    let successCount = 0;
+    for (const prod of productsToInsert) {
+      const { error } = await supabase.from("products").upsert(prod, {
+        onConflict: "user_id,sku",
+      });
 
-    if (error) {
-      console.error("Supabase upsert error:", error);
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      if (!error) {
+        successCount++;
+      } else {
+        console.warn(`Skipping item "${prod.name}":`, error.message);
+      }
     }
 
     return NextResponse.json({
       success: true,
-      count: validProducts.length,
-      message: `Successfully synced ${validProducts.length} products!`,
+      count: successCount,
+      message: `Successfully synced ${successCount} products!`,
     });
   } catch (err: any) {
     console.error("Sync route error:", err);
