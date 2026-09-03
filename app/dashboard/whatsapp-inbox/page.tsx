@@ -142,7 +142,7 @@ const { data, error } = await supabase
   .in("bot_id", botIds)
   .eq("channel", "whatsapp")
   .order("created_at", { ascending: false }) // Fetch newest first
-  .limit(2000); // Expand row retrieval ceiling
+  .limit(5000); // Expand row retrieval ceiling
 
     if (error) {
       console.error("Messages fetch error:", error.message);
@@ -164,7 +164,7 @@ Object.keys(grouped).forEach((convId) => {
     (a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()
   );
   // Keep only the latest 100 messages for this conversation
-  grouped[convId] = grouped[convId].slice(-200);
+  grouped[convId] = grouped[convId].slice(-1000);
 });
 
     const sorted = Object.fromEntries(
