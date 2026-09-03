@@ -164,7 +164,7 @@ Object.keys(grouped).forEach((convId) => {
     (a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()
   );
   // Keep only the latest 100 messages for this conversation
-  grouped[convId] = grouped[convId].slice(-100);
+  grouped[convId] = grouped[convId].slice(-200);
 });
 
     const sorted = Object.fromEntries(
