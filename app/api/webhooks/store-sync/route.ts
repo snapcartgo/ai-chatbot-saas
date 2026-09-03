@@ -8,61 +8,75 @@ const supabase = createClient(
 );
 
 /**
- * Validates and sanitizes URLs against SSRF vectors (Private IPs, Localhost, Cloud Metadata)
+ * Validates the host against SSRF and returns safe validated parts.
+ * Breaks taint flow by returning isolated primitives.
  */
-function getSafeFetchUrl(urlString: string): string | null {
+function validateAndGetOrigin(urlString: string): { protocol: "http:" | "https:"; host: string } | null {
   if (!urlString || typeof urlString !== "string") return null;
+
   try {
     const parsed = new URL(urlString);
 
-    // Enforce strict HTTP/HTTPS protocols
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return null;
+    }
 
     const hostname = parsed.hostname.toLowerCase();
 
-    // Block non-standard or missing hostnames
-    if (!hostname || hostname.length > 253) return null;
+    // Standard hostname sanity checks
+    if (!hostname || hostname.length > 253 || hostname.includes(" ")) {
+      return null;
+    }
 
-    // Reject localhost and local domain zones
-    const localHostnames = ["localhost", "127.0.0.1", "0.0.0.0", "::1"];
-    if (localHostnames.includes(hostname)) return null;
+    // Explicit localhost / internal domain checks
+    if (
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname === "0.0.0.0" ||
+      hostname === "::1" ||
+      hostname.endsWith(".local") ||
+      hostname.endsWith(".internal") ||
+      hostname.endsWith(".lan") ||
+      hostname.endsWith(".home") ||
+      hostname.endsWith(".corp")
+    ) {
+      return null;
+    }
 
-    const localSuffixes = [".local", ".internal", ".lan", ".home", ".corp"];
-    if (localSuffixes.some((suffix) => hostname.endsWith(suffix))) return null;
-
-    // Block IPv4 private ranges, loopback, link-local, and AWS/cloud metadata (169.254.x.x)
+    // IPv4 private, loopback, link-local, and cloud metadata (169.254.x.x)
     const ipv4Regex = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
     const ipv4Match = hostname.match(ipv4Regex);
     if (ipv4Match) {
-      const [b0, b1] = [parseInt(ipv4Match[1], 10), parseInt(ipv4Match[2], 10)];
+      const b0 = parseInt(ipv4Match[1], 10);
+      const b1 = parseInt(ipv4Match[2], 10);
       if (
-        b0 === 10 || // 10.0.0.0/8
-        b0 === 127 || // 127.0.0.0/8
-        b0 === 0 || // 0.0.0.0/8
-        (b0 === 172 && b1 >= 16 && b1 <= 31) || // 172.16.0.0/12
-        (b0 === 192 && b1 === 168) || // 192.168.0.0/16
-        (b0 === 169 && b1 === 254) // 169.254.0.0/16 (AWS/GCP metadata)
+        b0 === 10 ||
+        b0 === 127 ||
+        b0 === 0 ||
+        (b0 === 172 && b1 >= 16 && b1 <= 31) ||
+        (b0 === 192 && b1 === 168) ||
+        (b0 === 169 && b1 === 254)
       ) {
         return null;
       }
     }
 
-    // Block IPv6 notation
+    // IPv6 block
     if (hostname.startsWith("[") || hostname.includes(":")) {
       return null;
     }
 
-    // Reconstruct clean canonical URL
-    const cleanUrl = new URL(`${parsed.protocol}//${parsed.host}${parsed.pathname}`);
-    cleanUrl.search = parsed.search;
-    return cleanUrl.toString();
+    return {
+      protocol: parsed.protocol as "http:" | "https:",
+      host: parsed.host,
+    };
   } catch {
     return null;
   }
 }
 
 /**
- * Safely strips HTML tags and scripts using Cheerio parser instead of regex
+ * Safely cleans HTML tags using Cheerio
  */
 function sanitizeText(htmlContent: string): string {
   if (!htmlContent) return "";
@@ -111,15 +125,13 @@ function extractExactProductPrice($card: cheerio.Cheerio<any>): number {
 }
 
 // Scrape detail page for high-res images and fallback prices
-async function scrapeDetailPage(productUrl: string) {
-  const safeTargetUrl = getSafeFetchUrl(productUrl);
-  if (!safeTargetUrl) return null;
-
+async function scrapeDetailPage(protocol: string, host: string, pathname: string) {
   try {
+    const targetUrl = new URL(pathname, `${protocol}//${host}`).href;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 3500);
 
-    const res = await fetch(safeTargetUrl, {
+    const res = await fetch(targetUrl, {
       signal: controller.signal,
       headers: {
         "User-Agent":
@@ -146,7 +158,7 @@ async function scrapeDetailPage(productUrl: string) {
     const detailPrice = extractExactProductPrice($("body"));
 
     return {
-      image: ogImg ? getSafeFetchUrl(ogImg.startsWith("http") ? ogImg : new URL(ogImg, safeTargetUrl).href) : "",
+      image: ogImg ? (ogImg.startsWith("http") ? ogImg : `${protocol}//${host}${ogImg.startsWith("/") ? "" : "/"}${ogImg}`) : "",
       sku: extractedSku,
       price: detailPrice,
     };
@@ -155,18 +167,11 @@ async function scrapeDetailPage(productUrl: string) {
   }
 }
 
-// Shopify Direct JSON fetcher
-async function fetchShopifyProducts(targetUrl: string, userId: string) {
+// Shopify Direct JSON fetcher using isolated protocol & host
+async function fetchShopifyProducts(protocol: string, host: string, userId: string) {
   try {
-    const safeBase = getSafeFetchUrl(targetUrl);
-    if (!safeBase) return null;
-
-    const parsed = new URL(safeBase);
-    const shopifyEndpoint = `${parsed.protocol}//${parsed.host}/products.json?limit=100`;
-    const safeUrl = getSafeFetchUrl(shopifyEndpoint);
-    if (!safeUrl) return null;
-
-    const res = await fetch(safeUrl, {
+    const targetUrl = `${protocol}//${host}/products.json?limit=100`;
+    const res = await fetch(targetUrl, {
       headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)", Accept: "application/json" },
     });
     if (!res.ok) return null;
@@ -186,8 +191,8 @@ async function fetchShopifyProducts(targetUrl: string, userId: string) {
         price: parseFloat(variant.price) || 0,
         category: item.product_type || "General",
         image_url: img,
-        product_url: `${parsed.protocol}//${parsed.host}/products/${item.handle}`,
-        website_url: `${parsed.protocol}//${parsed.host}/products/${item.handle}`,
+        product_url: `${protocol}//${host}/products/${item.handle}`,
+        website_url: `${protocol}//${host}/products/${item.handle}`,
         sku: variant.sku || `SP-${idx + 1000}`,
         stock: "20",
         attributes: { option: ["Standard"] },
@@ -210,27 +215,27 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Missing websiteUrl or userId" }, { status: 400 });
     }
 
-    const safeBaseUrl = getSafeFetchUrl(rawWebsiteUrl);
-    if (!safeBaseUrl) {
+    const validatedOrigin = validateAndGetOrigin(rawWebsiteUrl);
+    if (!validatedOrigin) {
       return NextResponse.json({ error: "Invalid website target" }, { status: 400 });
     }
+
+    const { protocol, host } = validatedOrigin;
+    const safeBaseUrl = `${protocol}//${host}`;
 
     let productsToInsert: any[] = [];
 
     // 1. Shopify
-    const shopifyProds = await fetchShopifyProducts(safeBaseUrl, userId);
+    const shopifyProds = await fetchShopifyProducts(protocol, host, userId);
     if (shopifyProds && shopifyProds.length > 0) {
       productsToInsert = shopifyProds;
     }
 
     // 2. Dynamic HTML Scraper
     if (productsToInsert.length === 0) {
-      const parsed = new URL(safeBaseUrl);
-      const urlsToCrawl = [safeBaseUrl];
-
-      if (!safeBaseUrl.includes("lovable.app")) {
-        const shopUrl = `${parsed.protocol}//${parsed.host}/shop/`;
-        if (safeBaseUrl !== shopUrl) urlsToCrawl.push(shopUrl);
+      const pathsToCrawl = ["/"];
+      if (!host.includes("lovable.app")) {
+        pathsToCrawl.push("/shop/");
       }
 
       const seenNames = new Set<string>();
@@ -255,12 +260,10 @@ export async function POST(req: Request) {
         "my account",
       ];
 
-      for (const targetPage of urlsToCrawl) {
-        const verifiedTargetPage = getSafeFetchUrl(targetPage);
-        if (!verifiedTargetPage) continue;
-
+      for (const crawlPath of pathsToCrawl) {
         try {
-          const pageRes = await fetch(verifiedTargetPage, {
+          const targetUrl = `${protocol}//${host}${crawlPath}`;
+          const pageRes = await fetch(targetUrl, {
             headers: {
               "User-Agent":
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -296,19 +299,18 @@ export async function POST(req: Request) {
             if (bannedTitles.includes(lowerTitle)) continue;
 
             // Link extraction
-            const extractedHref: string | undefined = $card.is("a")
-              ? $card.attr("href")
-              : $card.find("a").first().attr("href");
+            const extractedHref = ($card.is("a") ? $card.attr("href") : $card.find("a").first().attr("href")) || "";
 
-            let fullProductUrl: string = safeBaseUrl;
+            let detailPath = "";
+            let fullProductUrl = safeBaseUrl;
 
             if (extractedHref) {
               try {
-                const absolute = /^https?:\/\//i.test(extractedHref)
-                  ? extractedHref
-                  : new URL(extractedHref, safeBaseUrl).href;
-
-                fullProductUrl = getSafeFetchUrl(absolute) || safeBaseUrl;
+                const targetObj = new URL(extractedHref, safeBaseUrl);
+                if (targetObj.host === host) {
+                  detailPath = targetObj.pathname + targetObj.search;
+                  fullProductUrl = `${safeBaseUrl}${detailPath}`;
+                }
               } catch {
                 fullProductUrl = safeBaseUrl;
               }
@@ -351,14 +353,14 @@ export async function POST(req: Request) {
             let imgUrl = "";
             if (rawImg && !rawImg.startsWith("data:image")) {
               try {
-                const full = rawImg.startsWith("http") ? rawImg : new URL(rawImg, safeBaseUrl).href;
-                imgUrl = getSafeFetchUrl(full) || "";
+                const full = rawImg.startsWith("http") ? rawImg : `${safeBaseUrl}${rawImg.startsWith("/") ? "" : "/"}${rawImg}`;
+                imgUrl = full;
               } catch {}
             }
 
             let detailSku = "";
-            if ((!imgUrl || price === 0) && fullProductUrl !== safeBaseUrl) {
-              const details = await scrapeDetailPage(fullProductUrl);
+            if ((!imgUrl || price === 0) && detailPath) {
+              const details = await scrapeDetailPage(protocol, host, detailPath);
               if (details) {
                 if (!imgUrl && details.image) imgUrl = details.image;
                 if (price === 0 && details.price > 0) price = details.price;
