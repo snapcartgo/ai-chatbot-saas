@@ -25,8 +25,8 @@ export async function GET(req: Request) {
   > = {
     // Website Plans
     starter: {
-      standardUrl: "https://www.paypal.com/ncp/payment/3EHGSNB2E4DUW",
-      byokUrl: "https://www.paypal.com/ncp/payment/3EHGSNB2E4DUW", // Replace with your Starter BYOK link if different
+      standardUrl: "https://www.paypal.com/ncp/payment/R9S89RECJECVS",
+      byokUrl: "https://www.paypal.com/ncp/payment/MBUUT56ZMHLSL", // Replace with your Starter BYOK link if different
     },
     pro: {
       standardUrl: "https://www.paypal.com/ncp/payment/24P73JDAGGGB8",
@@ -47,8 +47,8 @@ export async function GET(req: Request) {
 
     // WhatsApp Automation Plans
     whatsapp_starter: {
-      standardUrl: "https://www.paypal.com/ncp/payment/N7WHXJVVTREKC",
-      byokUrl: "https://www.paypal.com/ncp/payment/N7WHXJVVTREKC", // Replace with your WA Starter BYOK link if different
+      standardUrl: "https://www.paypal.com/ncp/payment/RV29BPX6SUMV8",
+      byokUrl: "https://www.paypal.com/ncp/payment/MQQQUS68YF8AC", // Replace with your WA Starter BYOK link if different
     },
     whatsapp_pro: {
       standardUrl: "https://www.paypal.com/ncp/payment/YOUR_WA_PRO_PAYPAL_LINK",
@@ -69,8 +69,8 @@ export async function GET(req: Request) {
 
     // Omnichannel Combo Plans
     business_combo: {
-      standardUrl: "https://www.paypal.com/ncp/payment/YOUR_COMBO_BUSINESS_PAYPAL_LINK",
-      byokUrl: "https://www.paypal.com/ncp/payment/YOUR_COMBO_BUSINESS_BYOK_PAYPAL_LINK",
+      standardUrl: "https://www.paypal.com/ncp/payment/HQT9UASGLR2FS",
+      byokUrl: "https://www.paypal.com/ncp/payment/DRXRYZ8VV688J",
     },
     enterprise_combo: {
       standardUrl: "https://www.paypal.com/ncp/payment/YOUR_COMBO_ENTERPRISE_PAYPAL_LINK",

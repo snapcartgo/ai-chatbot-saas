@@ -215,6 +215,78 @@ export default function ProductsPage() {
     }
   };
 
+  const handleExportCSV = async () => {
+    if (displayedProducts.length === 0) {
+      alert("No products available to export under this tab.");
+      return;
+    }
+
+    // Get the current user's business / store name dynamically
+    const { data: { user } } = await supabase.auth.getUser();
+    const dynamicStoreName =
+      user?.user_metadata?.store_name ||
+      user?.user_metadata?.full_name ||
+      user?.email?.split("@")[0] ||
+      "Store";
+
+    const headers = [
+      "id",
+      "title",
+      "description",
+      "availability",
+      "condition",
+      "price",
+      "link",
+      "image_link",
+      "brand",
+      "fb_product_category",
+    ];
+
+    const currentOrigin = typeof window !== "undefined" ? window.location.origin : "";
+
+    const rows = displayedProducts.map((p: any) => {
+      const id = (p.product_id || p.id || "").toString();
+      const title = (p.name || "").replace(/"/g, '""');
+      const description = (p.description || "").replace(/"/g, '""');
+      const category = (p.category || "").replace(/"/g, '""');
+      
+      // Uses the product's brand if exists, otherwise uses dynamic store name
+      const brand = (p.brand || dynamicStoreName).replace(/"/g, '""');
+      
+      const linkUrl = p.website_url || currentOrigin;
+      const imageUrl = p.image_url || "";
+      const formattedPrice = `${Number(p.price || 0).toFixed(2)} INR`;
+      
+      const stockAvailability =
+        typeof p.stock === "number" && p.stock <= 0 ? "out of stock" : "in stock";
+
+      return [
+        `"${id}"`,
+        `"${title}"`,
+        `"${description}"`,
+        `"${stockAvailability}"`,
+        `"new"`,
+        `"${formattedPrice}"`,
+        `"${linkUrl}"`,
+        `"${imageUrl}"`,
+        `"${brand}"`,
+        `"${category}"`,
+      ].join(",");
+    });
+
+    const csvContent = "\uFEFF" + [headers.join(","), ...rows].join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const downloadUrl = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = downloadUrl;
+    link.download = `meta_catalog_${activeTab}_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(downloadUrl);
+  };
+
   const handleDelete = async (product: any) => {
   const confirmed = window.confirm(
     `Delete "${product.name}"? This action cannot be undone.`
@@ -325,6 +397,12 @@ export default function ProductsPage() {
               Upload CSV
             </button>
           </Link>
+          <button
+            onClick={handleExportCSV}
+            className="rounded-xl bg-teal-600 px-5 py-3 font-bold text-white transition hover:bg-teal-700"
+          >
+            Export CSV
+          </button>
         </div>
       </div>
 
