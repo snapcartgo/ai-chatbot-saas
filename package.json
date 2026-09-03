@@ -20,6 +20,7 @@
     "canvas": "^3.2.1",
     "cheerio": "^1.2.0",
     "fast-levenshtein": "^3.0.0",
+    "ip-address": "^10.7.0",
     "lucide-react": "^0.577.0",
     "mammoth": "^1.11.0",
     "next": "16.1.6",

@@ -7,34 +7,68 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+/**
+ * Validates and sanitizes URLs against SSRF vectors (Private IPs, Localhost, Cloud Metadata)
+ */
 function getSafeFetchUrl(urlString: string): string | null {
   if (!urlString || typeof urlString !== "string") return null;
   try {
     const parsed = new URL(urlString);
+
+    // Enforce strict HTTP/HTTPS protocols
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
 
-    const host = parsed.hostname.toLowerCase();
-    if (
-      host === "localhost" ||
-      host === "127.0.0.1" ||
-      host === "0.0.0.0" ||
-      host === "::1" ||
-      host.endsWith(".local") ||
-      host.endsWith(".internal") ||
-      host.endsWith(".lan") ||
-      /^10\./.test(host) ||
-      /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(host) ||
-      /^192\.168\./.test(host)
-    ) {
+    const hostname = parsed.hostname.toLowerCase();
+
+    // Block non-standard or missing hostnames
+    if (!hostname || hostname.length > 253) return null;
+
+    // Reject localhost and local domain zones
+    const localHostnames = ["localhost", "127.0.0.1", "0.0.0.0", "::1"];
+    if (localHostnames.includes(hostname)) return null;
+
+    const localSuffixes = [".local", ".internal", ".lan", ".home", ".corp"];
+    if (localSuffixes.some((suffix) => hostname.endsWith(suffix))) return null;
+
+    // Block IPv4 private ranges, loopback, link-local, and AWS/cloud metadata (169.254.x.x)
+    const ipv4Regex = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+    const ipv4Match = hostname.match(ipv4Regex);
+    if (ipv4Match) {
+      const [b0, b1] = [parseInt(ipv4Match[1], 10), parseInt(ipv4Match[2], 10)];
+      if (
+        b0 === 10 || // 10.0.0.0/8
+        b0 === 127 || // 127.0.0.0/8
+        b0 === 0 || // 0.0.0.0/8
+        (b0 === 172 && b1 >= 16 && b1 <= 31) || // 172.16.0.0/12
+        (b0 === 192 && b1 === 168) || // 192.168.0.0/16
+        (b0 === 169 && b1 === 254) // 169.254.0.0/16 (AWS/GCP metadata)
+      ) {
+        return null;
+      }
+    }
+
+    // Block IPv6 notation
+    if (hostname.startsWith("[") || hostname.includes(":")) {
       return null;
     }
 
+    // Reconstruct clean canonical URL
     const cleanUrl = new URL(`${parsed.protocol}//${parsed.host}${parsed.pathname}`);
     cleanUrl.search = parsed.search;
     return cleanUrl.toString();
   } catch {
     return null;
   }
+}
+
+/**
+ * Safely strips HTML tags and scripts using Cheerio parser instead of regex
+ */
+function sanitizeText(htmlContent: string): string {
+  if (!htmlContent) return "";
+  const $ = cheerio.load(htmlContent);
+  $("script, style").remove();
+  return $.text().replace(/\s+/g, " ").trim();
 }
 
 // Extract the selling price
@@ -124,7 +158,10 @@ async function scrapeDetailPage(productUrl: string) {
 // Shopify Direct JSON fetcher
 async function fetchShopifyProducts(targetUrl: string, userId: string) {
   try {
-    const parsed = new URL(targetUrl);
+    const safeBase = getSafeFetchUrl(targetUrl);
+    if (!safeBase) return null;
+
+    const parsed = new URL(safeBase);
     const shopifyEndpoint = `${parsed.protocol}//${parsed.host}/products.json?limit=100`;
     const safeUrl = getSafeFetchUrl(shopifyEndpoint);
     if (!safeUrl) return null;
@@ -140,10 +177,12 @@ async function fetchShopifyProducts(targetUrl: string, userId: string) {
     return data.products.map((item: any, idx: number) => {
       const variant = item.variants?.[0] || {};
       const img = item.images?.[0]?.src || "";
+      const cleanedDesc = sanitizeText(item.body_html || "");
+
       return {
         user_id: userId,
         name: item.title,
-        description: (item.body_html || "").replace(/<[^>]*>?/gm, "").trim().slice(0, 200) || `${item.title} available now.`,
+        description: cleanedDesc.slice(0, 200) || `${item.title} available now.`,
         price: parseFloat(variant.price) || 0,
         category: item.product_type || "General",
         image_url: img,
@@ -196,7 +235,6 @@ export async function POST(req: Request) {
 
       const seenNames = new Set<string>();
 
-      // List of non-product titles to reject
       const bannedTitles = [
         "our blogs",
         "latest news",
@@ -218,8 +256,11 @@ export async function POST(req: Request) {
       ];
 
       for (const targetPage of urlsToCrawl) {
+        const verifiedTargetPage = getSafeFetchUrl(targetPage);
+        if (!verifiedTargetPage) continue;
+
         try {
-          const pageRes = await fetch(targetPage, {
+          const pageRes = await fetch(verifiedTargetPage, {
             headers: {
               "User-Agent":
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -251,45 +292,41 @@ export async function POST(req: Request) {
 
             if (!title || title.length < 3) continue;
 
-            // Reject explicit non-product titles
             const lowerTitle = title.toLowerCase();
             if (bannedTitles.includes(lowerTitle)) continue;
 
             // Link extraction
-const extractedHref: string | undefined = $card.is("a")
-  ? $card.attr("href")
-  : $card.find("a").first().attr("href");
+            const extractedHref: string | undefined = $card.is("a")
+              ? $card.attr("href")
+              : $card.find("a").first().attr("href");
 
-let fullProductUrl: string = safeBaseUrl;
+            let fullProductUrl: string = safeBaseUrl;
 
-if (extractedHref) {
-  try {
-    const absolute = /^https?:\/\//i.test(extractedHref)
-      ? extractedHref
-      : new URL(extractedHref, safeBaseUrl).href;
+            if (extractedHref) {
+              try {
+                const absolute = /^https?:\/\//i.test(extractedHref)
+                  ? extractedHref
+                  : new URL(extractedHref, safeBaseUrl).href;
 
-    fullProductUrl = getSafeFetchUrl(absolute) || safeBaseUrl;
-  } catch {
-    fullProductUrl = safeBaseUrl;
-  }
-}
+                fullProductUrl = getSafeFetchUrl(absolute) || safeBaseUrl;
+              } catch {
+                fullProductUrl = safeBaseUrl;
+              }
+            }
 
-// Exclude blog or info links
-if (
-  /\/(blog|post|article|news|policy|privacy|terms|about|contact)(\/|$)/i.test(
-    fullProductUrl
-  )
-) {
-  continue;
-}
+            if (
+              /\/(blog|post|article|news|policy|privacy|terms|about|contact)(\/|$)/i.test(
+                fullProductUrl
+              )
+            ) {
+              continue;
+            }
 
-            // Price extraction
             let price = extractExactProductPrice($card);
             if (price === 0 && $card.parent().length) {
               price = extractExactProductPrice($card.parent());
             }
 
-            // Image extraction
             let rawImg = "";
             const imgEl = $card.find("img, picture source").first();
             if (imgEl.is("img")) {
@@ -319,7 +356,6 @@ if (
               } catch {}
             }
 
-            // Detail page inspection if price or image is missing
             let detailSku = "";
             if ((!imgUrl || price === 0) && fullProductUrl !== safeBaseUrl) {
               const details = await scrapeDetailPage(fullProductUrl);
@@ -330,7 +366,6 @@ if (
               }
             }
 
-            // Must have a valid price and image to be inserted
             if (price <= 0 || !imgUrl) {
               continue;
             }
@@ -338,7 +373,6 @@ if (
             if (seenNames.has(title)) continue;
             seenNames.add(title);
 
-            // Category
             let category = "General";
             if (lowerTitle.includes("makhana") || lowerTitle.includes("cookie") || lowerTitle.includes("snack")) {
               category = "Snacks & Food";
@@ -352,7 +386,6 @@ if (
               category = "Sofas";
             }
 
-            // SKU
             const cardText = $card.text();
             const skuMatch = cardText.match(/WP-\d{4}/i);
             const cleanSlug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 30);
