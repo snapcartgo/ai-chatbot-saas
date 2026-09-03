@@ -135,12 +135,14 @@ export default function WhatsAppInboxPage() {
       return;
     }
 
-    const { data, error } = await supabase
-      .from("messages")
-      .select("*")
-      .in("bot_id", botIds)
-      .eq("channel", "whatsapp")
-      .order("created_at", { ascending: true });
+    // ✅ AFTER: Pulls the newest messages first and sets an explicit higher limit
+const { data, error } = await supabase
+  .from("messages")
+  .select("*")
+  .in("bot_id", botIds)
+  .eq("channel", "whatsapp")
+  .order("created_at", { ascending: false }) // Fetch newest first
+  .limit(2000); // Expand row retrieval ceiling
 
     if (error) {
       console.error("Messages fetch error:", error.message);
@@ -150,11 +152,20 @@ export default function WhatsAppInboxPage() {
 
     const grouped: ConversationGroups = {};
 
-    (data || []).forEach((msg: MessageRow) => {
-      const conversationId = msg.conversation_id || "no_id";
-      if (!grouped[conversationId]) grouped[conversationId] = [];
-      grouped[conversationId].push(msg);
-    });
+(data || []).forEach((msg: MessageRow) => {
+  const conversationId = msg.conversation_id || "no_id";
+  if (!grouped[conversationId]) grouped[conversationId] = [];
+  grouped[conversationId].push(msg);
+});
+
+// ADD THIS: Sort messages inside each chat so oldest is top, newest is bottom
+Object.keys(grouped).forEach((convId) => {
+  grouped[convId].sort(
+    (a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()
+  );
+  // Keep only the latest 100 messages for this conversation
+  grouped[convId] = grouped[convId].slice(-100);
+});
 
     const sorted = Object.fromEntries(
       Object.entries(grouped).sort((a, b) => {
