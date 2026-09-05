@@ -7,16 +7,16 @@ const supabase = createClient(
 
 const PLAN_LIMITS = {
   website: {
-    starter: { amount: 999, chatbot_limit: 1, message_limit: 1000 },
-    pro: { amount: 1999, chatbot_limit: 2, message_limit: 3000 },
-    growth: { amount: 4999, chatbot_limit: 5, message_limit: 10000 },
-    business: { amount: 7999, chatbot_limit: 10, message_limit: 20000 },
+    starter: { amount: 999, chatbot_limit: 1, message_limit: 1000, product_limit: 25 },
+    pro: { amount: 1999, chatbot_limit: 2, message_limit: 3000, product_limit: 75 },
+    growth: { amount: 4999, chatbot_limit: 5, message_limit: 10000, product_limit: 200 },
+    business: { amount: 7999, chatbot_limit: 10, message_limit: 20000, product_limit: 500 },
   },
   whatsapp: {
-    starter: { amount: 1499, message_limit: 1000 },
-    pro: { amount: 2999, message_limit: 3000 },
-    growth: { amount: 5499, message_limit: 10000 },
-    business: { amount: 8499, message_limit: 25000 },
+    starter: { amount: 1499, message_limit: 1000, product_limit: 25 },
+    pro: { amount: 2999, message_limit: 3000, product_limit: 75 },
+    growth: { amount: 5499, message_limit: 10000, product_limit: 200 },
+    business: { amount: 8499, message_limit: 25000, product_limit: 500 },
   },
   combo: {
     business: {
@@ -24,12 +24,14 @@ const PLAN_LIMITS = {
       web_bots: 10,
       web_messages: 20000,
       wa_messages: 20000,
+      product_limit: 200,
     },
     enterprise: {
       amount: 13999,
       web_bots: 20,
       web_messages: 50000,
       wa_messages: 50000,
+      product_limit: 500,
     },
   },
 };
@@ -159,6 +161,7 @@ async function activateWhatsAppPlan(params: {
     plan: `whatsapp_${params.tier}`,
     is_byok: params.isBYOK,
     message_limit: cfg.message_limit,
+    product_limit: cfg.product_limit, // 🟢 ADD THIS
     messages_used: 0,
     amount: finalAmount,
     updated_at: nowIso,
@@ -219,6 +222,7 @@ async function activateWebsitePlan(params: {
     amount: finalAmount,
     chatbot_limit: cfg.chatbot_limit,
     message_limit: cfg.message_limit,
+    product_limit: cfg.product_limit, // 🟢 ADD THIS
     message_used: 0,
     messages_reset_at: nowIso,
     billing_cycle_start: nowIso,
@@ -258,6 +262,7 @@ async function activateComboPlan(params: {
       amount: finalAmount,
       chatbot_limit: cfg.web_bots,
       message_limit: cfg.web_messages,
+      product_limit: cfg.product_limit, // 🟢 ADD THIS
       message_used: 0,
       messages_reset_at: nowIso,
       billing_cycle_start: nowIso,
@@ -280,6 +285,7 @@ async function activateComboPlan(params: {
     plan: `${params.tier}_combo`,
     is_byok: params.isBYOK,
     message_limit: cfg.wa_messages,
+    product_limit: cfg.product_limit, // 🟢 ADD THIS
     messages_used: 0,
     amount: finalAmount,
     updated_at: nowIso,
@@ -390,6 +396,7 @@ export async function fulfillSaasBilling(params: {
       isBYOK,
       amount: finalAmount,
       message_limit: PLAN_LIMITS.whatsapp[waTier].message_limit,
+      product_limit: PLAN_LIMITS.whatsapp[waTier].product_limit, // 🟢 ADD THIS
     };
   }
 
@@ -413,7 +420,7 @@ export async function fulfillSaasBilling(params: {
       amount: finalAmount,
     });
 
-    return { type: "combo" as const, tier: comboTier, isBYOK, amount: finalAmount };
+    return { type: "combo" as const, tier: comboTier, isBYOK, amount: finalAmount, product_limit: PLAN_LIMITS.combo[comboTier].product_limit };
   }
 
   // Website Plans
@@ -442,6 +449,7 @@ export async function fulfillSaasBilling(params: {
     amount: finalAmount,
     chatbot_limit: PLAN_LIMITS.website[webTier].chatbot_limit,
     message_limit: PLAN_LIMITS.website[webTier].message_limit,
+    product_limit: PLAN_LIMITS.website[webTier].product_limit, // 🟢 ADD THIS
   };
 }
 export function isWhatsAppPlan(raw: string | null | undefined): boolean {

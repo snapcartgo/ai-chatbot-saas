@@ -43,6 +43,11 @@ export default function ProductsPage() {
     total: number;
   } | null>(null);
   const [metaSyncError, setMetaSyncError] = useState<string | null>(null);
+  const [showMetaLimitModal, setShowMetaLimitModal] = useState(false);
+  const [showWebsiteLimitModal, setShowWebsiteLimitModal] = useState(false);
+  // 🟢 CATALOG LIMIT STATES
+  const [websiteLimit, setWebsiteLimit] = useState<number>(5);
+  const [metaLimit, setMetaLimit] = useState<number>(5);
 
   useEffect(() => {
     fetchProducts();
@@ -114,6 +119,22 @@ export default function ProductsPage() {
       }
 
       setProducts(data || []);
+      // 🟢 PASTE HERE (Right after setProducts)
+      const [webSubRes, waSubRes] = await Promise.all([
+        supabase
+          .from("subscriptions")
+          .select("product_limit")
+          .eq("user_id", user.id)
+          .maybeSingle(),
+        supabase
+          .from("whatsapp_subscriptions")
+          .select("product_limit")
+          .eq("user_id", user.id)
+          .maybeSingle(),
+      ]);
+
+      setWebsiteLimit(webSubRes.data?.product_limit ?? 5);
+      setMetaLimit(waSubRes.data?.product_limit ?? 5);
     } catch (error) {
       console.log(error);
     } finally {
@@ -127,13 +148,25 @@ export default function ProductsPage() {
     if (!websiteUrl) return;
 
     try {
-      setIsSyncing(true);
       const { data: { user } } = await supabase.auth.getUser();
 
       if (!user) {
         alert("User session not found.");
         return;
       }
+
+      // 🟢 1. Check current website products count before sending request
+      const currentWebsiteCount = products.filter(
+        (p) => (p.product_type || "website") === "website"
+      ).length;
+
+      if (websiteLimit !== -1 && currentWebsiteCount >= websiteLimit) {
+        setIsSyncModalOpen(false);
+        setShowWebsiteLimitModal(true);
+        return;
+      }
+
+      setIsSyncing(true);
 
       const response = await fetch("/api/webhooks/store-sync", {
         method: "POST",
@@ -143,7 +176,7 @@ export default function ProductsPage() {
 
       const result = await response.json();
 
-      if (response.ok) {
+      if (response.ok && result.success !== false) {
         alert("Website sync executed successfully!");
         setIsSyncModalOpen(false);
         setWebsiteUrl("");
@@ -161,10 +194,6 @@ export default function ProductsPage() {
 
   const handleSyncMeta = async () => {
     try {
-      setIsSyncingMeta(true);
-      setMetaSyncError(null);
-      setMetaSyncResult(null);
-
       const {
         data: { user },
       } = await supabase.auth.getUser();
@@ -173,6 +202,20 @@ export default function ProductsPage() {
         alert("User session not found. Please log in again.");
         return;
       }
+
+      // 🟢 Check if already capped before starting sync
+      const currentMetaCount = products.filter(
+        (p) => p.product_type === "meta"
+      ).length;
+
+      if (metaLimit !== -1 && currentMetaCount >= metaLimit) {
+        setShowMetaLimitModal(true);
+        return;
+      }
+
+      setIsSyncingMeta(true);
+      setMetaSyncError(null);
+      setMetaSyncResult(null);
 
       const response = await fetch("/api/sync-meta-products", {
         method: "POST",
@@ -353,6 +396,11 @@ export default function ProductsPage() {
     (product) => product.product_type === activeTab
   );
 
+  // 🟢 CURRENT ACTIVE LIMIT & COUNT
+  const currentTabLimit = activeTab === "website" ? websiteLimit : metaLimit;
+  const currentTabCount = displayedProducts.length;
+  const isCapped = currentTabLimit !== -1 && currentTabCount >= currentTabLimit;
+
   return (
     <div className="p-6">
       {/* Header Controls */}
@@ -361,9 +409,21 @@ export default function ProductsPage() {
           <p className="text-sm font-semibold uppercase tracking-[0.25em] text-blue-600">
             Product Catalog
           </p>
-          <h1 className="mt-2 text-4xl font-extrabold text-gray-900">
-            Products
-          </h1>
+          <div className="mt-2 flex items-center gap-3">
+            <h1 className="text-4xl font-extrabold text-gray-900">
+              Products
+            </h1>
+            <span
+              className={`rounded-full px-3 py-1 text-xs font-bold border ${
+                isCapped
+                  ? "border-red-200 bg-red-50 text-red-700"
+                  : "border-blue-200 bg-blue-50 text-blue-700"
+              }`}
+            >
+              {activeTab === "website" ? "Website" : "Meta"}: {currentTabCount} /{" "}
+              {currentTabLimit === -1 ? "Unlimited" : currentTabLimit}
+            </span>
+          </div>
           <p className="mt-2 text-sm text-gray-500">
             Manage your website products, links, and images from one place.
           </p>
@@ -377,8 +437,20 @@ export default function ProductsPage() {
           </Link>
 
           {/* ADD THIS BUTTON */}
+  {/* ADD THIS BUTTON */}
   <button
-    onClick={() => setIsSyncModalOpen(true)}
+    onClick={() => {
+      const currentWebsiteCount = products.filter(
+        (p) => (p.product_type || "website") === "website"
+      ).length;
+
+      if (websiteLimit !== -1 && currentWebsiteCount >= websiteLimit) {
+        setShowWebsiteLimitModal(true);
+        return;
+      }
+
+      setIsSyncModalOpen(true);
+    }}
     className="rounded-xl bg-purple-600 px-5 py-3 font-bold text-white transition hover:bg-purple-700"
   >
     Sync Website
@@ -460,6 +532,21 @@ export default function ProductsPage() {
           Meta Products
         </button>
       </div>
+
+      {/* 🟢 PASTE HERE (Directly after closing </div> of the filter buttons) */}
+      {isCapped && (
+        <div className="mb-6 flex flex-col gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-800 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm font-medium">
+            ⚠️ You have reached your limit of <strong>{currentTabLimit} {activeTab === "website" ? "Website" : "Meta"} products</strong>. Upgrade your plan to add or sync more items.
+          </p>
+          <Link
+            href="/dashboard/Billing"
+            className="w-fit rounded-xl bg-amber-600 px-4 py-2 text-xs font-bold text-white shadow transition hover:bg-amber-700"
+          >
+            Upgrade Plan
+          </Link>
+        </div>
+      )}
 
       {/* Grid Content Wrapper */}
       {loading ? (
@@ -592,6 +679,46 @@ export default function ProductsPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {showWebsiteLimitModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 text-center shadow-2xl">
+            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-amber-100 text-2xl font-bold text-amber-600">
+              !
+            </div>
+            <h3 className="text-xl font-bold text-gray-900">Website Limit Reached</h3>
+            <p className="mt-2 text-sm text-gray-600">
+              Your plan allows up to <strong>{websiteLimit} website products</strong>.
+            </p>
+            <p className="mt-1 text-sm text-gray-600">
+              Please{" "}
+              <Link
+                href="/dashboard/Billing"
+                className="font-bold text-blue-600 underline hover:text-blue-800"
+              >
+                upgrade your plan
+              </Link>{" "}
+              to add or sync more website items.
+            </p>
+
+            <div className="mt-6 flex justify-center gap-3">
+              <button
+                type="button"
+                onClick={() => setShowWebsiteLimitModal(false)}
+                className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-100"
+              >
+                Close
+              </button>
+              <Link
+                href="/dashboard/Billing"
+                className="rounded-xl bg-blue-600 px-5 py-2 text-sm font-bold text-white transition hover:bg-blue-700"
+              >
+                Go to Billing
+              </Link>
+            </div>
           </div>
         </div>
       )}

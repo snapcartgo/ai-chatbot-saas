@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import Link from "next/link";
 
 export default function AddProductPage() {
   const router = useRouter();
@@ -15,6 +16,8 @@ export default function AddProductPage() {
   const [websiteUrl, setWebsiteUrl] = useState("");
   const [image, setImage] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
+  const [showLimitModal, setShowLimitModal] = useState(false);
+  const [limitCount, setLimitCount] = useState(5);
 
   const handleSave = async () => {
     try {
@@ -33,6 +36,31 @@ export default function AddProductPage() {
         alert("User session not found. Please log in again.");
         return;
       }
+
+      // 🟢 PRODUCT LIMIT CHECK START
+      const { data: sub } = await supabase
+        .from("subscriptions")
+        .select("product_limit")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      const limit = sub?.product_limit ?? 5; // Default fallback to 5
+
+      if (limit !== -1) {
+        const { count } = await supabase
+          .from("products")
+          .select("*", { count: "exact", head: true })
+          .eq("user_id", user.id)
+          .neq("product_type", "meta"); // 🟢 Only count website products
+
+        if (count !== null && count >= limit) {
+          setLimitCount(limit);
+          setShowLimitModal(true);
+          setLoading(false);
+          return;
+        }
+      }
+      // 🟢 PRODUCT LIMIT CHECK END
 
       const fileName = `${Date.now()}-${image.name}`;
 
@@ -61,6 +89,7 @@ export default function AddProductPage() {
           category,
           image_url: imageUrl,
           website_url: websiteUrl.trim() || null,
+          product_type: "website", // 🟢 Tag as website product
         },
       ]);
 
@@ -220,6 +249,48 @@ export default function AddProductPage() {
           {loading ? "Saving..." : "Save Product"}
         </button>
       </div>
+      {/* 🟢 PASTE HERE */}
+      {showLimitModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl text-center">
+            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-amber-100 text-amber-600 text-2xl font-bold">
+              !
+            </div>
+            <h3 className="text-xl font-bold text-gray-900">Product Limit Reached</h3>
+            <p className="mt-2 text-sm text-gray-600">
+              You have reached your plan limit of <strong>{limitCount} website products</strong>.
+            </p>
+            <p className="mt-1 text-sm text-gray-600">
+              Please{" "}
+              <Link
+                href="/dashboard/Billing"
+                className="font-bold text-blue-600 underline hover:text-blue-800"
+              >
+                upgrade your plan
+              </Link>{" "}
+              to add more products.
+            </p>
+
+            <div className="mt-6 flex justify-center gap-3">
+              <button
+                type="button"
+                onClick={() => setShowLimitModal(false)}
+                className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-100"
+              >
+                Cancel
+              </button>
+              <Link
+                href="/dashboard/Billing"
+                className="rounded-xl bg-blue-600 px-5 py-2 text-sm font-bold text-white transition hover:bg-blue-700"
+              >
+                Go to Billing
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
+
+    
     </div>
   );
 }
