@@ -16,6 +16,7 @@ interface PlanItem {
   description: string;
   messages: string;
   bots: string;
+  products?: string;
   knowledgeBase?: string;
   features: string[];
   highlight?: boolean;
@@ -143,6 +144,7 @@ export default function BillingPage() {
         description: "For small websites",
         messages: "1,000 AI Messages",
         bots: "1 AI Chatbot",
+        products: "Up to 25 Products", // 🟢 ADD THIS
         knowledgeBase: "10 MB",
         features: [
           "Lead Capture",
@@ -163,6 +165,7 @@ export default function BillingPage() {
         description: "For growing businesses",
         messages: "3,000 AI Messages",
         bots: "2 AI Chatbots",
+        products: "Up to 75 Products", // 🟢 ADD THIS
         knowledgeBase: "30 MB",
         features: [
           "Lead Capture & History",
@@ -182,6 +185,7 @@ export default function BillingPage() {
         inrBYOK: 3499,
         description: "For businesses needing automation + CRM",
         messages: "10,000 AI Messages",
+        products: "Up to 200 Products", // 🟢 ADD THIS
         bots: "5 AI Chatbots",
         knowledgeBase: "100 MB",
         features: [
@@ -203,6 +207,7 @@ export default function BillingPage() {
         description: "For high-volume websites",
         messages: "20,000 AI Messages",
         bots: "10 AI Chatbots",
+        products: "Up to 500 Products", // 🟢 Updated to 500
         knowledgeBase: "200 MB",
         features: [
           "Advanced Product Search",
@@ -225,6 +230,7 @@ export default function BillingPage() {
         description: "Basic WhatsApp bot for small setups",
         messages: "1,000 AI Messages",
         bots: "1 WhatsApp Chatbot",
+        products: "Up to 25 Meta Products", // 🟢 ADD THIS
         features: [
           "Auto Lead Capture",
           "Auto Replies",
@@ -243,7 +249,8 @@ export default function BillingPage() {
         inrBYOK: 2999,
         description: "Scale WhatsApp operations",
         messages: "3,000 AI Messages",
-        bots: "2 WhatsApp Chatbots",
+        bots: "1 WhatsApp Chatbots",
+        products: "Up to 75 Meta Products", // 🟢 ADD THIS
         features: [
           "Order Tracking & Booking",
           "Human Handoff",
@@ -262,7 +269,8 @@ export default function BillingPage() {
         inrBYOK: 5499,
         description: "Full WhatsApp engagement & CRM",
         messages: "10,000 AI Messages",
-        bots: "5 WhatsApp Chatbots",
+        bots: "1 WhatsApp Chatbots",
+        products: "Up to 200 Meta Products", // 🟢 ADD THIS
         features: [
           "Advanced E-commerce & Orders",
           "Booking & Human Handoff",
@@ -281,7 +289,8 @@ export default function BillingPage() {
         inrBYOK: 8499,
         description: "High-throughput WhatsApp engine",
         messages: "25,000 AI Messages",
-        bots: "10 WhatsApp Chatbots",
+        bots: "1 WhatsApp Chatbots",
+        products: "Up to 500 Meta Products", // 🟢 ADD THIS
         features: [
           "Advanced E-commerce & Orders",
           "Booking & Human Handoff",
@@ -302,7 +311,8 @@ export default function BillingPage() {
         inrBYOK: 6999,
         description: "Full Website + WhatsApp integration",
         messages: "20,000 AI Messages",
-        bots: "5 Chatbots (Web + WA)",
+        bots: "5 Chatbots (4 Web + WA)",
+        products: "Up to 200 Meta Products", // 🟢 ADD THIS
         knowledgeBase: "100 MB",
         features: [
           "Website & WhatsApp Chatbot",
@@ -324,7 +334,8 @@ export default function BillingPage() {
         inrBYOK: 13999,
         description: "Complete omni-channel infrastructure",
         messages: "50,000 AI Messages",
-        bots: "7 Chatbots (Web + WA)",
+        bots: "6 Chatbots (5 Web + WA)",
+        products: "Up to 500 Meta Products", // 🟢 ADD THIS
         knowledgeBase: "100 MB",
         features: [
           "Website & WhatsApp Chatbot",
@@ -471,6 +482,8 @@ export default function BillingPage() {
               <div className="mb-6 flex-grow space-y-2 text-xs text-gray-300 md:text-sm">
                 <p className="font-semibold text-white">✅ {plan.messages}</p>
                 <p>✅ {plan.bots}</p>
+                {/* 🟢 ADD THIS LINE: */}
+                {plan.products && <p>✅ {plan.products}</p>}
                 {plan.knowledgeBase && <p>✅ Knowledge Base: {plan.knowledgeBase}</p>}
 
                 {plan.features.map((feature, index) => (

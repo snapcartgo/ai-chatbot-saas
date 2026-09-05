@@ -419,6 +419,43 @@ export async function POST(req: NextRequest) {
       .eq("user_id", userId)
       .in("retailer_id", retailerIds);
 
+    // 🟢 LIMIT CHECK: Fetch WhatsApp subscription limit
+    const { data: subData } = await supabase
+      .from("whatsapp_subscriptions")
+      .select("product_limit, status")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    // Default to 25 if not set or row not found. -1 means Unlimited.
+    const productLimit = subData?.product_limit ?? 25;
+
+    let availableInsertSlots = Infinity;
+    if (productLimit !== -1) {
+      // Count existing Meta products for this user
+      const { count: currentTotalCount } = await supabase
+        .from("products")
+        .select("*", { count: "exact", head: true })
+        .eq("user_id", userId)
+        .eq("product_type", "meta"); // counts only meta products
+
+      availableInsertSlots = Math.max(0, productLimit - (currentTotalCount || 0));
+
+      // Stop immediately if there's no room for any new products
+      // and every incoming product is new (not an update)
+      const existingKeySet = new Set((existingRows || []).map((r: any) => String(r.retailer_id || "").trim()));
+      const hasAnyUpdate = retailerIds.some((id) => existingKeySet.has(id));
+
+      if (availableInsertSlots <= 0 && !hasAnyUpdate) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: `WhatsApp product limit reached (${productLimit} products). Please upgrade your WhatsApp plan to sync more items.`,
+          },
+          { status: 403 }
+        );
+      }
+    }
+
     if (existingError) {
       console.error("Existing products lookup error:", existingError);
       return NextResponse.json(
@@ -504,9 +541,15 @@ if (metaProduct.image_url) {
       };
 
       if (existing) {
+        // Updates are always allowed because they do not consume new slots
         updates.push(payload);
       } else {
-        inserts.push(payload);
+        // Only insert if the user still has remaining slots
+        if (inserts.length < availableInsertSlots) {
+          inserts.push(payload);
+        } else {
+          console.warn(`Product limit reached. Skipping insertion for retailer_id: ${retailerId}`);
+        }
       }
     }
 

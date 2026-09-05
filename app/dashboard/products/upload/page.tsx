@@ -1,13 +1,15 @@
 "use client";
 import Papa from "papaparse";
-import { useState } from "react";
+import { ReactNode, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import Link from "next/link";
+
 
 export default function UploadProductsPage() {
   const router = useRouter();
   const [uploading, setUploading] = useState(false);
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState<ReactNode>("");
 
   const handleFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
     try {
@@ -49,6 +51,7 @@ export default function UploadProductsPage() {
     payment_link: row.payment_link?.trim() || "",
     currency: row.currency?.trim() || "INR",
     sku: row.sku?.trim() || "",
+    product_type: "website", // 🟢 Ensure CSV items are tagged as website
     required_fields:
       typeof row.required_fields === "string" &&
       row.required_fields.trim() !== ""
@@ -64,6 +67,48 @@ export default function UploadProductsPage() {
 });
 
       console.log("Products to insert:", products);
+
+      // 🟢 PRODUCT LIMIT CHECK START
+      const { data: sub } = await supabase
+        .from("subscriptions")
+        .select("product_limit")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      const limit = sub?.product_limit ?? 5; // Default fallback to 5
+
+      if (limit !== -1) {
+        // 🟢 Filter by user_id AND exclude meta products
+        const { count: currentCount } = await supabase
+          .from("products")
+          .select("*", { count: "exact", head: true })
+          .eq("user_id", user.id)
+          .neq("product_type", "meta"); // <-- Only count website products
+
+        const current = currentCount || 0;
+        const totalAfter = current + products.length;
+
+        if (totalAfter > limit) {
+          const availableSlots = Math.max(0, limit - current);
+          setMessage(
+            <span>
+              Limit reached! Your plan allows up to {limit} website products. You currently have {current} website products and can only add {availableSlots} more. Please{" "}
+              <Link
+                href="/dashboard/Billing"
+                className="font-bold text-blue-600 underline hover:text-blue-800"
+              >
+                upgrade your plan
+              </Link>
+              .
+            </span>
+          );
+          setUploading(false);
+          return;
+        }
+      }
+
+        
+      // 🟢 PRODUCT LIMIT CHECK END
 
       const { error } = await supabase.from("products").insert(products);
 
@@ -107,7 +152,7 @@ export default function UploadProductsPage() {
         </div>
 
         {message && (
-          <div className="mt-6 rounded bg-gray-100 p-3">
+          <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
             {message}
           </div>
         )}

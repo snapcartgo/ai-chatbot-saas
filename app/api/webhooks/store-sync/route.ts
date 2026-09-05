@@ -198,7 +198,31 @@ export async function POST(req: Request) {
     if (!verifiedBaseUrl) {
       return NextResponse.json({ error: "Invalid or private website target" }, { status: 400 });
     }
+    // --- INSERT THIS: Check limit & count ---
+    const { data: userProfile } = await supabase
+      .from("profiles") // Change to your subscription table name if different
+      .select("product_limit")
+      .eq("id", userId)
+      .single();
 
+    const maxLimit: number = userProfile?.product_limit ?? 12;
+
+    const { data: existingProducts, count: currentCount } = await supabase
+      .from("products")
+      .select("id, sku", { count: "exact" })
+      .eq("user_id", userId)
+      .eq("product_type", "website");
+
+    const existingSkus = new Set((existingProducts || []).map((p) => p.sku));
+    const activeCount = currentCount ?? 0;
+
+    if (activeCount >= maxLimit) {
+      return NextResponse.json(
+        { error: `Product limit reached (${activeCount}/${maxLimit}). Upgrade your plan to sync more products.` },
+        { status: 403 }
+      );
+    }
+    // ----------------------------------------
     let productsToInsert: any[] = [];
 
     // 1. Shopify
@@ -391,14 +415,27 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "No valid products could be extracted." }, { status: 400 });
     }
 
+    let availableNewSlots = Math.max(0, maxLimit - activeCount);
     let successCount = 0;
+
     for (const prod of productsToInsert) {
+      const isExisting = existingSkus.has(prod.sku);
+
+      // Block new items when limit is reached, but allow updating existing ones
+      if (!isExisting && availableNewSlots <= 0) {
+        continue;
+      }
+
       const { error } = await supabase.from("products").upsert(prod, {
         onConflict: "user_id,sku",
       });
 
       if (!error) {
         successCount++;
+        if (!isExisting) {
+          availableNewSlots--;
+          existingSkus.add(prod.sku);
+        }
       } else {
         console.warn(`Skipping item "${prod.name}":`, error.message);
       }
@@ -407,7 +444,7 @@ export async function POST(req: Request) {
     return NextResponse.json({
       success: true,
       count: successCount,
-      message: `Successfully synced ${successCount} products!`,
+      message: `Successfully synced ${successCount} products! (Limit: ${maxLimit})`,
     });
   } catch (err: any) {
     console.error("Sync route error:", err);
